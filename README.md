@@ -100,4 +100,4 @@ Provider defaults: **Anthropic/Vertex** — alternation, merge, auto tool ID; **
 
 ## License
 
-MIT
+Apache-2.0
