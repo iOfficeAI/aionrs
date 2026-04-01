@@ -275,9 +275,10 @@ impl LlmProvider for BedrockProvider {
                     retry_after_ms: 5000,
                 });
             }
+            let message = format_bedrock_error(status.as_u16(), &body_text);
             return Err(ProviderError::Api {
                 status: status.as_u16(),
-                message: body_text,
+                message,
             });
         }
 
@@ -396,6 +397,50 @@ fn parse_aws_event(buffer: &[u8]) -> Option<(Option<Vec<u8>>, usize)> {
     } else {
         // Empty payload (e.g., initial response event)
         Some((None, total_len))
+    }
+}
+
+/// Format Bedrock error responses with actionable hints
+fn format_bedrock_error(status: u16, body: &str) -> String {
+    // Try to extract the AWS error type from the response
+    let error_type = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| {
+            v.get("__type")
+                .or_else(|| v.get("type"))
+                .and_then(|t| t.as_str().map(String::from))
+        });
+
+    let hint = match status {
+        403 => Some(
+            "Check IAM permissions: the role/user needs bedrock:InvokeModelWithResponseStream. \
+             Also verify the model is enabled in the Bedrock console for your account.",
+        ),
+        404 => Some(
+            "Model not found in this region. Verify the model ID and that it's available in \
+             your configured AWS region.",
+        ),
+        400 => {
+            if body.contains("schema") || body.contains("Schema") {
+                Some("Request schema validation failed. If using tools, try enabling sanitize_schema=true in [providers.bedrock.compat].")
+            } else {
+                Some("Bad request — check model parameters and message format.")
+            }
+        }
+        503 | 529 => Some(
+            "Service overloaded or throttled. You may have exceeded your provisioned throughput quota. \
+             Retry after a moment or request a quota increase.",
+        ),
+        _ => None,
+    };
+
+    let type_info = error_type
+        .map(|t| format!(" [{}]", t))
+        .unwrap_or_default();
+
+    match hint {
+        Some(h) => format!("{}{}\nHint: {}", body, type_info, h),
+        None => format!("{}{}", body, type_info),
     }
 }
 
