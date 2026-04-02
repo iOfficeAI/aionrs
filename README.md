@@ -25,7 +25,7 @@ cargo build --release
 
 # Generate default config, then add your API key
 ./target/release/aionrs --init-config
-# Edit ~/.config/aionrs/config.toml
+# Edit the generated config (run `aionrs --config-path` to find it)
 
 # Single-shot mode
 aionrs "Read Cargo.toml and explain the dependencies"

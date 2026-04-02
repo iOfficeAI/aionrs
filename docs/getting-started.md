@@ -28,7 +28,7 @@ aionrs [OPTIONS] [PROMPT]...
 ### Three-Level Cascading
 
 ```
-~/.config/aionrs/config.toml   (global, user-level)
+<global config>                   (global, user-level; run `aionrs --config-path` to find)
     ↓ overridden by
 ./.aionrs.toml                  (project-level, working directory)
     ↓ overridden by
@@ -39,13 +39,13 @@ CLI parameters / env vars        (highest priority)
 
 ```bash
 aionrs --init-config
-# Creates ~/.config/aionrs/config.toml
+# Creates the global config file (run `aionrs --config-path` to see the location)
 ```
 
 ### Config File Format
 
 ```toml
-# ~/.config/aionrs/config.toml
+# Global config file (path varies by OS, use `aionrs --config-path` to find)
 
 [default]
 provider = "anthropic"
@@ -102,7 +102,7 @@ max_sessions = 20
 
 ```bash
 aionrs --init-config
-# Edit ~/.config/aionrs/config.toml, add your API key
+# Edit the config file (run `aionrs --config-path` to find it), add your API key
 ```
 
 ### 2. Single-Shot Mode

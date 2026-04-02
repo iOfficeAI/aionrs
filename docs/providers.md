@@ -141,7 +141,7 @@ aionrs --login
 
 1. Displays an authorization URL and code
 2. Open the URL in your browser and enter the code
-3. Credentials are saved to `~/.config/aionrs/auth.json`
+3. Credentials are saved alongside the global config (run `aionrs --config-path` to find the directory)
 4. Subsequent runs auto-load saved credentials (with auto-refresh)
 
 ### Logout
