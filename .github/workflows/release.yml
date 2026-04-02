@@ -37,6 +37,9 @@ jobs:
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             asset_suffix: x86_64-pc-windows-msvc
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            asset_suffix: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout
