@@ -40,6 +40,7 @@ mod tests {
         let writer = ProtocolWriter::new();
         let event = ProtocolEvent::Ready {
             version: "0.1.0".to_string(),
+            session_id: None,
             capabilities: Capabilities {
                 tool_approval: true,
                 thinking: false,

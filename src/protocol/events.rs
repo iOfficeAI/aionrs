@@ -8,6 +8,8 @@ use serde_json::Value;
 pub enum ProtocolEvent {
     Ready {
         version: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
         capabilities: Capabilities,
     },
     StreamStart {
@@ -138,6 +140,7 @@ mod tests {
     fn test_ready_event_serialization() {
         let event = ProtocolEvent::Ready {
             version: "0.1.0".to_string(),
+            session_id: Some("abc123".to_string()),
             capabilities: Capabilities {
                 tool_approval: true,
                 thinking: true,
@@ -147,7 +150,21 @@ mod tests {
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "ready");
         assert_eq!(json["version"], "0.1.0");
+        assert_eq!(json["session_id"], "abc123");
         assert_eq!(json["capabilities"]["tool_approval"], true);
+
+        // session_id omitted when None
+        let event_no_sid = ProtocolEvent::Ready {
+            version: "0.1.0".to_string(),
+            session_id: None,
+            capabilities: Capabilities {
+                tool_approval: true,
+                thinking: true,
+                mcp: false,
+            },
+        };
+        let json2 = serde_json::to_value(&event_no_sid).unwrap();
+        assert!(json2.get("session_id").is_none());
     }
 
     #[test]

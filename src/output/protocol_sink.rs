@@ -18,9 +18,10 @@ impl ProtocolSink {
     }
 
     /// Emit the ready event at session start
-    pub fn emit_ready(&self, has_mcp: bool) {
+    pub fn emit_ready(&self, has_mcp: bool, session_id: Option<String>) {
         self.writer.emit(&ProtocolEvent::Ready {
             version: env!("CARGO_PKG_VERSION").to_string(),
+            session_id,
             capabilities: Capabilities {
                 tool_approval: true,
                 thinking: true,
