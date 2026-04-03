@@ -61,6 +61,13 @@ max_turns = 30
 # api_key = "sk-xxx"           # or env var OPENAI_API_KEY
 # base_url = "https://api.openai.com"
 
+# Custom provider alias
+[providers.my-service]
+provider = "openai"
+model = "custom-model-v1"
+api_key = "sk-xxx"
+base_url = "https://my-service.example.com/api/openai"
+
 # Named profiles, switch with --profile <name>
 [profiles.deepseek]
 provider = "openai"
@@ -73,6 +80,9 @@ provider = "openai"
 model = "qwen2.5:32b"
 api_key = "ollama"
 base_url = "http://localhost:11434"
+
+[profiles.my-service]
+provider = "my-service"
 
 [tools]
 auto_approve = false
@@ -93,6 +103,25 @@ max_sessions = 20
 5. OAuth credentials (via `--login`)
 
 > **Note**: `bedrock` and `vertex` providers use their own cloud credentials and do not require a traditional API key. See [Providers & Auth](providers.md).
+
+### Custom Provider Alias
+
+如果某个后端兼容内置 provider 的协议，可以在 `providers.<alias>` 下声明一个 alias：
+
+```toml
+[default]
+provider = "my-service"
+
+[providers.my-service]
+provider = "openai"
+model = "custom-model-v1"
+api_key = "sk-xxx"
+base_url = "https://my-service.example.com/api/openai"
+```
+
+- `default.provider` 和 `profile.provider` 都可以写 alias 名称
+- `providers.<alias>.provider` 必须声明底层类型，目前只能是 `anthropic`、`openai`、`bedrock`、`vertex`
+- alias 条目会覆盖对应底层 provider 的默认配置
 
 ---
 

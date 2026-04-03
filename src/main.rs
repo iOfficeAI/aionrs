@@ -231,7 +231,7 @@ async fn main() -> anyhow::Result<()> {
         return run_json_stream_mode(config, registry, provider, mcp_manager, cli.resume, cli.session_id).await;
     }
 
-    let provider_name = format!("{:?}", config.provider).to_lowercase();
+    let provider_name = config.provider_name.clone();
 
     // Handle --resume
     let mut engine = if let Some(resume_id) = cli.resume {
@@ -331,7 +331,7 @@ async fn run_json_stream_mode(
     let output: Arc<dyn OutputSink> = protocol_sink.clone();
     let has_mcp = mcp_manager.is_some();
 
-    let provider_name = format!("{:?}", config.provider).to_lowercase();
+    let provider_name = config.provider_name.clone();
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
 
     let mut engine = if let Some(resume_id) = resume {

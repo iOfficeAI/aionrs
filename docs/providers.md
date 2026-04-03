@@ -11,6 +11,32 @@
 
 ---
 
+## Custom Provider Alias
+
+如果你的后端兼容某个内置 provider 的协议，可以给它定义一个自定义 alias，而不是把 `provider` 直接写成内置名字。
+
+```toml
+[default]
+provider = "my-service"
+
+[providers.my-service]
+provider = "openai"
+model = "custom-model-v1"
+api_key = "sk-xxx"
+base_url = "https://my-service.example.com/api/openai"
+```
+
+规则：
+
+- `provider = "my-service"` 是配置层 alias
+- `[providers.my-service].provider` 必须指向底层内置 provider
+- 底层 provider 目前只能是 `anthropic`、`openai`、`bedrock`、`vertex`
+- alias 条目的 `model`、`api_key`、`base_url`、`compat` 会覆盖底层 provider 的默认配置
+
+这适合 DeepSeek 网关、内部 OpenAI-compatible 服务这类场景。
+
+---
+
 ## Profile Inheritance
 
 Profiles support `extends` to inherit settings from another profile, avoiding duplication.

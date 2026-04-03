@@ -237,6 +237,7 @@ impl Tool for ExecMockTool {
 
 pub fn test_config() -> Config {
     Config {
+        provider_name: "anthropic".to_string(),
         provider: ProviderType::Anthropic,
         api_key: "test-key".to_string(),
         base_url: "http://localhost:0".to_string(),
