@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@v4
+    with:
+      rust-toolchain: stable
+      enable-audit: true
+      use-nextest: true
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

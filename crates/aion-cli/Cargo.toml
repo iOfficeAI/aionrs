@@ -1,0 +1,22 @@
+[package]
+name = "aion-cli"
+description = "CLI binary for aionrs — a multi-provider AI agent with tool orchestration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["ai", "agent", "cli", "llm", "anthropic"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "aionrs"
+path = "src/main.rs"
+
+[dependencies]
+aion-core.workspace = true
+
+tokio.workspace  = true
+anyhow.workspace = true
+clap.workspace   = true
+
+workspace-hack.workspace = true

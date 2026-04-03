@@ -1,148 +1,22 @@
 name: Release
 
-permissions:
-  contents: write
-
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g. v0.1.0). Leave empty to build without releasing.'
-        required: false
+        description: "Release tag (e.g., v0.2.0)"
+        required: true
         type: string
 
-env:
-  CARGO_TERM_COLOR: always
+permissions:
+  contents: write
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            os: macos-14
-            asset_suffix: aarch64-apple-darwin
-          - target: x86_64-apple-darwin
-            os: macos-14
-            asset_suffix: x86_64-apple-darwin
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            asset_suffix: x86_64-unknown-linux-gnu
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            asset_suffix: x86_64-pc-windows-msvc
-          - target: aarch64-pc-windows-msvc
-            os: windows-latest
-            asset_suffix: aarch64-pc-windows-msvc
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ matrix.target }}-cargo-
-
-      # Linux: install cross-compilation deps if needed
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y pkg-config libssl-dev
-
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
-
-      - name: Determine binary name
-        id: bin
-        shell: bash
-        run: |
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            echo "name=aionrs.exe" >> $GITHUB_OUTPUT
-            echo "ext=.zip" >> $GITHUB_OUTPUT
-          else
-            echo "name=aionrs" >> $GITHUB_OUTPUT
-            echo "ext=.tar.gz" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          ASSET_NAME="aionrs-${{ matrix.asset_suffix }}.tar.gz"
-          tar -czf "$ASSET_NAME" \
-            -C "target/${{ matrix.target }}/release" \
-            "${{ steps.bin.outputs.name }}"
-          echo "ASSET_NAME=$ASSET_NAME" >> $GITHUB_ENV
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $assetName = "aionrs-${{ matrix.asset_suffix }}.zip"
-          Compress-Archive `
-            -Path "target/${{ matrix.target }}/release/${{ steps.bin.outputs.name }}" `
-            -DestinationPath $assetName
-          echo "ASSET_NAME=$assetName" >> $env:GITHUB_ENV
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: aionrs-${{ matrix.asset_suffix }}
-          path: ${{ env.ASSET_NAME }}
-          retention-days: 7
-
   release:
-    name: Create Release
-    needs: build
-    runs-on: ubuntu-latest
-    environment: release
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Determine tag
-        id: tag
-        shell: bash
-        run: |
-          if [ -n "${{ inputs.tag }}" ]; then
-            echo "version=${{ inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: List artifacts
-        run: find artifacts -type f | sort
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.version }}
-          name: ${{ steps.tag.outputs.version }}
-          generate_release_notes: true
-          files: |
-            artifacts/**/*.tar.gz
-            artifacts/**/*.zip
+    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-release.yml@v4
+    with:
+      rust-toolchain: stable
+      binary-name: aionrs
