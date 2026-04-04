@@ -12,15 +12,34 @@ build-release:
     vx cargo build --workspace --release
 
 # ── Test ───────────────────────────────────────────────────────────────────
+
+# Unit + integration tests with nextest (default profile — local dev)
 test:
-    vx cargo test --workspace
+    vx cargo nextest run --workspace --profile default
 
+# Unit + integration tests with nextest (CI profile — used in GitHub Actions)
+test-ci:
+    vx cargo nextest run --workspace --profile ci
+
+# Run a single test by name
+test-one NAME:
+    vx cargo nextest run --workspace -E 'test({{ NAME }})'
+
+# Show test output (debug failing tests locally)
 test-verbose:
-    vx cargo test --workspace -- --nocapture
+    vx cargo nextest run --workspace --profile default --no-capture
 
-# Run tests with nextest (faster parallel runner)
-nextest:
-    vx cargo nextest run --workspace
+# ── E2E Tests ──────────────────────────────────────────────────────────────
+# Requires env vars: ANTHROPIC_API_KEY and/or OPENAI_API_KEY
+# Uses the dedicated e2e nextest profile (sequential, long timeout, no retry)
+test-e2e:
+    vx cargo nextest run --workspace --profile e2e --test e2e
+
+test-e2e-anthropic:
+    vx cargo nextest run -p aion-agent --profile e2e --test e2e -E 'test(anthropic)'
+
+test-e2e-openai:
+    vx cargo nextest run -p aion-agent --profile e2e --test e2e -E 'test(openai)'
 
 # ── Lint / Format ─────────────────────────────────────────────────────────
 lint:
@@ -33,11 +52,9 @@ fmt-check:
     vx cargo fmt --all -- --check
 
 # ── Workspace-hack (cargo-hakari) ─────────────────────────────────────────
-# Regenerate workspace-hack after adding/changing dependencies
 hakari-generate:
     vx cargo hakari generate
 
-# Verify workspace-hack is up-to-date (run in CI)
 hakari-verify:
     vx cargo hakari verify
 
@@ -45,8 +62,11 @@ hakari-verify:
 audit:
     vx cargo audit
 
+# ── Coverage ──────────────────────────────────────────────────────────────
+coverage:
+    vx cargo llvm-cov nextest --workspace --profile ci --lcov --output-path lcov.info
+
 # ── Release ───────────────────────────────────────────────────────────────
-# Show the current workspace version
 version:
     @vx cargo metadata --no-deps --format-version 1 | vx python -c "import sys,json; d=json.load(sys.stdin); print(d['packages'][0]['version'])"
 
@@ -54,5 +74,5 @@ version:
 clean:
     vx cargo clean
 
-# ── All checks (mirrors CI) ───────────────────────────────────────────────
-check-all: fmt-check lint test hakari-verify
+# ── All checks (mirrors CI exactly) ───────────────────────────────────────
+check-all: fmt-check lint test-ci hakari-verify audit

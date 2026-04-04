@@ -2,7 +2,7 @@ mod common;
 
 use std::sync::Arc;
 
-use aion_core::agent::spawner::{AgentSpawner, SubAgentConfig};
+use aion_agent::spawner::{AgentSpawner, SubAgentConfig};
 use aion_types::llm::LlmEvent;
 use aion_types::message::{StopReason, TokenUsage};
 use common::{MockLlmProvider, test_config};
@@ -126,7 +126,7 @@ async fn test_spawn_shares_provider() {
     ]));
 
     // Both sub-agents share the same underlying provider via Arc.
-    let provider_dyn: Arc<dyn aionrs::provider::LlmProvider> = provider;
+    let provider_dyn: Arc<dyn aion_providers::LlmProvider> = provider;
     let spawner = AgentSpawner::new(Arc::clone(&provider_dyn), test_config());
 
     let result1 = spawner.spawn_one(make_sub_config("seq-1")).await;

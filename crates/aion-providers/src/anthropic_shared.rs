@@ -361,7 +361,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aion_types::message::*;
+    
     use aion_types::tool::ToolDef;
     use serde_json::json;
 

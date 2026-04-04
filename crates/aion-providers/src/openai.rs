@@ -572,7 +572,7 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aion_types::message::*;
+    
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()

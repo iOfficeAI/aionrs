@@ -468,7 +468,7 @@ async fn test_openai_api_error_non_success_status() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        aionrs::provider::ProviderError::Api { status, .. } => {
+        aion_providers::ProviderError::Api { status, .. } => {
             assert_eq!(status, 401);
         }
         e => panic!("expected Api error, got: {:?}", e),
@@ -495,7 +495,7 @@ async fn test_openai_rate_limited() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        aionrs::provider::ProviderError::RateLimited { retry_after_ms } => {
+        aion_providers::ProviderError::RateLimited { retry_after_ms } => {
             assert_eq!(retry_after_ms, 5000);
         }
         e => panic!("expected RateLimited error, got: {:?}", e),
