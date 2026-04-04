@@ -7,16 +7,30 @@ Project-specific instructions for AI assistants and contributors.
 ```
 aionrs/
 ├── crates/
-│   ├── aion-core/   # Core engine, providers, tools, MCP, config, session, auth
-│   └── aion-cli/    # CLI binary (main.rs) — thin wrapper over aion-core
-├── workspace-hack/  # Managed by cargo-hakari for build-time deduplication
-├── Cargo.toml       # Workspace root
-├── justfile         # Dev task runner (use: vx just <recipe>)
+│   ├── aion-types/      # Shared data types (LLM, message, tool) — zero deps
+│   ├── aion-protocol/   # JSON stream protocol events/commands + ToolApprovalManager
+│   ├── aion-config/     # Config, ProviderCompat, Auth, Hooks, BedrockConfig, VertexConfig
+│   ├── aion-providers/  # LLM provider impls (Anthropic, OpenAI, Bedrock, Vertex)
+│   ├── aion-tools/      # Built-in tools (Read, Write, Edit, Bash, Grep, Glob)
+│   ├── aion-mcp/        # MCP client (stdio/SSE/HTTP transports)
+│   ├── aion-agent/      # AgentEngine, session, spawner, orchestration, output sinks
+│   └── aion-cli/        # CLI binary — thin wrapper over aion-agent
+├── workspace-hack/      # Managed by cargo-hakari for build-time deduplication
+├── Cargo.toml           # Workspace root
+├── justfile             # Dev task runner (use: vx just <recipe>)
 └── .github/
     └── workflows/
         ├── ci.yml              # CI checks (fmt, clippy, tests, audit)
         ├── release.yml         # Multi-platform binary builds
         └── release-please.yml  # Automated versioning & changelog
+```
+
+### Dependency Order (bottom → top, no cycles)
+
+```
+aion-types → aion-protocol → aion-config → aion-providers
+                           ↘              ↘
+                            aion-tools  →  aion-mcp  →  aion-agent  →  aion-cli
 ```
 
 ## Build & Test
@@ -110,12 +124,14 @@ All providers implement the `LlmProvider` trait (in `crates/aion-core/src/provid
 
 ### File Organization
 
-- `crates/aion-core/src/provider/` — One file per provider + `compat.rs` + `anthropic_shared.rs`
-- `crates/aion-core/src/tools/`    — One file per tool
-- `crates/aion-core/src/types/`    — Shared data types (provider-neutral)
-- `crates/aion-core/src/mcp/`      — MCP client implementation
-- `crates/aion-core/src/protocol/` — JSON stream protocol for host integration
-- `crates/aion-cli/src/main.rs`    — CLI entry point
+- `crates/aion-providers/src/` — One file per provider + `anthropic_shared.rs`
+- `crates/aion-tools/src/`    — One file per built-in tool
+- `crates/aion-types/src/`    — Shared data types (provider-neutral)
+- `crates/aion-mcp/src/`      — MCP client implementation
+- `crates/aion-protocol/src/` — JSON stream protocol for host integration
+- `crates/aion-agent/src/`    — Engine, session, orchestration, output, spawner
+- `crates/aion-cli/src/main.rs` — CLI entry point
+- `crates/aion-config/src/`   — Config, compat, auth, hooks
 
 ## Code Style
 

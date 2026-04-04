@@ -309,8 +309,9 @@ mod tests {
         assert!(engine.has_hooks());
     }
 
-    // --- Shell command tests ---
+    // --- Shell command tests (Unix only — require `sh`) ---
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_pre_hook_allows_execution() {
         let config = HooksConfig {
@@ -323,6 +324,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_pre_hook_blocks_on_nonzero_exit() {
         let config = HooksConfig {
@@ -336,6 +338,7 @@ mod tests {
         assert!(matches!(result.unwrap_err(), HookError::Blocked { .. }));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_post_hook_runs_after_tool() {
         let config = HooksConfig {
@@ -349,6 +352,7 @@ mod tests {
         assert!(messages[0].contains("done"));
     }
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn test_hook_timeout() {
         let config = HooksConfig {
