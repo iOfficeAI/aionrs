@@ -1,12 +1,14 @@
 use std::sync::{Arc, Mutex};
 
-use aion_config::config::Config;
 use crate::confirm::ToolConfirmer;
-use aion_config::hooks::HookEngine;
+use crate::orchestration::{
+    execute_tool_calls, execute_tool_calls_with_approval, ExecutionControl,
+};
 use crate::output::OutputSink;
-use aion_providers::{LlmProvider, ProviderError, create_provider};
 use crate::session::{Session, SessionManager};
-use crate::orchestration::{ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval};
+use aion_config::config::Config;
+use aion_config::hooks::HookEngine;
+use aion_providers::{create_provider, LlmProvider, ProviderError};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
@@ -46,10 +48,8 @@ impl AgentEngine {
         output: Arc<dyn OutputSink>,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
-        let confirmer = ToolConfirmer::new(
-            config.tools.auto_approve,
-            config.tools.allow_list.clone(),
-        );
+        let confirmer =
+            ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
         let hooks_engine = HookEngine::new(config.hooks.clone());
         let hooks = if hooks_engine.has_hooks() {
@@ -92,7 +92,12 @@ impl AgentEngine {
     }
 
     /// Create from a resumed session
-    pub fn resume(config: Config, tools: ToolRegistry, output: Arc<dyn OutputSink>, session: Session) -> Self {
+    pub fn resume(
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        session: Session,
+    ) -> Self {
         let provider = create_provider(&config);
         Self::resume_with_provider(provider, config, tools, output, session)
     }
@@ -106,10 +111,8 @@ impl AgentEngine {
         session: Session,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
-        let confirmer = ToolConfirmer::new(
-            config.tools.auto_approve,
-            config.tools.allow_list.clone(),
-        );
+        let confirmer =
+            ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
         let hooks_engine = HookEngine::new(config.hooks.clone());
         let hooks = if hooks_engine.has_hooks() {
@@ -157,7 +160,12 @@ impl AgentEngine {
     }
 
     /// Initialize a new session for this engine run
-    pub fn init_session(&mut self, provider_name: &str, cwd: &str, session_id: Option<&str>) -> anyhow::Result<()> {
+    pub fn init_session(
+        &mut self,
+        provider_name: &str,
+        cwd: &str,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<()> {
         if let Some(mgr) = &self.session_manager {
             let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
             self.current_session = Some(session);
@@ -268,8 +276,17 @@ impl AgentEngine {
 
             let tool_results = if let Some(ref approval_mgr) = self.approval_manager {
                 // JSON stream mode: use protocol-based approval
-                let writer = self.protocol_writer.as_ref().expect("protocol writer required for approval");
-                let auto_approve = self.confirmer.lock().unwrap().is_auto_approve();
+                let Some(writer) = self.protocol_writer.as_ref() else {
+                    self.save_session();
+                    return Err(AgentError::ApiError(
+                        "protocol writer required for approval mode".to_string(),
+                    ));
+                };
+                let auto_approve = self
+                    .confirmer
+                    .lock()
+                    .map(|c| c.is_auto_approve())
+                    .unwrap_or(false);
                 match execute_tool_calls_with_approval(
                     &self.tools,
                     &tool_calls,
@@ -279,7 +296,9 @@ impl AgentEngine {
                     auto_approve,
                     &self.allow_list,
                     self.hooks.as_ref(),
-                ).await {
+                )
+                .await
+                {
                     Ok(results) => results,
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
@@ -288,7 +307,14 @@ impl AgentEngine {
                 }
             } else {
                 // Terminal mode: use interactive confirmation
-                match execute_tool_calls(&self.tools, &tool_calls, &self.confirmer, self.hooks.as_ref()).await {
+                match execute_tool_calls(
+                    &self.tools,
+                    &tool_calls,
+                    &self.confirmer,
+                    self.hooks.as_ref(),
+                )
+                .await
+                {
                     Ok(results) => results,
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
@@ -349,10 +375,12 @@ impl AgentEngine {
             session.total_usage = self.total_usage.clone();
             session.updated_at = chrono::Utc::now();
             if let Err(e) = mgr.save(session) {
-                self.output.emit_error(&format!("Failed to save session: {}", e));
+                self.output
+                    .emit_error(&format!("Failed to save session: {}", e));
             }
             if let Err(e) = mgr.update_index_for(session) {
-                self.output.emit_error(&format!("Failed to update session index: {}", e));
+                self.output
+                    .emit_error(&format!("Failed to update session index: {}", e));
             }
         }
     }
@@ -377,3 +405,4 @@ pub enum AgentError {
     #[error("User aborted the session")]
     UserAborted,
 }
+

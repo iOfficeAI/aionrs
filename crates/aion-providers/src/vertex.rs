@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -13,8 +13,8 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use aion_config::compat::ProviderCompat;
 use crate::{LlmProvider, ProviderError};
+use aion_config::compat::ProviderCompat;
 
 pub struct VertexProvider {
     client: reqwest::Client,
@@ -107,7 +107,9 @@ impl VertexProvider {
     async fn get_access_token(&self) -> Result<String, ProviderError> {
         // Check cache first
         {
-            let cached = self.cached_token.lock().unwrap();
+            let cached = self.cached_token.lock().map_err(|_| {
+                ProviderError::Connection("Vertex token cache lock poisoned".to_string())
+            })?;
             if let Some(token) = cached.as_ref() {
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -132,7 +134,9 @@ impl VertexProvider {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let mut cached = self.cached_token.lock().unwrap();
+        let mut cached = self.cached_token.lock().map_err(|_| {
+            ProviderError::Connection("Vertex token cache lock poisoned".to_string())
+        })?;
         *cached = Some(CachedToken {
             token: token.clone(),
             expires_at: now + expires_in,
@@ -340,8 +344,11 @@ struct AdcCredentials {
 /// Build GcpAuth from aion-config's VertexConfig
 pub fn auth_from_config(vc: &aion_config::config::VertexConfig) -> GcpAuth {
     if let Some(creds_file) = &vc.credentials_file {
-        GcpAuth::ServiceAccount { key_file: creds_file.clone() }
+        GcpAuth::ServiceAccount {
+            key_file: creds_file.clone(),
+        }
     } else {
         GcpAuth::ApplicationDefault
     }
 }
+

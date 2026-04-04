@@ -16,11 +16,15 @@ impl ProtocolWriter {
     }
 
     /// Serialize and write a protocol event as a single JSON line to stdout
-    pub fn emit(&self, event: &ProtocolEvent) {
-        let mut w = self.writer.lock().unwrap();
-        serde_json::to_writer(&mut *w, event).unwrap();
-        writeln!(&mut *w).unwrap();
-        w.flush().unwrap();
+    pub fn emit(&self, event: &ProtocolEvent) -> io::Result<()> {
+        let mut w = self
+            .writer
+            .lock()
+            .map_err(|_| io::Error::other("protocol writer lock poisoned"))?;
+        serde_json::to_writer(&mut *w, event)
+            .map_err(|e| io::Error::other(format!("failed to serialize protocol event: {}", e)))?;
+        writeln!(&mut *w)?;
+        w.flush()
     }
 }
 
@@ -47,6 +51,7 @@ mod tests {
                 mcp: false,
             },
         };
-        writer.emit(&event);
+        let _ = writer.emit(&event);
     }
 }
+

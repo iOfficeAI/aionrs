@@ -2,9 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::confirm::{ConfirmResult, ToolConfirmer};
 use aion_config::hooks::HookEngine;
-use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
-use aion_protocol::events::{ToolCategory, ToolInfo, OutputType, ProtocolEvent, ToolStatus};
+use aion_protocol::events::{OutputType, ProtocolEvent, ToolCategory, ToolInfo, ToolStatus};
 use aion_protocol::writer::ProtocolWriter;
+use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 use aion_types::message::ContentBlock;
 use aion_types::tool::ToolResult;
 
@@ -64,7 +64,14 @@ fn confirm_call(
     };
 
     let input_display = serde_json::to_string(input).unwrap_or_default();
-    let result = confirmer.lock().unwrap().check(name, &truncate_display(&input_display, 200));
+    let Ok(confirmer) = confirmer.lock() else {
+        return Ok(Some(ContentBlock::ToolResult {
+            tool_use_id: id.clone(),
+            content: "Tool confirmation unavailable: confirmer lock poisoned".to_string(),
+            is_error: true,
+        }));
+    };
+    let result = confirmer.check(name, &truncate_display(&input_display, 200));
 
     match result {
         ConfirmResult::Approved => Ok(None),
@@ -158,7 +165,7 @@ pub async fn execute_tool_calls_with_approval(
 
         if needs_approval {
             // Emit tool_request and wait for approval
-            writer.emit(&ProtocolEvent::ToolRequest {
+            if let Err(e) = writer.emit(&ProtocolEvent::ToolRequest {
                 msg_id: msg_id.to_string(),
                 call_id: id.clone(),
                 tool: ToolInfo {
@@ -167,13 +174,20 @@ pub async fn execute_tool_calls_with_approval(
                     args: input.clone(),
                     description,
                 },
-            });
+            }) {
+                results.push(ContentBlock::ToolResult {
+                    tool_use_id: id.clone(),
+                    content: format!("Failed to emit tool request: {}", e),
+                    is_error: true,
+                });
+                continue;
+            }
 
             let rx = approval_manager.request_approval(id);
             match rx.await {
                 Ok(ToolApprovalResult::Approved) => { /* continue to execute */ }
                 Ok(ToolApprovalResult::Denied { reason }) => {
-                    writer.emit(&ProtocolEvent::ToolCancelled {
+                    let _ = writer.emit(&ProtocolEvent::ToolCancelled {
                         msg_id: msg_id.to_string(),
                         call_id: id.clone(),
                         reason: reason.clone(),
@@ -186,26 +200,40 @@ pub async fn execute_tool_calls_with_approval(
                     continue;
                 }
                 Err(_) => {
-                    // Channel dropped — client disconnected
+                    // Channel dropped - client disconnected
                     return Err(ExecutionControl::Quit);
                 }
             }
         }
 
         // Emit tool_running
-        writer.emit(&ProtocolEvent::ToolRunning {
+        if let Err(e) = writer.emit(&ProtocolEvent::ToolRunning {
             msg_id: msg_id.to_string(),
             call_id: id.clone(),
             tool_name: name.clone(),
-        });
+        }) {
+            results.push(ContentBlock::ToolResult {
+                tool_use_id: id.clone(),
+                content: format!("Failed to emit tool running event: {}", e),
+                is_error: true,
+            });
+            continue;
+        }
 
         // Execute the tool
         let result = execute_single(registry, call, hooks).await;
 
         // Emit tool_result event
-        if let ContentBlock::ToolResult { content, is_error, .. } = &result {
-            let status = if *is_error { ToolStatus::Error } else { ToolStatus::Success };
-            writer.emit(&ProtocolEvent::ToolResult {
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = &result
+        {
+            let status = if *is_error {
+                ToolStatus::Error
+            } else {
+                ToolStatus::Success
+            };
+            let _ = writer.emit(&ProtocolEvent::ToolResult {
                 msg_id: msg_id.to_string(),
                 call_id: id.clone(),
                 tool_name: name.clone(),
@@ -277,3 +305,4 @@ fn partition<'a>(registry: &ToolRegistry, calls: &'a [ContentBlock]) -> Vec<Batc
 
     batches
 }
+

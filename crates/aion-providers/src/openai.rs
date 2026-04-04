@@ -1,14 +1,14 @@
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::ToolDef;
 
-use aion_config::compat::ProviderCompat;
 use crate::{LlmProvider, ProviderError};
+use aion_config::compat::ProviderCompat;
 
 pub struct OpenAIProvider {
     client: reqwest::Client,
@@ -27,12 +27,15 @@ impl OpenAIProvider {
         }
     }
 
-    fn build_headers(&self) -> HeaderMap {
+    fn build_headers(&self) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
         let bearer = format!("Bearer {}", self.api_key);
-        headers.insert(AUTHORIZATION, HeaderValue::from_str(&bearer).unwrap());
+        let auth = HeaderValue::from_str(&bearer).map_err(|e| {
+            ProviderError::Connection(format!("Invalid authorization header: {}", e))
+        })?;
+        headers.insert(AUTHORIZATION, auth);
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        headers
+        Ok(headers)
     }
 
     fn build_messages(messages: &[Message], system: &str, compat: &ProviderCompat) -> Vec<Value> {
@@ -336,7 +339,7 @@ fn merge_consecutive_assistant(messages: &mut Vec<Value>) {
                 }
             }
 
-            // Don't increment i — check the merged result against the next message
+            // Don't increment i - check the merged result against the next message
         } else {
             i += 1;
         }
@@ -389,7 +392,7 @@ impl LlmProvider for OpenAIProvider {
         let response = self
             .client
             .post(&url)
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&body)
             .send()
             .await?;
@@ -472,7 +475,9 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
 
     // Extract usage if present
     if let Some(usage) = json.get("usage") {
-        state.input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(state.input_tokens);
+        state.input_tokens = usage["prompt_tokens"]
+            .as_u64()
+            .unwrap_or(state.input_tokens);
         state.output_tokens = usage["completion_tokens"]
             .as_u64()
             .unwrap_or(state.output_tokens);
@@ -572,7 +577,6 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -629,11 +633,15 @@ mod tests {
         let messages = vec![
             Message {
                 role: Role::Assistant,
-                content: vec![ContentBlock::Text { text: "hello".into() }],
+                content: vec![ContentBlock::Text {
+                    text: "hello".into(),
+                }],
             },
             Message {
                 role: Role::Assistant,
-                content: vec![ContentBlock::Text { text: " world".into() }],
+                content: vec![ContentBlock::Text {
+                    text: " world".into(),
+                }],
             },
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
@@ -647,11 +655,15 @@ mod tests {
         let messages = vec![
             Message {
                 role: Role::Assistant,
-                content: vec![ContentBlock::Text { text: "hello".into() }],
+                content: vec![ContentBlock::Text {
+                    text: "hello".into(),
+                }],
             },
             Message {
                 role: Role::Assistant,
-                content: vec![ContentBlock::Text { text: " world".into() }],
+                content: vec![ContentBlock::Text {
+                    text: " world".into(),
+                }],
             },
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
@@ -687,7 +699,7 @@ mod tests {
                     is_error: false,
                 }],
             },
-            // tc2 has no result → orphan
+            // tc2 has no result -> orphan
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
         let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
@@ -816,3 +828,4 @@ mod tests {
         assert_eq!(result[0]["content"], "hello  world");
     }
 }
+

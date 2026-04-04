@@ -33,26 +33,37 @@ impl ToolApprovalManager {
 
     pub fn request_approval(&self, call_id: &str) -> oneshot::Receiver<ToolApprovalResult> {
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(call_id.to_string(), tx);
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.insert(call_id.to_string(), tx);
+        }
         rx
     }
 
     pub fn resolve(&self, call_id: &str, result: ToolApprovalResult) {
-        if let Some(tx) = self.pending.lock().unwrap().remove(call_id) {
-            let _ = tx.send(result);
+        if let Ok(mut pending) = self.pending.lock() {
+            if let Some(tx) = pending.remove(call_id) {
+                let _ = tx.send(result);
+            }
         }
     }
 
     pub fn is_auto_approved(&self, category: &str) -> bool {
-        self.auto_approved.lock().unwrap().contains(category)
+        self.auto_approved
+            .lock()
+            .map(|auto| auto.contains(category))
+            .unwrap_or(false)
     }
 
     pub fn drop_pending(&self, call_id: &str) {
-        self.pending.lock().unwrap().remove(call_id);
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(call_id);
+        }
     }
 
     pub fn add_auto_approve(&self, category: &str) {
-        self.auto_approved.lock().unwrap().insert(category.to_string());
+        if let Ok(mut auto) = self.auto_approved.lock() {
+            auto.insert(category.to_string());
+        }
     }
 }
 
@@ -61,3 +72,4 @@ impl Default for ToolApprovalManager {
         Self::new()
     }
 }
+

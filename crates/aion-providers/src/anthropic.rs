@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use aion_config::compat::ProviderCompat;
 use crate::{LlmProvider, ProviderError};
+use aion_config::compat::ProviderCompat;
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -33,13 +33,12 @@ impl AnthropicProvider {
         self
     }
 
-    fn build_headers(&self) -> HeaderMap {
+    fn build_headers(&self) -> Result<HeaderMap, ProviderError> {
         let mut headers = HeaderMap::new();
-        headers.insert("x-api-key", HeaderValue::from_str(&self.api_key).unwrap());
-        headers.insert(
-            "anthropic-version",
-            HeaderValue::from_static("2023-06-01"),
-        );
+        let api_key = HeaderValue::from_str(&self.api_key)
+            .map_err(|e| ProviderError::Connection(format!("Invalid x-api-key header: {}", e)))?;
+        headers.insert("x-api-key", api_key);
+        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         if self.cache_enabled {
             headers.insert(
@@ -47,7 +46,7 @@ impl AnthropicProvider {
                 HeaderValue::from_static("prompt-caching-2024-07-31"),
             );
         }
-        headers
+        Ok(headers)
     }
 
     fn build_request_body(&self, request: &LlmRequest) -> Value {
@@ -104,7 +103,7 @@ impl LlmProvider for AnthropicProvider {
         let response = self
             .client
             .post(&url)
-            .headers(self.build_headers())
+            .headers(self.build_headers()?)
             .json(&body)
             .send()
             .await?;
@@ -134,3 +133,4 @@ impl LlmProvider for AnthropicProvider {
         Ok(rx)
     }
 }
+
