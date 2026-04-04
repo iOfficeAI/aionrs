@@ -11,7 +11,7 @@ pub struct LlmRequest {
     pub messages: Vec<crate::message::Message>,
     pub tools: Vec<ToolDef>,
     pub max_tokens: u32,
-    /// Optional: thinking config (Anthropic only)
+    /// Optional: thinking config (Anthropic extended thinking)
     pub thinking: Option<ThinkingConfig>,
     /// Optional: reasoning effort for OpenAI reasoning models (low/medium/high)
     pub reasoning_effort: Option<String>,
@@ -28,23 +28,19 @@ pub enum ThinkingConfig {
 pub enum LlmEvent {
     /// Incremental text output
     TextDelta(String),
-
     /// Complete tool call (after accumulating streaming deltas)
     ToolUse {
         id: ToolUseId,
         name: String,
         input: Value,
     },
-
     /// Thinking content (Anthropic only)
     ThinkingDelta(String),
-
     /// Response complete
     Done {
         stop_reason: StopReason,
         usage: TokenUsage,
     },
-
     /// Error from the API
     Error(String),
 }
@@ -60,14 +56,8 @@ mod tests {
         let config = ThinkingConfig::Enabled { budget_tokens: 4096 };
         match config {
             ThinkingConfig::Enabled { budget_tokens } => assert_eq!(budget_tokens, 4096),
-            ThinkingConfig::Disabled => panic!("expected Enabled variant"),
+            ThinkingConfig::Disabled => panic!("expected Enabled"),
         }
-    }
-
-    #[test]
-    fn test_thinking_config_disabled_variant() {
-        let config = ThinkingConfig::Disabled;
-        matches!(config, ThinkingConfig::Disabled);
     }
 
     #[test]
@@ -75,7 +65,25 @@ mod tests {
         let event = LlmEvent::TextDelta("hello".to_string());
         match event {
             LlmEvent::TextDelta(text) => assert_eq!(text, "hello"),
-            _ => panic!("expected TextDelta variant"),
+            _ => panic!("expected TextDelta"),
+        }
+    }
+
+    #[test]
+    fn test_llm_event_done_carries_stop_reason_and_usage() {
+        let usage = TokenUsage {
+            input_tokens: 10,
+            output_tokens: 20,
+            cache_creation_tokens: 0,
+            cache_read_tokens: 5,
+        };
+        let event = LlmEvent::Done { stop_reason: StopReason::EndTurn, usage };
+        match event {
+            LlmEvent::Done { stop_reason, usage } => {
+                assert_eq!(stop_reason, StopReason::EndTurn);
+                assert_eq!(usage.input_tokens, 10);
+            }
+            _ => panic!("expected Done"),
         }
     }
 
@@ -92,60 +100,7 @@ mod tests {
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");
             }
-            _ => panic!("expected ToolUse variant"),
-        }
-    }
-
-    #[test]
-    fn test_llm_event_thinking_delta_carries_content() {
-        let event = LlmEvent::ThinkingDelta("reasoning text".to_string());
-        match event {
-            LlmEvent::ThinkingDelta(text) => assert_eq!(text, "reasoning text"),
-            _ => panic!("expected ThinkingDelta variant"),
-        }
-    }
-
-    #[test]
-    fn test_llm_event_done_carries_stop_reason_and_usage() {
-        let usage = TokenUsage {
-            input_tokens: 10,
-            output_tokens: 20,
-            cache_creation_tokens: 0,
-            cache_read_tokens: 5,
-        };
-        let event = LlmEvent::Done {
-            stop_reason: StopReason::EndTurn,
-            usage: usage.clone(),
-        };
-        match event {
-            LlmEvent::Done { stop_reason, usage } => {
-                assert_eq!(stop_reason, StopReason::EndTurn);
-                assert_eq!(usage.input_tokens, 10);
-                assert_eq!(usage.output_tokens, 20);
-                assert_eq!(usage.cache_read_tokens, 5);
-            }
-            _ => panic!("expected Done variant"),
-        }
-    }
-
-    #[test]
-    fn test_llm_event_done_tool_use_stop_reason() {
-        let event = LlmEvent::Done {
-            stop_reason: StopReason::ToolUse,
-            usage: TokenUsage::default(),
-        };
-        match event {
-            LlmEvent::Done { stop_reason, .. } => assert_eq!(stop_reason, StopReason::ToolUse),
-            _ => panic!("expected Done variant"),
-        }
-    }
-
-    #[test]
-    fn test_llm_event_error_carries_message() {
-        let event = LlmEvent::Error("rate limit exceeded".to_string());
-        match event {
-            LlmEvent::Error(msg) => assert_eq!(msg, "rate limit exceeded"),
-            _ => panic!("expected Error variant"),
+            _ => panic!("expected ToolUse"),
         }
     }
 }

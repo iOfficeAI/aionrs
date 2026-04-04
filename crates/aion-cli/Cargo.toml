@@ -13,7 +13,12 @@ name = "aionrs"
 path = "src/main.rs"
 
 [dependencies]
-aion-core.workspace = true
+aion-agent.workspace    = true
+aion-config.workspace   = true
+aion-providers.workspace = true
+aion-tools.workspace    = true
+aion-mcp.workspace      = true
+aion-protocol.workspace = true
 
 tokio.workspace  = true
 anyhow.workspace = true

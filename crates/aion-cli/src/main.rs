@@ -2,30 +2,30 @@ use std::sync::Arc;
 
 use clap::Parser;
 
-use aion_core::agent;
-use aion_core::auth;
-use aion_core::config::{self, CliArgs, Config};
-use aion_core::context;
-use aion_core::engine::AgentEngine;
-use aion_core::mcp::manager::McpManager;
-use aion_core::mcp::tool_proxy::register_mcp_tools;
-use aion_core::output::protocol_sink::ProtocolSink;
-use aion_core::output::terminal::TerminalSink;
-use aion_core::output::OutputSink;
-use aion_core::protocol::{ToolApprovalManager, ToolApprovalResult};
-use aion_core::protocol::commands::{ApprovalScope, ProtocolCommand};
-use aion_core::protocol::reader::spawn_stdin_reader;
-use aion_core::protocol::writer::ProtocolWriter;
-use aion_core::provider;
-use aion_core::session;
-use aion_core::tools::bash::BashTool;
-use aion_core::tools::edit::EditTool;
-use aion_core::tools::glob::GlobTool;
-use aion_core::tools::grep::GrepTool;
-use aion_core::tools::read::ReadTool;
-use aion_core::tools::registry::ToolRegistry;
-use aion_core::tools::spawn::SpawnTool;
-use aion_core::tools::write::WriteTool;
+use aion_agent::spawner::AgentSpawner;
+use aion_config::auth;
+use aion_config::config::{self, CliArgs, Config};
+use aion_agent::context;
+use aion_agent::engine::AgentEngine;
+use aion_mcp::manager::McpManager;
+use aion_mcp::tool_proxy::register_mcp_tools;
+use aion_agent::output::protocol_sink::ProtocolSink;
+use aion_agent::output::terminal::TerminalSink;
+use aion_agent::output::OutputSink;
+use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
+use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
+use aion_protocol::reader::spawn_stdin_reader;
+use aion_protocol::writer::ProtocolWriter;
+use aion_providers::create_provider;
+use aion_agent::session;
+use aion_tools::bash::BashTool;
+use aion_tools::edit::EditTool;
+use aion_tools::glob::GlobTool;
+use aion_tools::grep::GrepTool;
+use aion_tools::read::ReadTool;
+use aion_tools::registry::ToolRegistry;
+use aion_agent::spawn_tool::SpawnTool;
+use aion_tools::write::WriteTool;
 
 #[derive(Parser)]
 #[command(name = "aionrs", about = "A multi-provider AI agent CLI with tool orchestration support", version)]
@@ -218,10 +218,10 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Create provider (shared via Arc for sub-agent reuse)
-    let provider = provider::create_provider(&config);
+    let provider = create_provider(&config);
 
     // Register SpawnTool (sub-agent spawning)
-    let spawner = Arc::new(agent::spawner::AgentSpawner::new(
+    let spawner = Arc::new(AgentSpawner::new(
         provider.clone(),
         config.clone(),
     ));
@@ -320,7 +320,7 @@ async fn repl_loop(
 async fn run_json_stream_mode(
     config: Config,
     registry: ToolRegistry,
-    provider: Arc<dyn aion_core::provider::LlmProvider>,
+    provider: Arc<dyn aion_providers::LlmProvider>,
     mcp_manager: Option<Arc<McpManager>>,
     resume: Option<String>,
     session_id: Option<String>,

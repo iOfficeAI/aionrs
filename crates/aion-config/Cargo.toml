@@ -1,0 +1,28 @@
+[package]
+name = "aion-config"
+description = "Configuration layer for aionrs: Config struct, ProviderCompat, auth, hooks, session config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aion-types.workspace = true
+
+serde.workspace      = true
+serde_json.workspace = true
+toml.workspace       = true
+anyhow.workspace     = true
+thiserror.workspace  = true
+dirs.workspace       = true
+chrono.workspace     = true
+reqwest.workspace    = true
+glob.workspace       = true
+tokio.workspace      = true
+
+workspace-hack.workspace = true
+
+[dev-dependencies]
+wiremock.workspace   = true
+tokio-test.workspace = true
+tempfile.workspace   = true

@@ -12,10 +12,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "aion-agent"
+version = "0.2.0"
+dependencies = [
+ "aion-config",
+ "aion-mcp",
+ "aion-protocol",
+ "aion-providers",
+ "aion-tools",
+ "aion-types",
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "crossterm",
+ "futures",
+ "glob",
+ "is-terminal",
+ "mockall",
+ "rstest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "wiremock",
+ "workspace-hack",
+]
+
+[[package]]
 name = "aion-cli"
 version = "0.2.0"
 dependencies = [
- "aion-core",
+ "aion-agent",
+ "aion-config",
+ "aion-mcp",
+ "aion-protocol",
+ "aion-providers",
+ "aion-tools",
  "anyhow",
  "clap",
  "tokio",
@@ -23,9 +57,62 @@ dependencies = [
 ]
 
 [[package]]
-name = "aion-core"
+name = "aion-config"
 version = "0.2.0"
 dependencies = [
+ "aion-types",
+ "anyhow",
+ "chrono",
+ "dirs",
+ "glob",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tokio-test",
+ "toml",
+ "wiremock",
+ "workspace-hack",
+]
+
+[[package]]
+name = "aion-mcp"
+version = "0.2.0"
+dependencies = [
+ "aion-config",
+ "aion-protocol",
+ "aion-tools",
+ "aion-types",
+ "anyhow",
+ "async-trait",
+ "futures",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "aion-protocol"
+version = "0.2.0"
+dependencies = [
+ "aion-types",
+ "serde",
+ "serde_json",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "aion-providers"
+version = "0.2.0"
+dependencies = [
+ "aion-config",
+ "aion-types",
  "anyhow",
  "async-trait",
  "aws-config",
@@ -34,26 +121,43 @@ dependencies = [
  "aws-sigv4",
  "base64",
  "chrono",
- "clap",
- "crossterm",
  "dirs",
  "futures",
- "glob",
- "is-terminal",
  "jsonwebtoken",
- "mockall",
  "reqwest",
- "rstest",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror",
  "tokio",
  "tokio-test",
- "toml",
  "url",
  "wiremock",
  "workspace-hack",
+]
+
+[[package]]
+name = "aion-tools"
+version = "0.2.0"
+dependencies = [
+ "aion-protocol",
+ "aion-types",
+ "anyhow",
+ "async-trait",
+ "futures",
+ "glob",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "workspace-hack",
+]
+
+[[package]]
+name = "aion-types"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -1,0 +1,29 @@
+[tools]
+just = "latest"
+rust = "stable"
+
+[settings]
+# Automatically install missing tools when entering dev environment
+auto_install = true
+# Cache duration for version checks
+cache_duration = "7d"
+
+[scripts]
+audit = "just audit"
+build = "cargo build"
+build-release = "cargo build --release"
+check = "cargo check"
+check-all = "just check-all"
+clean = "just clean"
+default = "just default"
+doc = "cargo doc"
+fmt = "just fmt"
+fmt-check = "just fmt-check"
+format = "cargo fmt"
+hakari-generate = "just hakari-generate"
+hakari-verify = "just hakari-verify"
+lint = "cargo clippy"
+nextest = "just nextest"
+test = "cargo test"
+test-verbose = "just test-verbose"
+version = "just version"
