@@ -13,7 +13,8 @@ use aion_agent::output::protocol_sink::ProtocolSink;
 use aion_agent::output::terminal::TerminalSink;
 use aion_agent::output::OutputSink;
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
-use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
+use aion_protocol::commands::ProtocolCommand;
+
 use aion_protocol::reader::spawn_stdin_reader;
 use aion_protocol::writer::ProtocolWriter;
 use aion_providers::create_provider;
@@ -385,11 +386,9 @@ async fn run_json_stream_mode(
                         Some(sub_cmd) = cmd_rx.recv() => {
                             match sub_cmd {
                                 ProtocolCommand::ToolApprove { call_id, scope } => {
-                                    if matches!(scope, ApprovalScope::Always) {
-                                        // Auto-approve future calls of this category
-                                    }
-                                    approval_manager.resolve(&call_id, ToolApprovalResult::Approved);
+                                    approval_manager.approve(&call_id, scope);
                                 }
+
                                 ProtocolCommand::ToolDeny { call_id, reason } => {
                                     approval_manager.resolve(&call_id, ToolApprovalResult::Denied { reason });
                                 }
@@ -412,11 +411,9 @@ async fn run_json_stream_mode(
                 break;
             }
             ProtocolCommand::ToolApprove { call_id, scope } => {
-                if matches!(scope, ApprovalScope::Always) {
-                    // Auto-approve all future calls of this tool's category
-                }
-                approval_manager.resolve(&call_id, ToolApprovalResult::Approved);
+                approval_manager.approve(&call_id, scope);
             }
+
             ProtocolCommand::ToolDeny { call_id, reason } => {
                 approval_manager.resolve(&call_id, ToolApprovalResult::Denied { reason });
             }

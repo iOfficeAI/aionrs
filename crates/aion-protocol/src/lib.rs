@@ -9,7 +9,11 @@ pub mod writer;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::sync::Mutex;
+
 use tokio::sync::oneshot;
+
+use crate::commands::ApprovalScope;
+use crate::events::ToolCategory;
 
 /// Result of a tool approval request
 pub enum ToolApprovalResult {
@@ -17,9 +21,18 @@ pub enum ToolApprovalResult {
     Denied { reason: String },
 }
 
-/// Manages pending tool approval requests using oneshot channels
+struct PendingApproval {
+    tx: oneshot::Sender<ToolApprovalResult>,
+    category: String,
+}
+
+/// Manages pending tool approval requests using oneshot channels.
+///
+/// Each pending request also stores its tool category so a client approval with
+/// `ApprovalScope::Always` can persist auto-approval for future requests in the
+/// same category.
 pub struct ToolApprovalManager {
-    pending: Mutex<HashMap<String, oneshot::Sender<ToolApprovalResult>>>,
+    pending: Mutex<HashMap<String, PendingApproval>>,
     auto_approved: Mutex<HashSet<String>>,
 }
 
@@ -31,18 +44,43 @@ impl ToolApprovalManager {
         }
     }
 
-    pub fn request_approval(&self, call_id: &str) -> oneshot::Receiver<ToolApprovalResult> {
+    pub fn request_approval(
+        &self,
+        call_id: &str,
+        category: &ToolCategory,
+    ) -> oneshot::Receiver<ToolApprovalResult> {
         let (tx, rx) = oneshot::channel();
         if let Ok(mut pending) = self.pending.lock() {
-            pending.insert(call_id.to_string(), tx);
+            pending.insert(
+                call_id.to_string(),
+                PendingApproval {
+                    tx,
+                    category: category.to_string(),
+                },
+            );
         }
         rx
     }
 
+    pub fn approve(&self, call_id: &str, scope: ApprovalScope) {
+        let pending = self
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(call_id));
+
+        if let Some(pending) = pending {
+            if matches!(scope, ApprovalScope::Always) {
+                self.add_auto_approve(&pending.category);
+            }
+            let _ = pending.tx.send(ToolApprovalResult::Approved);
+        }
+    }
+
     pub fn resolve(&self, call_id: &str, result: ToolApprovalResult) {
         if let Ok(mut pending) = self.pending.lock() {
-            if let Some(tx) = pending.remove(call_id) {
-                let _ = tx.send(result);
+            if let Some(pending) = pending.remove(call_id) {
+                let _ = pending.tx.send(result);
             }
         }
     }
@@ -72,4 +110,3 @@ impl Default for ToolApprovalManager {
         Self::new()
     }
 }
-

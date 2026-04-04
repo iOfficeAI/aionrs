@@ -64,7 +64,7 @@ fn confirm_call(
     };
 
     let input_display = serde_json::to_string(input).unwrap_or_default();
-    let Ok(confirmer) = confirmer.lock() else {
+    let Ok(mut confirmer) = confirmer.lock() else {
         return Ok(Some(ContentBlock::ToolResult {
             tool_use_id: id.clone(),
             content: "Tool confirmation unavailable: confirmer lock poisoned".to_string(),
@@ -183,7 +183,7 @@ pub async fn execute_tool_calls_with_approval(
                 continue;
             }
 
-            let rx = approval_manager.request_approval(id);
+            let rx = approval_manager.request_approval(id, &category);
             match rx.await {
                 Ok(ToolApprovalResult::Approved) => { /* continue to execute */ }
                 Ok(ToolApprovalResult::Denied { reason }) => {

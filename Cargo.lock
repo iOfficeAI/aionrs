@@ -101,6 +101,7 @@ name = "aion-protocol"
 version = "0.2.0"
 dependencies = [
  "aion-types",
+ "rstest",
  "serde",
  "serde_json",
  "tokio",
