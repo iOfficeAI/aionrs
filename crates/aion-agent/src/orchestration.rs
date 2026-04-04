@@ -94,14 +94,14 @@ async fn execute_single(
     };
 
     // Run pre-tool-use hooks
-    if let Some(hook_engine) = hooks {
-        if let Err(e) = hook_engine.run_pre_tool_use(name, input).await {
-            return ContentBlock::ToolResult {
-                tool_use_id: id.clone(),
-                content: format!("Blocked by hook: {}", e),
-                is_error: true,
-            };
-        }
+    if let Some(hook_engine) = hooks
+        && let Err(e) = hook_engine.run_pre_tool_use(name, input).await
+    {
+        return ContentBlock::ToolResult {
+            tool_use_id: id.clone(),
+            content: format!("Blocked by hook: {}", e),
+            is_error: true,
+        };
     }
 
     let result = match registry.get(name) {
@@ -137,6 +137,7 @@ async fn execute_single(
 }
 
 /// Execute tool calls with JSON stream protocol approval flow
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_tool_calls_with_approval(
     registry: &ToolRegistry,
     tool_calls: &[ContentBlock],
@@ -305,4 +306,3 @@ fn partition<'a>(registry: &ToolRegistry, calls: &'a [ContentBlock]) -> Vec<Batc
 
     batches
 }
-

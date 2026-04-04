@@ -62,21 +62,39 @@ mod tests {
     #[test]
     fn test_auto_approve_always_allows() {
         let mut confirmer = ToolConfirmer::new(true, vec![]);
-        assert_eq!(confirmer.check("Bash", "echo hello"), ConfirmResult::Approved);
-        assert_eq!(confirmer.check("Read", "/tmp/file"), ConfirmResult::Approved);
-        assert_eq!(confirmer.check("Write", "/tmp/out"), ConfirmResult::Approved);
+        assert_eq!(
+            confirmer.check("Bash", "echo hello"),
+            ConfirmResult::Approved
+        );
+        assert_eq!(
+            confirmer.check("Read", "/tmp/file"),
+            ConfirmResult::Approved
+        );
+        assert_eq!(
+            confirmer.check("Write", "/tmp/out"),
+            ConfirmResult::Approved
+        );
     }
 
     #[test]
     fn test_allowlist_contains_tool() {
         let mut confirmer = ToolConfirmer::new(false, vec!["Read".into(), "Write".into()]);
-        assert_eq!(confirmer.check("Read", "/tmp/file"), ConfirmResult::Approved);
-        assert_eq!(confirmer.check("Write", "/tmp/out"), ConfirmResult::Approved);
+        assert_eq!(
+            confirmer.check("Read", "/tmp/file"),
+            ConfirmResult::Approved
+        );
+        assert_eq!(
+            confirmer.check("Write", "/tmp/out"),
+            ConfirmResult::Approved
+        );
     }
 
     #[test]
     fn test_allowlist_approves_even_when_auto_approve_is_false() {
         let mut confirmer = ToolConfirmer::new(false, vec!["Read".into()]);
-        assert_eq!(confirmer.check("Read", "/some/path"), ConfirmResult::Approved);
+        assert_eq!(
+            confirmer.check("Read", "/some/path"),
+            ConfirmResult::Approved
+        );
     }
 }

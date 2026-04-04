@@ -8,10 +8,10 @@ use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use aion_agent::confirm::ToolConfirmer;
-use aion_protocol::events::ToolCategory;
-use aion_config::config::{Config, ProviderType, ToolsConfig, SessionConfig};
+use aion_config::config::{Config, ProviderType, SessionConfig, ToolsConfig};
 use aion_config::hooks::HooksConfig;
 use aion_mcp::config::McpConfig;
+use aion_protocol::events::ToolCategory;
 use aion_providers::{LlmProvider, ProviderError};
 use aion_tools::Tool;
 use aion_types::llm::{LlmEvent, LlmRequest};

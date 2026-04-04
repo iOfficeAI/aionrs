@@ -102,7 +102,10 @@ impl Tool for ReadTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let path = input.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let path = input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         format!("Read {}", path)
     }
 }

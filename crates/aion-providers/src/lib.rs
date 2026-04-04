@@ -16,10 +16,8 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 /// Unified interface for LLM API providers
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError>;
+    async fn stream(&self, request: &LlmRequest)
+    -> Result<mpsc::Receiver<LlmEvent>, ProviderError>;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -40,7 +38,10 @@ pub enum ProviderError {
 
 impl ProviderError {
     pub fn is_retryable(&self) -> bool {
-        matches!(self, ProviderError::RateLimited { .. } | ProviderError::Connection(_))
+        matches!(
+            self,
+            ProviderError::RateLimited { .. } | ProviderError::Connection(_)
+        )
     }
 }
 
@@ -53,24 +54,42 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
             anthropic::AnthropicProvider::new(&config.api_key, &config.base_url, compat)
                 .with_cache(config.prompt_caching),
         ),
-        ProviderType::OpenAI => Arc::new(
-            openai::OpenAIProvider::new(&config.api_key, &config.base_url, compat)
-        ),
+        ProviderType::OpenAI => Arc::new(openai::OpenAIProvider::new(
+            &config.api_key,
+            &config.base_url,
+            compat,
+        )),
         ProviderType::Bedrock => {
             let bc = config.bedrock.clone().unwrap_or_default();
-            let region = bc.region.clone()
+            let region = bc
+                .region
+                .clone()
                 .or_else(|| std::env::var("AWS_REGION").ok())
                 .or_else(|| std::env::var("AWS_DEFAULT_REGION").ok())
                 .unwrap_or_else(|| "us-east-1".to_string());
             let credentials = bedrock::credentials_from_config(&bc);
-            Arc::new(bedrock::BedrockProvider::new(&region, credentials, config.prompt_caching, compat))
+            Arc::new(bedrock::BedrockProvider::new(
+                &region,
+                credentials,
+                config.prompt_caching,
+                compat,
+            ))
         }
         ProviderType::Vertex => {
             let vc = config.vertex.clone().unwrap_or_default();
             let project_id = vc.project_id.clone().unwrap_or_default();
-            let region = vc.region.clone().unwrap_or_else(|| "us-central1".to_string());
+            let region = vc
+                .region
+                .clone()
+                .unwrap_or_else(|| "us-central1".to_string());
             let auth = vertex::auth_from_config(&vc);
-            Arc::new(vertex::VertexProvider::new(&project_id, &region, auth, config.prompt_caching, compat))
+            Arc::new(vertex::VertexProvider::new(
+                &project_id,
+                &region,
+                auth,
+                config.prompt_caching,
+                compat,
+            ))
         }
     }
 }

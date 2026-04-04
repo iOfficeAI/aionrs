@@ -53,7 +53,9 @@ mod tests {
 
     #[test]
     fn test_thinking_config_enabled_stores_budget() {
-        let config = ThinkingConfig::Enabled { budget_tokens: 4096 };
+        let config = ThinkingConfig::Enabled {
+            budget_tokens: 4096,
+        };
         match config {
             ThinkingConfig::Enabled { budget_tokens } => assert_eq!(budget_tokens, 4096),
             ThinkingConfig::Disabled => panic!("expected Enabled"),
@@ -77,7 +79,10 @@ mod tests {
             cache_creation_tokens: 0,
             cache_read_tokens: 5,
         };
-        let event = LlmEvent::Done { stop_reason: StopReason::EndTurn, usage };
+        let event = LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage,
+        };
         match event {
             LlmEvent::Done { stop_reason, usage } => {
                 assert_eq!(stop_reason, StopReason::EndTurn);

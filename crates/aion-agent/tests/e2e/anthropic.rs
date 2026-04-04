@@ -1,19 +1,21 @@
 use std::sync::Arc;
 
 use aion_agent::engine::AgentEngine;
-use aion_agent::output::terminal::TerminalSink;
 use aion_agent::output::OutputSink;
-use aion_config::config::{Config, ProviderType, SessionConfig, ToolsConfig};
+use aion_agent::output::terminal::TerminalSink;
 use aion_config::compat::ProviderCompat;
+use aion_config::config::{Config, ProviderType, SessionConfig, ToolsConfig};
 use aion_config::hooks::HooksConfig;
 use aion_mcp::config::McpConfig;
 use aion_providers::create_provider;
-use aion_tools::registry::ToolRegistry;
 use aion_tools::read::ReadTool;
+use aion_tools::registry::ToolRegistry;
 
 /// Skip the test if ANTHROPIC_API_KEY is not set.
 fn anthropic_api_key() -> Option<String> {
-    std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty())
+    std::env::var("ANTHROPIC_API_KEY")
+        .ok()
+        .filter(|k| !k.is_empty())
 }
 
 fn anthropic_config(api_key: &str) -> Config {
@@ -28,8 +30,15 @@ fn anthropic_config(api_key: &str) -> Config {
         thinking: None,
         prompt_caching: false,
         compat: ProviderCompat::anthropic_defaults(),
-        tools: ToolsConfig { auto_approve: true, allow_list: vec![] },
-        session: SessionConfig { enabled: false, directory: "/tmp".to_string(), max_sessions: 1 },
+        tools: ToolsConfig {
+            auto_approve: true,
+            allow_list: vec![],
+        },
+        session: SessionConfig {
+            enabled: false,
+            directory: "/tmp".to_string(),
+            max_sessions: 1,
+        },
         hooks: HooksConfig::default(),
         bedrock: None,
         vertex: None,
@@ -51,15 +60,19 @@ async fn test_anthropic_single_turn_completion() {
     let registry = ToolRegistry::new();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
-    let result = engine.run("Say 'hello world' and nothing else.", "").await
+    let result = engine
+        .run("Say 'hello world' and nothing else.", "")
+        .await
         .expect("engine.run should not fail for a valid request");
 
     assert!(!result.text.is_empty(), "response text should not be empty");
     assert!(result.turns >= 1, "should complete in at least 1 turn");
     assert!(result.usage.output_tokens > 0, "should have output tokens");
 
-    eprintln!("[e2e] anthropic single-turn: {} tokens in / {} out",
-        result.usage.input_tokens, result.usage.output_tokens);
+    eprintln!(
+        "[e2e] anthropic single-turn: {} tokens in / {} out",
+        result.usage.input_tokens, result.usage.output_tokens
+    );
 }
 
 /// Tool-use smoke test: agent calls Read tool when asked to read a file.
@@ -86,7 +99,9 @@ async fn test_anthropic_tool_use() {
         "Read the file at path '{}' and tell me what it contains. Be brief.",
         path
     );
-    let result = engine.run(&prompt, "").await
+    let result = engine
+        .run(&prompt, "")
+        .await
         .expect("engine.run should not fail");
 
     assert!(!result.text.is_empty(), "response text should not be empty");
@@ -97,6 +112,8 @@ async fn test_anthropic_tool_use() {
         result.text
     );
 
-    eprintln!("[e2e] anthropic tool-use: {} turns, {} tokens out",
-        result.turns, result.usage.output_tokens);
+    eprintln!(
+        "[e2e] anthropic tool-use: {} turns, {} tokens out",
+        result.turns, result.usage.output_tokens
+    );
 }

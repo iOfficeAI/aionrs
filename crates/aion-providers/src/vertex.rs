@@ -3,9 +3,9 @@
 
 use async_trait::async_trait;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -86,10 +86,8 @@ impl VertexProvider {
 
         if !request.tools.is_empty() {
             let mut tools = anthropic_shared::build_tools(&request.tools);
-            if self.cache_enabled {
-                if let Some(last) = tools.last_mut() {
-                    last["cache_control"] = json!({ "type": "ephemeral" });
-                }
+            if let Some(last) = tools.last_mut().filter(|_| self.cache_enabled) {
+                last["cache_control"] = json!({ "type": "ephemeral" });
             }
             body["tools"] = json!(tools);
         }
@@ -351,4 +349,3 @@ pub fn auth_from_config(vc: &aion_config::config::VertexConfig) -> GcpAuth {
         GcpAuth::ApplicationDefault
     }
 }
-

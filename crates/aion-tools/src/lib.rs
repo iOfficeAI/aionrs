@@ -20,9 +20,15 @@ pub trait Tool: Send + Sync {
     fn input_schema(&self) -> JsonSchema;
     fn is_concurrency_safe(&self, input: &Value) -> bool;
     async fn execute(&self, input: Value) -> ToolResult;
-    fn max_result_size(&self) -> usize { 50_000 }
+    fn max_result_size(&self) -> usize {
+        50_000
+    }
     fn category(&self) -> ToolCategory;
     fn describe(&self, input: &Value) -> String {
-        format!("{}: {}", self.name(), serde_json::to_string(input).unwrap_or_default())
+        format!(
+            "{}: {}",
+            self.name(),
+            serde_json::to_string(input).unwrap_or_default()
+        )
     }
 }

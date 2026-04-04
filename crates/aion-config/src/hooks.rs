@@ -132,10 +132,7 @@ impl HookEngine {
 }
 
 /// Environment variables available to hook commands
-fn build_env_vars(
-    tool_name: &str,
-    tool_input: &serde_json::Value,
-) -> HashMap<String, String> {
+fn build_env_vars(tool_name: &str, tool_input: &serde_json::Value) -> HashMap<String, String> {
     let mut env = HashMap::new();
     env.insert("TOOL_NAME".to_string(), tool_name.to_string());
     env.insert("TOOL_INPUT".to_string(), tool_input.to_string());

@@ -10,6 +10,5 @@
 ///
 /// Run manually:
 ///   ANTHROPIC_API_KEY=sk-ant-... cargo test -p aion-agent --test e2e -- --nocapture
-
 mod anthropic;
 mod openai;

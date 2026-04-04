@@ -56,9 +56,7 @@ impl Tool for GrepTool {
             };
         };
 
-        let path = input["path"]
-            .as_str()
-            .unwrap_or(".");
+        let path = input["path"].as_str().unwrap_or(".");
 
         let glob_pattern = input["glob"].as_str();
         let case_insensitive = input["case_insensitive"].as_bool().unwrap_or(false);

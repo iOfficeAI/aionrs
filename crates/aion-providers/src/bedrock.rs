@@ -7,7 +7,7 @@ use aws_sigv4::http_request::{
     self as sigv4_http, PayloadChecksumKind, SignableBody, SignableRequest, SignatureLocation,
     SigningSettings,
 };
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::{Value, json};
 use std::time::SystemTime;
 use tokio::sync::mpsc;
@@ -18,8 +18,8 @@ use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{StopReason, TokenUsage};
 
 use super::anthropic_shared;
-use aion_config::compat::{self, ProviderCompat};
 use crate::{LlmProvider, ProviderError};
+use aion_config::compat::{self, ProviderCompat};
 
 pub struct BedrockProvider {
     client: reqwest::Client,
@@ -83,10 +83,10 @@ impl BedrockProvider {
                     }
                 }
             }
-            if self.cache_enabled {
-                if let Some(last) = tools.last_mut() {
-                    last["cache_control"] = json!({ "type": "ephemeral" });
-                }
+            if self.cache_enabled
+                && let Some(last) = tools.last_mut()
+            {
+                last["cache_control"] = json!({ "type": "ephemeral" });
             }
             body["tools"] = json!(tools);
         }
@@ -121,9 +121,7 @@ impl BedrockProvider {
                 None,
                 "aionrs",
             )),
-            AwsCredentials::Profile(profile) => {
-                Self::credentials_from_sdk(Some(profile.clone()))
-            }
+            AwsCredentials::Profile(profile) => Self::credentials_from_sdk(Some(profile.clone())),
             AwsCredentials::Environment => Self::credentials_from_sdk(None),
         }
     }
@@ -139,12 +137,13 @@ impl BedrockProvider {
                 loader = loader.profile_name(p);
             }
             let config = loader.load().await;
-            let provider = config
-                .credentials_provider()
-                .ok_or_else(|| ProviderError::Connection(
+            let provider = config.credentials_provider().ok_or_else(|| {
+                ProviderError::Connection(
                     "No AWS credentials found. Set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, \
-                     AWS_PROFILE, or configure credentials in ~/.aws/credentials".into(),
-                ))?;
+                     AWS_PROFILE, or configure credentials in ~/.aws/credentials"
+                        .into(),
+                )
+            })?;
 
             use aws_credential_types::provider::ProvideCredentials;
             let creds = provider
@@ -167,7 +166,9 @@ impl BedrockProvider {
                 std::thread::scope(|s| {
                     s.spawn(|| {
                         tokio::runtime::Runtime::new()
-                            .map_err(|e| ProviderError::Connection(format!("Runtime error: {}", e)))?
+                            .map_err(|e| {
+                                ProviderError::Connection(format!("Runtime error: {}", e))
+                            })?
                             .block_on(resolve)
                     })
                     .join()
@@ -208,9 +209,7 @@ impl BedrockProvider {
         // Build header pairs for signing
         let header_pairs: Vec<(&str, &str)> = headers
             .iter()
-            .filter_map(|(name, value)| {
-                value.to_str().ok().map(|v| (name.as_str(), v))
-            })
+            .filter_map(|(name, value)| value.to_str().ok().map(|v| (name.as_str(), v)))
             .collect();
 
         let signable_request = SignableRequest::new(
@@ -318,24 +317,18 @@ async fn process_aws_event_stream(
                 // The payload contains an SSE-like structure with "bytes" field
                 if let Ok(wrapper) = serde_json::from_slice::<Value>(&payload) {
                     // Bedrock wraps the payload in {"bytes": "base64-encoded-data"}
-                    if let Some(b64) = wrapper["bytes"].as_str() {
-                        if let Ok(decoded) =
-                            base64::engine::general_purpose::STANDARD.decode(b64)
-                        {
-                            if let Ok(inner) = String::from_utf8(decoded) {
-                                // Inner payload is JSON with event type hints
-                                if let Ok(json_val) = serde_json::from_str::<Value>(&inner) {
-                                    let event_type = json_val["type"].as_str().unwrap_or("");
-                                    let events = anthropic_shared::parse_sse_data(
-                                        event_type,
-                                        &inner,
-                                        &mut state,
-                                    );
-                                    for event in events {
-                                        if tx.send(event).await.is_err() {
-                                            return Ok(());
-                                        }
-                                    }
+                    if let Some(b64) = wrapper["bytes"].as_str()
+                        && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64)
+                        && let Ok(inner) = String::from_utf8(decoded)
+                    {
+                        // Inner payload is JSON with event type hints
+                        if let Ok(json_val) = serde_json::from_str::<Value>(&inner) {
+                            let event_type = json_val["type"].as_str().unwrap_or("");
+                            let events =
+                                anthropic_shared::parse_sse_data(event_type, &inner, &mut state);
+                            for event in events {
+                                if tx.send(event).await.is_err() {
+                                    return Ok(());
                                 }
                             }
                         }
@@ -378,8 +371,7 @@ fn parse_aws_event(buffer: &[u8]) -> Option<(Option<Vec<u8>>, usize)> {
     }
 
     let total_len = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-    let headers_len =
-        u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
+    let headers_len = u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
 
     if buffer.len() < total_len {
         return None; // Incomplete message
@@ -403,13 +395,11 @@ fn parse_aws_event(buffer: &[u8]) -> Option<(Option<Vec<u8>>, usize)> {
 /// Format Bedrock error responses with actionable hints
 fn format_bedrock_error(status: u16, body: &str) -> String {
     // Try to extract the AWS error type from the response
-    let error_type = serde_json::from_str::<Value>(body)
-        .ok()
-        .and_then(|v| {
-            v.get("__type")
-                .or_else(|| v.get("type"))
-                .and_then(|t| t.as_str().map(String::from))
-        });
+    let error_type = serde_json::from_str::<Value>(body).ok().and_then(|v| {
+        v.get("__type")
+            .or_else(|| v.get("type"))
+            .and_then(|t| t.as_str().map(String::from))
+    });
 
     let hint = match status {
         403 => Some(
@@ -422,7 +412,9 @@ fn format_bedrock_error(status: u16, body: &str) -> String {
         ),
         400 => {
             if body.contains("schema") || body.contains("Schema") {
-                Some("Request schema validation failed. If using tools, try enabling sanitize_schema=true in [providers.bedrock.compat].")
+                Some(
+                    "Request schema validation failed. If using tools, try enabling sanitize_schema=true in [providers.bedrock.compat].",
+                )
             } else {
                 Some("Bad request — check model parameters and message format.")
             }
@@ -434,9 +426,7 @@ fn format_bedrock_error(status: u16, body: &str) -> String {
         _ => None,
     };
 
-    let type_info = error_type
-        .map(|t| format!(" [{}]", t))
-        .unwrap_or_default();
+    let type_info = error_type.map(|t| format!(" [{}]", t)).unwrap_or_default();
 
     match hint {
         Some(h) => format!("{}{}\nHint: {}", body, type_info, h),

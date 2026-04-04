@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
-use serde_json::{json, Value};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
@@ -72,10 +72,8 @@ impl AnthropicProvider {
         if !request.tools.is_empty() {
             let mut tools = anthropic_shared::build_tools(&request.tools);
             // Mark last tool with cache_control to cache the entire tools block
-            if self.cache_enabled {
-                if let Some(last) = tools.last_mut() {
-                    last["cache_control"] = json!({ "type": "ephemeral" });
-                }
+            if let Some(last) = tools.last_mut().filter(|_| self.cache_enabled) {
+                last["cache_control"] = json!({ "type": "ephemeral" });
             }
             body["tools"] = json!(tools);
         }
@@ -133,4 +131,3 @@ impl LlmProvider for AnthropicProvider {
         Ok(rx)
     }
 }
-

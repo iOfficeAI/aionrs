@@ -1,5 +1,5 @@
-use aion_providers::LlmProvider;
 use aion_config::compat::ProviderCompat;
+use aion_providers::LlmProvider;
 use aion_providers::openai::OpenAIProvider;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason};
@@ -107,14 +107,12 @@ async fn test_openai_stream_text_response() {
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
         .and(header("authorization", "Bearer test-key"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -213,14 +211,12 @@ async fn test_openai_stream_tool_call_aggregation() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -320,14 +316,12 @@ async fn test_openai_multiple_tool_calls() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -413,14 +407,12 @@ async fn test_openai_stream_state_transitions() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -455,11 +447,9 @@ async fn test_openai_api_error_non_success_status() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(401).set_body_string(
-                r#"{"error":{"message":"Invalid API key","type":"invalid_request_error"}}"#,
-            ),
-        )
+        .respond_with(ResponseTemplate::new(401).set_body_string(
+            r#"{"error":{"message":"Invalid API key","type":"invalid_request_error"}}"#,
+        ))
         .mount(&server)
         .await;
 
@@ -490,7 +480,8 @@ async fn test_openai_rate_limited() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
@@ -541,14 +532,12 @@ async fn test_openai_stream_max_tokens_stop_reason() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -613,14 +602,12 @@ async fn test_openai_stream_empty_content_delta_skipped() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 

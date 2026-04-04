@@ -77,23 +77,27 @@ impl Tool for GlobTool {
             if files.len() >= MAX_RESULTS {
                 break;
             }
-            if let Ok(path) = entry {
-                if path.is_file() {
-                    let mtime = path
-                        .metadata()
-                        .and_then(|m| m.modified())
-                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-                    // Make path relative to root
-                    let display_path = path
-                        .strip_prefix(root_path)
-                        .unwrap_or(&path)
-                        .display()
-                        .to_string();
-
-                    files.push((mtime, display_path));
-                }
+            let Ok(path) = entry else {
+                continue;
+            };
+            if !path.is_file() {
+                continue;
             }
+
+            let mtime = path
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
+            // Make path relative to root
+            let display_path = path
+                .strip_prefix(root_path)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+
+            files.push((mtime, display_path));
         }
 
         // Sort by modification time, newest first
@@ -154,10 +158,20 @@ mod tests {
         let lines: Vec<&str> = result.content.lines().collect();
         assert_eq!(lines.len(), 2, "should match exactly 2 .rs files");
         for line in &lines {
-            assert!(line.ends_with(".rs"), "each match should be a .rs file, got: {}", line);
+            assert!(
+                line.ends_with(".rs"),
+                "each match should be a .rs file, got: {}",
+                line
+            );
         }
-        assert!(!result.content.contains("notes.txt"), "should not include .txt files");
-        assert!(!result.content.contains("readme.md"), "should not include .md files");
+        assert!(
+            !result.content.contains("notes.txt"),
+            "should not include .txt files"
+        );
+        assert!(
+            !result.content.contains("readme.md"),
+            "should not include .md files"
+        );
     }
 
     #[tokio::test]
@@ -180,7 +194,11 @@ mod tests {
         let base = dir.path();
 
         for i in 0..5 {
-            fs::write(base.join(format!("file_{}.txt", i)), format!("content {}", i)).unwrap();
+            fs::write(
+                base.join(format!("file_{}.txt", i)),
+                format!("content {}", i),
+            )
+            .unwrap();
         }
 
         let result = run_glob("*.txt", base.to_str().unwrap()).await;

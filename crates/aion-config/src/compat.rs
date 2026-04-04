@@ -281,9 +281,11 @@ mod tests {
         let sanitized = sanitize_json_schema(&schema);
 
         assert!(sanitized.get("additionalProperties").is_none());
-        assert!(sanitized["properties"]["name"]
-            .get("additionalProperties")
-            .is_none());
+        assert!(
+            sanitized["properties"]["name"]
+                .get("additionalProperties")
+                .is_none()
+        );
     }
 
     #[test]

@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use aion_config::config::Config;
 use crate::engine::AgentEngine;
-use crate::output::terminal::TerminalSink;
 use crate::output::OutputSink;
+use crate::output::terminal::TerminalSink;
+use aion_config::config::Config;
 use aion_providers::LlmProvider;
 use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
@@ -92,10 +92,7 @@ impl AgentSpawner {
     }
 
     /// Spawn multiple sub-agents in parallel, return all results
-    pub async fn spawn_parallel(
-        &self,
-        sub_configs: Vec<SubAgentConfig>,
-    ) -> Vec<SubAgentResult> {
+    pub async fn spawn_parallel(&self, sub_configs: Vec<SubAgentConfig>) -> Vec<SubAgentResult> {
         let futures: Vec<_> = sub_configs
             .into_iter()
             .map(|config| {

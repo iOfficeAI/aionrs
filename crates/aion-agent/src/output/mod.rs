@@ -42,7 +42,7 @@ impl OutputFormatter {
         // Also check NO_COLOR env var (standard: https://no-color.org/)
         let color_enabled = !no_color
             && std::env::var("NO_COLOR").is_err()
-            && is_terminal::is_terminal(&io::stderr());
+            && is_terminal::is_terminal(io::stderr());
         Self { color_enabled }
     }
 

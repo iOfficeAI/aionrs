@@ -1,10 +1,10 @@
 mod common;
 
-use aion_config::hooks::{HookDef, HookEngine, HooksConfig};
 use aion_agent::orchestration::execute_tool_calls;
+use aion_config::hooks::{HookDef, HookEngine, HooksConfig};
 use aion_tools::registry::ToolRegistry;
 use aion_types::message::ContentBlock;
-use common::{auto_approve_confirmer, MockTool};
+use common::{MockTool, auto_approve_confirmer};
 use serde_json::json;
 
 // ---------------------------------------------------------------------------
@@ -78,7 +78,10 @@ async fn test_execute_concurrent_safe_tools() {
     registry.register(Box::new(MockTool::new("tool_a", "result_a", false)));
     registry.register(Box::new(MockTool::new("tool_b", "result_b", false)));
 
-    let tool_calls = vec![make_tool_use("id-a", "tool_a"), make_tool_use("id-b", "tool_b")];
+    let tool_calls = vec![
+        make_tool_use("id-a", "tool_a"),
+        make_tool_use("id-b", "tool_b"),
+    ];
     let confirmer = auto_approve_confirmer();
 
     let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None)
@@ -111,7 +114,10 @@ async fn test_execute_non_concurrent_tools_sequential() {
     registry.register(Box::new(MockTool::sequential("seq_a", "seq_result_a")));
     registry.register(Box::new(MockTool::sequential("seq_b", "seq_result_b")));
 
-    let tool_calls = vec![make_tool_use("id-a", "seq_a"), make_tool_use("id-b", "seq_b")];
+    let tool_calls = vec![
+        make_tool_use("id-a", "seq_a"),
+        make_tool_use("id-b", "seq_b"),
+    ];
     let confirmer = auto_approve_confirmer();
 
     let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None)
@@ -214,7 +220,10 @@ async fn test_pre_hook_blocks_tool() {
         ContentBlock::ToolResult {
             content, is_error, ..
         } => {
-            assert!(*is_error, "blocked execution should produce is_error = true");
+            assert!(
+                *is_error,
+                "blocked execution should produce is_error = true"
+            );
             assert!(
                 content.contains("Blocked by hook"),
                 "result should mention 'Blocked by hook', got: {}",

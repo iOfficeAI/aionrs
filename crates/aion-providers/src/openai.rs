@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
-use serde_json::{json, Value};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest};
@@ -246,10 +246,10 @@ fn dedup_tool_results(messages: &mut Vec<Value>) {
     // Find the last index of each tool_call_id
     let mut last_index: HashMap<String, usize> = HashMap::new();
     for (i, msg) in messages.iter().enumerate() {
-        if msg["role"].as_str() == Some("tool") {
-            if let Some(id) = msg["tool_call_id"].as_str() {
-                last_index.insert(id.to_string(), i);
-            }
+        if msg["role"].as_str() == Some("tool")
+            && let Some(id) = msg["tool_call_id"].as_str()
+        {
+            last_index.insert(id.to_string(), i);
         }
     }
 
@@ -257,16 +257,15 @@ fn dedup_tool_results(messages: &mut Vec<Value>) {
     let mut seen: HashMap<String, bool> = HashMap::new();
     let mut to_remove = Vec::new();
     for (i, msg) in messages.iter().enumerate() {
-        if msg["role"].as_str() == Some("tool") {
-            if let Some(id) = msg["tool_call_id"].as_str() {
-                if let Some(&last_i) = last_index.get(id) {
-                    if i != last_i && !seen.contains_key(id) {
-                        to_remove.push(i);
-                    }
-                    if i == last_i {
-                        seen.insert(id.to_string(), true);
-                    }
-                }
+        if msg["role"].as_str() == Some("tool")
+            && let Some(id) = msg["tool_call_id"].as_str()
+            && let Some(&last_i) = last_index.get(id)
+        {
+            if i != last_i && !seen.contains_key(id) {
+                to_remove.push(i);
+            }
+            if i == last_i {
+                seen.insert(id.to_string(), true);
             }
         }
     }
@@ -278,7 +277,7 @@ fn dedup_tool_results(messages: &mut Vec<Value>) {
 }
 
 /// Remove tool_call entries from assistant messages that have no corresponding tool result
-fn clean_orphaned_tool_calls(messages: &mut Vec<Value>) {
+fn clean_orphaned_tool_calls(messages: &mut [Value]) {
     use std::collections::HashSet;
 
     let answered_ids: HashSet<String> = messages
@@ -288,17 +287,17 @@ fn clean_orphaned_tool_calls(messages: &mut Vec<Value>) {
         .collect();
 
     for msg in messages.iter_mut() {
-        if msg["role"].as_str() == Some("assistant") {
-            if let Some(tcs) = msg["tool_calls"].as_array_mut() {
-                tcs.retain(|tc| {
-                    tc["id"]
-                        .as_str()
-                        .map(|id| answered_ids.contains(id))
-                        .unwrap_or(true)
-                });
-                if tcs.is_empty() {
-                    msg.as_object_mut().unwrap().remove("tool_calls");
-                }
+        if msg["role"].as_str() == Some("assistant")
+            && let Some(tcs) = msg["tool_calls"].as_array_mut()
+        {
+            tcs.retain(|tc| {
+                tc["id"]
+                    .as_str()
+                    .map(|id| answered_ids.contains(id))
+                    .unwrap_or(true)
+            });
+            if tcs.is_empty() {
+                msg.as_object_mut().unwrap().remove("tool_calls");
             }
         }
     }
@@ -490,17 +489,17 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
     let delta = &choice["delta"];
 
     // Reasoning content (OpenAI reasoning models)
-    if let Some(reasoning) = delta["reasoning_content"].as_str() {
-        if !reasoning.is_empty() {
-            events.push(LlmEvent::ThinkingDelta(reasoning.to_string()));
-        }
+    if let Some(reasoning) = delta["reasoning_content"].as_str()
+        && !reasoning.is_empty()
+    {
+        events.push(LlmEvent::ThinkingDelta(reasoning.to_string()));
     }
 
     // Text content
-    if let Some(content) = delta["content"].as_str() {
-        if !content.is_empty() {
-            events.push(LlmEvent::TextDelta(content.to_string()));
-        }
+    if let Some(content) = delta["content"].as_str()
+        && !content.is_empty()
+    {
+        events.push(LlmEvent::TextDelta(content.to_string()));
     }
 
     // Tool calls
@@ -828,4 +827,3 @@ mod tests {
         assert_eq!(result[0]["content"], "hello  world");
     }
 }
-

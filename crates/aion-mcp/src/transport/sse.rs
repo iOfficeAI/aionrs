@@ -1,10 +1,10 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use reqwest::header::{HeaderMap, HeaderValue};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 
 use super::{McpError, McpTransport};
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
@@ -25,10 +25,7 @@ pub struct SseTransport {
 
 impl SseTransport {
     /// Connect to an SSE MCP server
-    pub async fn connect(
-        url: &str,
-        headers: &HashMap<String, String>,
-    ) -> Result<Self, McpError> {
+    pub async fn connect(url: &str, headers: &HashMap<String, String>) -> Result<Self, McpError> {
         let mut header_map = HeaderMap::new();
         for (k, v) in headers {
             let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
@@ -69,8 +66,7 @@ impl SseTransport {
         use futures::StreamExt;
         // Read initial events to get the endpoint URL
         while let Some(chunk) = bytes_stream.next().await {
-            let chunk = chunk
-                .map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
+            let chunk = chunk.map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
             // Parse SSE events from buffer
@@ -114,14 +110,16 @@ impl SseTransport {
 
                     let (event_type, event_data) = parse_sse_event(&event_block);
 
-                    if event_type == "message" || event_type.is_empty() {
-                        if let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&event_data) {
-                            if let Some(id) = response.id {
-                                let mut map: tokio::sync::MutexGuard<'_, HashMap<u64, oneshot::Sender<JsonRpcResponse>>> = pending_clone.lock().await;
-                                if let Some(sender) = map.remove(&id) {
-                                    let _ = sender.send(response);
-                                }
-                            }
+                    if (event_type == "message" || event_type.is_empty())
+                        && let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&event_data)
+                        && let Some(id) = response.id
+                    {
+                        let mut map: tokio::sync::MutexGuard<
+                            '_,
+                            HashMap<u64, oneshot::Sender<JsonRpcResponse>>,
+                        > = pending_clone.lock().await;
+                        if let Some(sender) = map.remove(&id) {
+                            let _ = sender.send(response);
                         }
                     }
                 }
@@ -146,14 +144,17 @@ impl SseTransport {
 #[async_trait]
 impl McpTransport for SseTransport {
     async fn request(&self, req: &JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
-        let req_id = req.id.ok_or_else(|| {
-            McpError::Transport("Request must have an id".into())
-        })?;
+        let req_id = req
+            .id
+            .ok_or_else(|| McpError::Transport("Request must have an id".into()))?;
 
         // Set up response channel before sending
         let (tx, rx) = oneshot::channel::<JsonRpcResponse>();
         {
-            let mut map: tokio::sync::MutexGuard<'_, HashMap<u64, oneshot::Sender<JsonRpcResponse>>> = self.pending.lock().await;
+            let mut map: tokio::sync::MutexGuard<
+                '_,
+                HashMap<u64, oneshot::Sender<JsonRpcResponse>>,
+            > = self.pending.lock().await;
             map.insert(req_id, tx);
         }
 
@@ -181,9 +182,9 @@ impl McpTransport for SseTransport {
         }
 
         // Wait for response from SSE stream
-        let rpc_response = rx.await.map_err(|_| {
-            McpError::Transport("Response channel closed unexpectedly".into())
-        })?;
+        let rpc_response = rx
+            .await
+            .map_err(|_| McpError::Transport("Response channel closed unexpectedly".into()))?;
 
         if let Some(err) = &rpc_response.error {
             return Err(McpError::JsonRpc {

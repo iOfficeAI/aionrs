@@ -2,13 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use crate::confirm::ToolConfirmer;
 use crate::orchestration::{
-    execute_tool_calls, execute_tool_calls_with_approval, ExecutionControl,
+    ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
 };
 use crate::output::OutputSink;
 use crate::session::{Session, SessionManager};
 use aion_config::config::Config;
 use aion_config::hooks::HookEngine;
-use aion_providers::{create_provider, LlmProvider, ProviderError};
+use aion_providers::{LlmProvider, ProviderError, create_provider};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
@@ -332,12 +332,11 @@ impl AgentEngine {
                     let tool_name = tool_calls
                         .iter()
                         .find_map(|c| {
-                            if let ContentBlock::ToolUse { id, name, .. } = c {
-                                if let ContentBlock::ToolResult { tool_use_id, .. } = result {
-                                    if id == tool_use_id {
-                                        return Some(name.as_str());
-                                    }
-                                }
+                            if let ContentBlock::ToolUse { id, name, .. } = c
+                                && let ContentBlock::ToolResult { tool_use_id, .. } = result
+                                && id == tool_use_id
+                            {
+                                return Some(name.as_str());
                             }
                             None
                         })
@@ -405,4 +404,3 @@ pub enum AgentError {
     #[error("User aborted the session")]
     UserAborted,
 }
-

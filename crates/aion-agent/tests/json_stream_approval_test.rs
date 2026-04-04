@@ -7,8 +7,8 @@ use serde_json::json;
 use aion_agent::engine::AgentEngine;
 use aion_agent::output::OutputSink;
 use aion_agent::output::terminal::TerminalSink;
-use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 use aion_protocol::writer::ProtocolWriter;
+use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::LlmEvent;
 use aion_types::message::{StopReason, TokenUsage};
@@ -66,8 +66,7 @@ async fn test_tool_approval_approve_flow() {
     let approval_manager = Arc::new(ToolApprovalManager::new());
     let writer = Arc::new(ProtocolWriter::new());
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer);
 
@@ -89,7 +88,10 @@ async fn test_tool_approval_approve_flow() {
         }
     });
 
-    let result = engine.run("Use the tool", "msg-1").await.expect("should succeed");
+    let result = engine
+        .run("Use the tool", "msg-1")
+        .await
+        .expect("should succeed");
     assert_eq!(result.text, "Done");
     assert_eq!(result.turns, 2);
 }
@@ -132,8 +134,7 @@ async fn test_tool_approval_deny_flow() {
     let approval_manager = Arc::new(ToolApprovalManager::new());
     let writer = Arc::new(ProtocolWriter::new());
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer);
 
@@ -148,7 +149,10 @@ async fn test_tool_approval_deny_flow() {
         );
     });
 
-    let result = engine.run("Use the tool", "msg-2").await.expect("should succeed");
+    let result = engine
+        .run("Use the tool", "msg-2")
+        .await
+        .expect("should succeed");
     assert_eq!(result.text, "Cannot run tool");
     assert_eq!(result.turns, 2);
 }
@@ -191,13 +195,15 @@ async fn test_auto_approve_bypasses_approval() {
     let approval_manager = Arc::new(ToolApprovalManager::new());
     let writer = Arc::new(ProtocolWriter::new());
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer);
 
     // No background task to approve — should not hang
-    let result = engine.run("Use the tool", "msg-3").await.expect("should succeed");
+    let result = engine
+        .run("Use the tool", "msg-3")
+        .await
+        .expect("should succeed");
     assert_eq!(result.text, "Auto done");
     assert_eq!(result.turns, 2);
 }
@@ -241,13 +247,15 @@ async fn test_session_auto_approve_category() {
     approval_manager.add_auto_approve("exec");
     let writer = Arc::new(ProtocolWriter::new());
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer);
 
     // No background task to approve — should not hang
-    let result = engine.run("Use the tool", "msg-4").await.expect("should succeed");
+    let result = engine
+        .run("Use the tool", "msg-4")
+        .await
+        .expect("should succeed");
     assert_eq!(result.text, "Session auto");
     assert_eq!(result.turns, 2);
 }
@@ -283,8 +291,7 @@ async fn test_client_disconnect_aborts() {
     let approval_manager = Arc::new(ToolApprovalManager::new());
     let writer = Arc::new(ProtocolWriter::new());
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer);
 

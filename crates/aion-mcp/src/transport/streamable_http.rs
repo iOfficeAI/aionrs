@@ -20,10 +20,7 @@ pub struct StreamableHttpTransport {
 
 impl StreamableHttpTransport {
     /// Create a new Streamable HTTP transport
-    pub async fn connect(
-        url: &str,
-        headers: &HashMap<String, String>,
-    ) -> Result<Self, McpError> {
+    pub async fn connect(url: &str, headers: &HashMap<String, String>) -> Result<Self, McpError> {
         let mut header_map = HeaderMap::new();
         for (k, v) in headers {
             let name = reqwest::header::HeaderName::from_bytes(k.as_bytes())
@@ -68,10 +65,10 @@ impl StreamableHttpTransport {
         response: reqwest::Response,
     ) -> Result<JsonRpcResponse, McpError> {
         // Capture session ID from response headers
-        if let Some(sid) = response.headers().get("mcp-session-id") {
-            if let Ok(sid_str) = sid.to_str() {
-                *self.session_id.lock().await = Some(sid_str.to_string());
-            }
+        if let Some(sid) = response.headers().get("mcp-session-id")
+            && let Ok(sid_str) = sid.to_str()
+        {
+            *self.session_id.lock().await = Some(sid_str.to_string());
         }
 
         let content_type = response
@@ -107,8 +104,7 @@ impl StreamableHttpTransport {
         let mut buffer = String::new();
 
         while let Some(chunk) = stream.next().await {
-            let chunk =
-                chunk.map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
+            let chunk = chunk.map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
             // Parse SSE events
@@ -125,10 +121,10 @@ impl StreamableHttpTransport {
                 }
 
                 let data = data_lines.join("\n");
-                if !data.is_empty() {
-                    if let Ok(rpc_response) = serde_json::from_str::<JsonRpcResponse>(&data) {
-                        return Ok(rpc_response);
-                    }
+                if !data.is_empty()
+                    && let Ok(rpc_response) = serde_json::from_str::<JsonRpcResponse>(&data)
+                {
+                    return Ok(rpc_response);
                 }
             }
         }

@@ -47,7 +47,13 @@ impl SessionManager {
     }
 
     /// Create a new session, return it
-    pub fn create(&self, provider: &str, model: &str, cwd: &str, session_id: Option<&str>) -> anyhow::Result<Session> {
+    pub fn create(
+        &self,
+        provider: &str,
+        model: &str,
+        cwd: &str,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<Session> {
         std::fs::create_dir_all(&self.directory)?;
 
         let id = if let Some(custom_id) = session_id {
@@ -108,14 +114,10 @@ impl SessionManager {
         };
 
         let pattern = format!("*_{}.json", meta.id);
-        let session_files: Vec<_> = glob::glob(
-            self.directory
-                .join(&pattern)
-                .to_string_lossy()
-                .as_ref(),
-        )?
-        .filter_map(|r| r.ok())
-        .collect();
+        let session_files: Vec<_> =
+            glob::glob(self.directory.join(&pattern).to_string_lossy().as_ref())?
+                .filter_map(|r| r.ok())
+                .collect();
 
         let path = session_files
             .first()
@@ -196,19 +198,17 @@ impl SessionManager {
         }
 
         // Sort by created_at, remove oldest
-        index.sessions.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        index
+            .sessions
+            .sort_by(|a, b| a.created_at.cmp(&b.created_at));
         let to_remove = index.sessions.len() - self.max_sessions;
         let removed: Vec<_> = index.sessions.drain(..to_remove).collect();
 
         // Delete session files
         for meta in &removed {
             let pattern = format!("*_{}.json", meta.id);
-            if let Ok(paths) = glob::glob(
-                self.directory
-                    .join(&pattern)
-                    .to_string_lossy()
-                    .as_ref(),
-            ) {
+            if let Ok(paths) = glob::glob(self.directory.join(&pattern).to_string_lossy().as_ref())
+            {
                 for path in paths.flatten() {
                     let _ = std::fs::remove_file(path);
                 }
@@ -267,7 +267,9 @@ mod tests {
         let dir = tempdir().unwrap();
         let manager = SessionManager::new(dir.path().to_path_buf(), 10);
 
-        let session = manager.create("anthropic", "claude-3", "/home", None).unwrap();
+        let session = manager
+            .create("anthropic", "claude-3", "/home", None)
+            .unwrap();
         let loaded = manager.load(&session.id).unwrap();
 
         assert_eq!(loaded.id, session.id);
@@ -300,7 +302,9 @@ mod tests {
         let manager = SessionManager::new(dir.path().to_path_buf(), 10);
 
         let s1 = manager.create("openai", "gpt-4", "/tmp", None).unwrap();
-        let s2 = manager.create("anthropic", "claude-3", "/home", None).unwrap();
+        let s2 = manager
+            .create("anthropic", "claude-3", "/home", None)
+            .unwrap();
 
         let list = manager.list().unwrap();
         assert_eq!(list.len(), 2);

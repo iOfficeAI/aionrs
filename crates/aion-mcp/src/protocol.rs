@@ -169,7 +169,8 @@ mod tests {
     #[test]
     fn test_jsonrpc_response_deserialization_error() {
         // Deserialize an error JSON-RPC response and check error fields
-        let json_str = r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#;
+        let json_str =
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#;
         let resp: JsonRpcResponse = serde_json::from_str(json_str).unwrap();
 
         assert_eq!(resp.id, Some(2));

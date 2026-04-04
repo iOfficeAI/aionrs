@@ -61,11 +61,7 @@ impl Tool for BashTool {
         let timeout = Duration::from_millis(timeout_ms);
 
         let result = tokio::time::timeout(timeout, async {
-            Command::new("sh")
-                .arg("-c")
-                .arg(command)
-                .output()
-                .await
+            Command::new("sh").arg("-c").arg(command).output().await
         })
         .await;
 

@@ -3,8 +3,8 @@
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use aion_providers::anthropic::AnthropicProvider;
 use aion_config::compat::ProviderCompat;
+use aion_providers::anthropic::AnthropicProvider;
 use aion_providers::{LlmProvider, ProviderError};
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, Message, Role, StopReason};
@@ -76,12 +76,19 @@ async fn test_anthropic_stream_text_response() {
         .mount(&server)
         .await;
 
-    let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+    let provider = AnthropicProvider::new(
+        "test-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
     let request = minimal_request();
 
     // Act
-    let rx = provider.stream(&request).await.expect("stream should succeed");
+    let rx = provider
+        .stream(&request)
+        .await
+        .expect("stream should succeed");
     let events = collect_events(rx).await;
 
     // Assert: at least one TextDelta and exactly one Done
@@ -140,19 +147,23 @@ data: {\"type\":\"message_stop\"}\n\n";
 
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+    let provider = AnthropicProvider::new(
+        "test-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
     let request = minimal_request();
 
     // Act
-    let rx = provider.stream(&request).await.expect("stream should succeed");
+    let rx = provider
+        .stream(&request)
+        .await
+        .expect("stream should succeed");
     let events = collect_events(rx).await;
 
     // Assert: one ToolUse event with correct fields
@@ -216,22 +227,28 @@ data: {\"type\":\"message_stop\"}\n\n";
 
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(sse_body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
 
     // Enable thinking in the request
     let mut request = minimal_request();
-    request.thinking = Some(ThinkingConfig::Enabled { budget_tokens: 5000 });
+    request.thinking = Some(ThinkingConfig::Enabled {
+        budget_tokens: 5000,
+    });
 
-    let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+    let provider = AnthropicProvider::new(
+        "test-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
 
     // Act
-    let rx = provider.stream(&request).await.expect("stream should succeed");
+    let rx = provider
+        .stream(&request)
+        .await
+        .expect("stream should succeed");
     let events = collect_events(rx).await;
 
     // Assert: ThinkingDelta event present with expected content
@@ -239,7 +256,10 @@ data: {\"type\":\"message_stop\"}\n\n";
         .iter()
         .filter(|e| matches!(e, LlmEvent::ThinkingDelta(_)))
         .collect();
-    assert!(!thinking_events.is_empty(), "expected at least one ThinkingDelta");
+    assert!(
+        !thinking_events.is_empty(),
+        "expected at least one ThinkingDelta"
+    );
 
     match thinking_events[0] {
         LlmEvent::ThinkingDelta(text) => assert_eq!(text, "Let me think..."),
@@ -251,7 +271,10 @@ data: {\"type\":\"message_stop\"}\n\n";
         .iter()
         .filter(|e| matches!(e, LlmEvent::TextDelta(_)))
         .collect();
-    assert!(!text_events.is_empty(), "expected at least one TextDelta after thinking");
+    assert!(
+        !text_events.is_empty(),
+        "expected at least one TextDelta after thinking"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -272,8 +295,12 @@ async fn test_anthropic_auth_error() {
         .mount(&server)
         .await;
 
-    let provider =
-        AnthropicProvider::new("bad-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+    let provider = AnthropicProvider::new(
+        "bad-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -310,8 +337,12 @@ async fn test_anthropic_rate_limit_retryable() {
         .mount(&server)
         .await;
 
-    let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+    let provider = AnthropicProvider::new(
+        "test-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -345,15 +376,18 @@ async fn test_anthropic_request_headers() {
         .and(header("anthropic-version", "2023-06-01"))
         .and(header("content-type", "application/json"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(text_sse_body("ok"), "text/event-stream"),
+            ResponseTemplate::new(200).set_body_raw(text_sse_body("ok"), "text/event-stream"),
         )
         .expect(1) // exactly one matching request must arrive
         .mount(&server)
         .await;
 
-    let provider =
-        AnthropicProvider::new("my-secret-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+    let provider = AnthropicProvider::new(
+        "my-secret-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
     let request = minimal_request();
 
     // Act — should succeed because the headers are correct
@@ -384,16 +418,19 @@ async fn test_anthropic_prompt_caching_header() {
         .and(path("/v1/messages"))
         .and(header("anthropic-beta", "prompt-caching-2024-07-31"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(text_sse_body("cached"), "text/event-stream"),
+            ResponseTemplate::new(200).set_body_raw(text_sse_body("cached"), "text/event-stream"),
         )
         .expect(1)
         .mount(&server)
         .await;
 
     // with_cache(true) — default, but explicit here for clarity
-    let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(true);
+    let provider = AnthropicProvider::new(
+        "test-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(true);
     let request = minimal_request();
 
     let result = provider.stream(&request).await;
@@ -422,14 +459,17 @@ async fn test_anthropic_no_prompt_caching_header_when_disabled() {
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
         .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(text_sse_body("no cache"), "text/event-stream"),
+            ResponseTemplate::new(200).set_body_raw(text_sse_body("no cache"), "text/event-stream"),
         )
         .mount(&server)
         .await;
 
-    let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+    let provider = AnthropicProvider::new(
+        "test-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
     let request = minimal_request();
 
     let result = provider.stream(&request).await;
@@ -442,8 +482,9 @@ async fn test_anthropic_no_prompt_caching_header_when_disabled() {
     // Inspect the captured request to assert that anthropic-beta is absent
     let received = server.received_requests().await.unwrap();
     assert_eq!(received.len(), 1, "expected exactly one request");
-    let has_beta = received[0]
-        .headers
-        .contains_key("anthropic-beta");
-    assert!(!has_beta, "anthropic-beta header should not be present when cache is disabled");
+    let has_beta = received[0].headers.contains_key("anthropic-beta");
+    assert!(
+        !has_beta,
+        "anthropic-beta header should not be present when cache is disabled"
+    );
 }

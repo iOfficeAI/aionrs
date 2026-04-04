@@ -84,7 +84,12 @@ impl Tool for McpToolProxy {
     }
 
     fn describe(&self, input: &Value) -> String {
-        format!("MCP {}/{}: {}", self.server_name, self.tool_name, serde_json::to_string(input).unwrap_or_default())
+        format!(
+            "MCP {}/{}: {}",
+            self.server_name,
+            self.tool_name,
+            serde_json::to_string(input).unwrap_or_default()
+        )
     }
 }
 

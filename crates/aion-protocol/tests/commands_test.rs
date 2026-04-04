@@ -18,10 +18,7 @@ use rstest::rstest;
         files: vec!["/tmp/a.rs".to_string()],
     }
 )]
-#[case(
-    r#"{"type":"stop"}"#,
-    ProtocolCommand::Stop
-)]
+#[case(r#"{"type":"stop"}"#, ProtocolCommand::Stop)]
 #[case(
     r#"{"type":"init_history","text":"history"}"#,
     ProtocolCommand::InitHistory {
@@ -58,10 +55,7 @@ fn deserializes_tool_approve_scope(#[case] json: &str, #[case] expected_scope: A
 }
 
 #[rstest]
-#[case(
-    r#"{"type":"tool_deny","call_id":"c1"}"#,
-    ""
-)]
+#[case(r#"{"type":"tool_deny","call_id":"c1"}"#, "")]
 #[case(
     r#"{"type":"tool_deny","call_id":"c1","reason":"not allowed"}"#,
     "not allowed"

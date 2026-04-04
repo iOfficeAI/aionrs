@@ -59,9 +59,10 @@ impl Tool for WriteTool {
         let existed = path.exists();
 
         // Create parent directories
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                if let Err(e) = std::fs::create_dir_all(parent) {
+        if let Some(parent) = path.parent().filter(|p| !p.exists()) {
+            match std::fs::create_dir_all(parent) {
+                Ok(()) => {}
+                Err(e) => {
                     return ToolResult {
                         content: format!("Failed to create directories: {}", e),
                         is_error: true,
@@ -89,7 +90,10 @@ impl Tool for WriteTool {
                 };
             }
             return ToolResult {
-                content: format!("Updated {} (rename failed: {}, used direct write)", file_path, e),
+                content: format!(
+                    "Updated {} (rename failed: {}, used direct write)",
+                    file_path, e
+                ),
                 is_error: false,
             };
         }
@@ -111,7 +115,10 @@ impl Tool for WriteTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let path = input.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let path = input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         format!("Write to {}", path)
     }
 }
@@ -137,7 +144,11 @@ mod tests {
         let tool = WriteTool;
         let result = tool.execute(input).await;
 
-        assert!(!result.is_error, "expected success, got: {}", result.content);
+        assert!(
+            !result.is_error,
+            "expected success, got: {}",
+            result.content
+        );
         assert!(file_path.exists(), "file should exist after write");
         assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "hello world");
     }
@@ -155,9 +166,19 @@ mod tests {
         let tool = WriteTool;
         let result = tool.execute(input).await;
 
-        assert!(!result.is_error, "expected success, got: {}", result.content);
-        assert!(file_path.parent().unwrap().exists(), "parent dirs should be created");
-        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "nested content");
+        assert!(
+            !result.is_error,
+            "expected success, got: {}",
+            result.content
+        );
+        assert!(
+            file_path.parent().unwrap().exists(),
+            "parent dirs should be created"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "nested content"
+        );
     }
 
     #[tokio::test]
@@ -202,9 +223,16 @@ mod tests {
         let tool = WriteTool;
         let result = tool.execute(input).await;
 
-        assert!(!result.is_error, "expected success, got: {}", result.content);
+        assert!(
+            !result.is_error,
+            "expected success, got: {}",
+            result.content
+        );
 
         let read_back = std::fs::read_to_string(&file_path).unwrap();
-        assert_eq!(read_back, content, "read-back content must exactly match written content");
+        assert_eq!(
+            read_back, content,
+            "read-back content must exactly match written content"
+        );
     }
 }

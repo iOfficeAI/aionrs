@@ -31,16 +31,18 @@ impl StdioTransport {
             .stderr(std::process::Stdio::inherit())
             .envs(env);
 
-        let mut child = cmd.spawn().map_err(|e| {
-            McpError::Transport(format!("Failed to spawn '{}': {}", command, e))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| McpError::Transport(format!("Failed to spawn '{}': {}", command, e)))?;
 
-        let stdin = child.stdin.take().ok_or_else(|| {
-            McpError::Transport("Failed to capture child stdin".into())
-        })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            McpError::Transport("Failed to capture child stdout".into())
-        })?;
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| McpError::Transport("Failed to capture child stdin".into()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| McpError::Transport("Failed to capture child stdout".into()))?;
 
         Ok(Self {
             stdin: Mutex::new(BufWriter::new(stdin)),

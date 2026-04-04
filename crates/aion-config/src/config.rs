@@ -166,15 +166,27 @@ impl Default for SessionConfig {
 // Defaults
 // ---------------------------------------------------------------------------
 
-fn default_provider() -> String { "anthropic".to_string() }
-fn default_max_tokens() -> u32 { 8192 }
-fn default_max_turns() -> usize { 30 }
+fn default_provider() -> String {
+    "anthropic".to_string()
+}
+fn default_max_tokens() -> u32 {
+    8192
+}
+fn default_max_turns() -> usize {
+    30
+}
 fn default_allow_list() -> Vec<String> {
     vec!["Read".into(), "Grep".into(), "Glob".into()]
 }
-fn default_true() -> bool { true }
-fn default_session_dir() -> String { ".aionrs/sessions".to_string() }
-fn default_max_sessions() -> usize { 20 }
+fn default_true() -> bool {
+    true
+}
+fn default_session_dir() -> String {
+    ".aionrs/sessions".to_string()
+}
+fn default_max_sessions() -> usize {
+    20
+}
 
 // ---------------------------------------------------------------------------
 // Resolved runtime Config
@@ -234,15 +246,24 @@ impl Config {
         let provider_str = cli.provider.as_deref().unwrap_or(&merged.default.provider);
         let provider = parse_provider(provider_str)?;
 
-        let base_url = cli.base_url.clone()
-            .or_else(|| merged.providers.get(provider_str).and_then(|p| p.base_url.clone()))
+        let base_url = cli
+            .base_url
+            .clone()
+            .or_else(|| {
+                merged
+                    .providers
+                    .get(provider_str)
+                    .and_then(|p| p.base_url.clone())
+            })
             .unwrap_or_else(|| match provider {
                 ProviderType::Anthropic => "https://api.anthropic.com".into(),
                 ProviderType::OpenAI => "https://api.openai.com".into(),
                 ProviderType::Bedrock | ProviderType::Vertex => String::new(),
             });
 
-        let model = cli.model.clone()
+        let model = cli
+            .model
+            .clone()
             .or(merged.default.model.clone())
             .unwrap_or_else(|| match provider {
                 ProviderType::Anthropic => "claude-sonnet-4-20250514".into(),
@@ -253,11 +274,17 @@ impl Config {
 
         let max_tokens = cli.max_tokens.unwrap_or(merged.default.max_tokens);
         let max_turns = cli.max_turns.unwrap_or(merged.default.max_turns);
-        let system_prompt = cli.system_prompt.clone().or(merged.default.system_prompt.clone());
+        let system_prompt = cli
+            .system_prompt
+            .clone()
+            .or(merged.default.system_prompt.clone());
 
         let api_key = resolve_api_key(
             cli.api_key.as_deref(),
-            merged.providers.get(provider_str).and_then(|p| p.api_key.as_deref()),
+            merged
+                .providers
+                .get(provider_str)
+                .and_then(|p| p.api_key.as_deref()),
             provider,
         )?;
 
@@ -266,7 +293,9 @@ impl Config {
             tools.auto_approve = true;
         }
 
-        let prompt_caching = merged.providers.get(provider_str)
+        let prompt_caching = merged
+            .providers
+            .get(provider_str)
             .and_then(|p| p.prompt_caching)
             .unwrap_or(matches!(provider, ProviderType::Anthropic));
 
@@ -276,7 +305,9 @@ impl Config {
             ProviderType::Bedrock => ProviderCompat::bedrock_defaults(),
             ProviderType::Vertex => ProviderCompat::anthropic_defaults(),
         };
-        let user_compat = merged.providers.get(provider_str)
+        let user_compat = merged
+            .providers
+            .get(provider_str)
             .and_then(|p| p.compat.clone())
             .unwrap_or_default();
         let compat = ProviderCompat::merge(compat_defaults, user_compat);
@@ -305,11 +336,12 @@ impl Config {
 fn parse_provider(s: &str) -> anyhow::Result<ProviderType> {
     match s {
         "anthropic" => Ok(ProviderType::Anthropic),
-        "openai"    => Ok(ProviderType::OpenAI),
-        "bedrock"   => Ok(ProviderType::Bedrock),
-        "vertex"    => Ok(ProviderType::Vertex),
+        "openai" => Ok(ProviderType::OpenAI),
+        "bedrock" => Ok(ProviderType::Bedrock),
+        "vertex" => Ok(ProviderType::Vertex),
         other => anyhow::bail!(
-            "Unknown provider: '{}'. Use 'anthropic', 'openai', 'bedrock', or 'vertex'.", other
+            "Unknown provider: '{}'. Use 'anthropic', 'openai', 'bedrock', or 'vertex'.",
+            other
         ),
     }
 }
@@ -319,20 +351,34 @@ fn resolve_api_key(
     config_key: Option<&str>,
     provider: ProviderType,
 ) -> anyhow::Result<String> {
-    if let Some(key) = cli_key { return Ok(key.to_string()); }
-    if let Some(key) = config_key { return Ok(key.to_string()); }
-    if let Ok(key) = std::env::var("API_KEY") { return Ok(key); }
+    if let Some(key) = cli_key {
+        return Ok(key.to_string());
+    }
+    if let Some(key) = config_key {
+        return Ok(key.to_string());
+    }
+    if let Ok(key) = std::env::var("API_KEY") {
+        return Ok(key);
+    }
     match provider {
         ProviderType::Anthropic => {
-            if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") { return Ok(key); }
+            if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+                return Ok(key);
+            }
         }
         ProviderType::OpenAI => {
-            if let Ok(key) = std::env::var("OPENAI_API_KEY") { return Ok(key); }
+            if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+                return Ok(key);
+            }
         }
-        ProviderType::Bedrock | ProviderType::Vertex => { return Ok(String::new()); }
+        ProviderType::Bedrock | ProviderType::Vertex => {
+            return Ok(String::new());
+        }
     }
     let oauth = OAuthManager::new(AuthConfig::default());
-    if oauth.has_credentials() { return Ok(String::new()); }
+    if oauth.has_credentials() {
+        return Ok(String::new());
+    }
     anyhow::bail!(
         "No API key found. Provide via --api-key, config file, \
          environment variable (API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY), \
@@ -347,7 +393,9 @@ pub fn global_config_path() -> PathBuf {
         .join("config.toml")
 }
 
-fn project_config_path() -> PathBuf { PathBuf::from(".aionrs.toml") }
+fn project_config_path() -> PathBuf {
+    PathBuf::from(".aionrs.toml")
+}
 
 fn load_config_file(path: &Path) -> ConfigFile {
     match std::fs::read_to_string(path) {
@@ -377,24 +425,41 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
     let default = DefaultConfig {
         provider: if project.default.provider != default_provider() {
             project.default.provider
-        } else { global.default.provider },
+        } else {
+            global.default.provider
+        },
         model: project.default.model.or(global.default.model),
         max_tokens: if project.default.max_tokens != default_max_tokens() {
             project.default.max_tokens
-        } else { global.default.max_tokens },
+        } else {
+            global.default.max_tokens
+        },
         max_turns: if project.default.max_turns != default_max_turns() {
             project.default.max_turns
-        } else { global.default.max_turns },
-        system_prompt: project.default.system_prompt.or(global.default.system_prompt),
+        } else {
+            global.default.max_turns
+        },
+        system_prompt: project
+            .default
+            .system_prompt
+            .or(global.default.system_prompt),
     };
 
     let mut providers = global.providers;
     for (k, v) in project.providers {
         let entry = providers.entry(k).or_default();
-        if v.api_key.is_some()       { entry.api_key = v.api_key; }
-        if v.base_url.is_some()      { entry.base_url = v.base_url; }
-        if v.prompt_caching.is_some(){ entry.prompt_caching = v.prompt_caching; }
-        if v.compat.is_some()        { entry.compat = v.compat; }
+        if v.api_key.is_some() {
+            entry.api_key = v.api_key;
+        }
+        if v.base_url.is_some() {
+            entry.base_url = v.base_url;
+        }
+        if v.prompt_caching.is_some() {
+            entry.prompt_caching = v.prompt_caching;
+        }
+        if v.compat.is_some() {
+            entry.compat = v.compat;
+        }
     }
 
     let mut profiles = global.profiles;
@@ -407,7 +472,9 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
             auto_approve: global.tools.auto_approve || project.tools.auto_approve,
             allow_list: if project.tools.allow_list != default_allow_list() {
                 project.tools.allow_list
-            } else { global.tools.allow_list },
+            } else {
+                global.tools.allow_list
+            },
         }
     };
 
@@ -418,17 +485,21 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
             enabled: global.session.enabled && project.session.enabled,
             directory: if project.session.directory != default_session_dir() {
                 project.session.directory
-            } else { global.session.directory },
+            } else {
+                global.session.directory
+            },
             max_sessions: if project.session.max_sessions != default_max_sessions() {
                 project.session.max_sessions
-            } else { global.session.max_sessions },
+            } else {
+                global.session.max_sessions
+            },
         }
     };
 
     let hooks = HooksConfig {
-        pre_tool_use:  [global.hooks.pre_tool_use,  project.hooks.pre_tool_use].concat(),
+        pre_tool_use: [global.hooks.pre_tool_use, project.hooks.pre_tool_use].concat(),
         post_tool_use: [global.hooks.post_tool_use, project.hooks.post_tool_use].concat(),
-        stop:          [global.hooks.stop,          project.hooks.stop].concat(),
+        stop: [global.hooks.stop, project.hooks.stop].concat(),
     };
 
     let mut mcp_servers = global.mcp.servers;
@@ -442,9 +513,11 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         session,
         hooks,
         bedrock: project.bedrock.or(global.bedrock),
-        vertex:  project.vertex.or(global.vertex),
-        auth:    project.auth.or(global.auth),
-        mcp: McpConfig { servers: mcp_servers },
+        vertex: project.vertex.or(global.vertex),
+        auth: project.auth.or(global.auth),
+        mcp: McpConfig {
+            servers: mcp_servers,
+        },
     }
 }
 
@@ -454,10 +527,15 @@ fn resolve_profile(
     visited: &mut Vec<String>,
 ) -> anyhow::Result<ProfileConfig> {
     if visited.contains(&name.to_string()) {
-        anyhow::bail!("Circular profile inheritance detected: {} -> {}", visited.join(" -> "), name);
+        anyhow::bail!(
+            "Circular profile inheritance detected: {} -> {}",
+            visited.join(" -> "),
+            name
+        );
     }
     visited.push(name.to_string());
-    let profile = profiles.get(name)
+    let profile = profiles
+        .get(name)
         .ok_or_else(|| anyhow::anyhow!("Profile '{}' not found in config", name))?
         .clone();
     if let Some(parent_name) = &profile.extends {
@@ -470,15 +548,15 @@ fn resolve_profile(
 
 fn merge_profiles(base: ProfileConfig, overlay: ProfileConfig) -> ProfileConfig {
     ProfileConfig {
-        provider:    overlay.provider.or(base.provider),
-        model:       overlay.model.or(base.model),
-        api_key:     overlay.api_key.or(base.api_key),
-        base_url:    overlay.base_url.or(base.base_url),
-        max_tokens:  overlay.max_tokens.or(base.max_tokens),
-        max_turns:   overlay.max_turns.or(base.max_turns),
-        extends:     None,
+        provider: overlay.provider.or(base.provider),
+        model: overlay.model.or(base.model),
+        api_key: overlay.api_key.or(base.api_key),
+        base_url: overlay.base_url.or(base.base_url),
+        max_tokens: overlay.max_tokens.or(base.max_tokens),
+        max_turns: overlay.max_turns.or(base.max_turns),
+        extends: None,
         mcp_servers: overlay.mcp_servers.or(base.mcp_servers),
-        compat:      overlay.compat.or(base.compat),
+        compat: overlay.compat.or(base.compat),
     }
 }
 
@@ -486,15 +564,27 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
     let mut visited = Vec::new();
     let profile = resolve_profile(&config.profiles, profile_name, &mut visited)?;
 
-    if let Some(p) = profile.provider    { config.default.provider = p; }
-    if let Some(m) = profile.model       { config.default.model = Some(m); }
-    if let Some(t) = profile.max_tokens  { config.default.max_tokens = t; }
-    if let Some(t) = profile.max_turns   { config.default.max_turns = t; }
+    if let Some(p) = profile.provider {
+        config.default.provider = p;
+    }
+    if let Some(m) = profile.model {
+        config.default.model = Some(m);
+    }
+    if let Some(t) = profile.max_tokens {
+        config.default.max_tokens = t;
+    }
+    if let Some(t) = profile.max_turns {
+        config.default.max_turns = t;
+    }
 
     let provider_name = config.default.provider.clone();
     let entry = config.providers.entry(provider_name).or_default();
-    if let Some(k) = profile.api_key  { entry.api_key = Some(k); }
-    if let Some(u) = profile.base_url { entry.base_url = Some(u); }
+    if let Some(k) = profile.api_key {
+        entry.api_key = Some(k);
+    }
+    if let Some(u) = profile.base_url {
+        entry.base_url = Some(u);
+    }
     if let Some(c) = profile.compat {
         entry.compat = Some(match entry.compat.take() {
             Some(existing) => ProviderCompat::merge(existing, c),
@@ -503,7 +593,10 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
     }
 
     if let Some(server_names) = profile.mcp_servers {
-        config.mcp.servers.retain(|name, _| server_names.contains(name));
+        config
+            .mcp
+            .servers
+            .retain(|name, _| server_names.contains(name));
     }
 
     Ok(config)
@@ -538,10 +631,13 @@ mod tests {
 
     #[test]
     fn test_provider_type_from_str_all() {
-        assert_eq!(parse_provider("anthropic").unwrap(), ProviderType::Anthropic);
-        assert_eq!(parse_provider("openai").unwrap(),    ProviderType::OpenAI);
-        assert_eq!(parse_provider("bedrock").unwrap(),   ProviderType::Bedrock);
-        assert_eq!(parse_provider("vertex").unwrap(),    ProviderType::Vertex);
+        assert_eq!(
+            parse_provider("anthropic").unwrap(),
+            ProviderType::Anthropic
+        );
+        assert_eq!(parse_provider("openai").unwrap(), ProviderType::OpenAI);
+        assert_eq!(parse_provider("bedrock").unwrap(), ProviderType::Bedrock);
+        assert_eq!(parse_provider("vertex").unwrap(), ProviderType::Vertex);
         assert!(parse_provider("invalid").is_err());
     }
 

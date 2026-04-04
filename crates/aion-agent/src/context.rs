@@ -17,10 +17,10 @@ pub fn build_system_prompt(custom_prompt: Option<&str>, cwd: &str) -> String {
 
     // Read CLAUDE.md if it exists
     let claude_md = std::path::Path::new(cwd).join("CLAUDE.md");
-    if claude_md.exists() {
-        if let Ok(content) = std::fs::read_to_string(&claude_md) {
-            parts.push(format!("# Project Instructions (CLAUDE.md)\n\n{content}"));
-        }
+    if claude_md.exists()
+        && let Ok(content) = std::fs::read_to_string(&claude_md)
+    {
+        parts.push(format!("# Project Instructions (CLAUDE.md)\n\n{content}"));
     }
 
     parts.join("\n\n")
@@ -46,9 +46,7 @@ pub fn compact_messages(messages: &mut Vec<Message>, keep_tail: usize) {
 
     let summary_msg = Message {
         role: Role::User,
-        content: vec![ContentBlock::Text {
-            text: summary_text,
-        }],
+        content: vec![ContentBlock::Text { text: summary_text }],
     };
 
     let tail: Vec<Message> = messages.drain(tail_start..).collect();
@@ -85,7 +83,11 @@ mod tests {
     fn test_compact_messages() {
         let mut messages: Vec<Message> = (0..10)
             .map(|i| Message {
-                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: vec![ContentBlock::Text {
                     text: format!("msg {}", i),
                 }],
@@ -126,7 +128,11 @@ mod tests {
         // Build 8 messages (indices 0–7); keep_tail = 3
         let mut messages: Vec<Message> = (0..8)
             .map(|i| Message {
-                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: vec![ContentBlock::Text {
                     text: format!("msg {}", i),
                 }],
@@ -158,7 +164,11 @@ mod tests {
         let min_messages = keep_tail + 2; // = 6
         let mut messages: Vec<Message> = (0..min_messages)
             .map(|i| Message {
-                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: vec![ContentBlock::Text {
                     text: format!("msg {}", i),
                 }],

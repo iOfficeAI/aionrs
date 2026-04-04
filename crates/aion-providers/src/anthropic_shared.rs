@@ -64,28 +64,26 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
         // Strip patterns from text content
         if let Some(patterns) = &compat.strip_patterns {
             for item in &mut content {
-                if item["type"] == "text" {
-                    if let Some(text) = item["text"].as_str() {
-                        let mut cleaned = text.to_string();
-                        for pattern in patterns {
-                            cleaned = cleaned.replace(pattern, "");
-                        }
-                        item["text"] = json!(cleaned);
+                if item["type"] == "text"
+                    && let Some(text) = item["text"].as_str()
+                {
+                    let mut cleaned = text.to_string();
+                    for pattern in patterns {
+                        cleaned = cleaned.replace(pattern, "");
                     }
+                    item["text"] = json!(cleaned);
                 }
             }
         }
 
         // Merge consecutive messages with the same role (if enabled)
-        if compat.merge_same_role() {
-            if let Some(last) = result.last_mut() {
-                if last["role"].as_str() == Some(role_str) {
-                    if let Some(arr) = last["content"].as_array_mut() {
-                        arr.extend(content);
-                        continue;
-                    }
-                }
-            }
+        if compat.merge_same_role()
+            && let Some(last) = result.last_mut()
+            && last["role"].as_str() == Some(role_str)
+            && let Some(arr) = last["content"].as_array_mut()
+        {
+            arr.extend(content);
+            continue;
         }
 
         result.push(json!({
@@ -188,6 +186,12 @@ pub struct StreamState {
     pub cache_read_tokens: u64,
 }
 
+impl Default for StreamState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamState {
     pub fn new() -> Self {
         Self {
@@ -256,12 +260,9 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
         "message_start" => {
             if let Some(usage) = json.get("message").and_then(|m| m.get("usage")) {
                 state.input_tokens = usage["input_tokens"].as_u64().unwrap_or(0);
-                state.cache_creation_tokens = usage["cache_creation_input_tokens"]
-                    .as_u64()
-                    .unwrap_or(0);
-                state.cache_read_tokens = usage["cache_read_input_tokens"]
-                    .as_u64()
-                    .unwrap_or(0);
+                state.cache_creation_tokens =
+                    usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+                state.cache_read_tokens = usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
             }
         }
 
@@ -303,10 +304,8 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
 
         "content_block_stop" => {
             if state.current_block_type.as_deref() == Some("tool_use") {
-                let input: Value =
-                    serde_json::from_str(&state.tool_input_json).unwrap_or(Value::Object(
-                        serde_json::Map::new(),
-                    ));
+                let input: Value = serde_json::from_str(&state.tool_input_json)
+                    .unwrap_or(Value::Object(serde_json::Map::new()));
                 events.push(LlmEvent::ToolUse {
                     id: state.tool_id.clone(),
                     name: state.tool_name.clone(),
@@ -361,7 +360,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     use aion_types::tool::ToolDef;
     use serde_json::json;
 
@@ -658,10 +657,7 @@ mod tests {
         // assert
         assert_eq!(events.len(), 1);
         match &events[0] {
-            LlmEvent::Done {
-                stop_reason,
-                usage,
-            } => {
+            LlmEvent::Done { stop_reason, usage } => {
                 assert_eq!(*stop_reason, StopReason::EndTurn);
                 assert_eq!(usage.output_tokens, 42);
             }

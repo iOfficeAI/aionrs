@@ -3,8 +3,8 @@ mod common;
 use std::sync::Arc;
 
 use aion_agent::engine::{AgentEngine, AgentError};
-use aion_agent::output::terminal::TerminalSink;
 use aion_agent::output::OutputSink;
+use aion_agent::output::terminal::TerminalSink;
 use aion_agent::session::SessionManager;
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::LlmEvent;
@@ -91,7 +91,10 @@ async fn test_engine_tool_use_executes_and_continues() {
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
-    let result = engine.run("Use the tool", "").await.expect("engine should succeed");
+    let result = engine
+        .run("Use the tool", "")
+        .await
+        .expect("engine should succeed");
 
     assert_eq!(result.turns, 2);
     assert_eq!(result.text, "Done");
@@ -124,7 +127,10 @@ async fn test_engine_max_tokens_handling() {
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
-    let result = engine.run("Give me a long answer", "").await.expect("engine should succeed");
+    let result = engine
+        .run("Give me a long answer", "")
+        .await
+        .expect("engine should succeed");
 
     assert_eq!(result.stop_reason, StopReason::MaxTokens);
     assert_eq!(result.text, "partial");
@@ -186,8 +192,14 @@ async fn test_engine_message_accumulation() {
         .init_session("test-provider", "/tmp", None)
         .expect("init_session should succeed");
 
-    engine.run("First message", "").await.expect("first run should succeed");
-    engine.run("Second message", "").await.expect("second run should succeed");
+    engine
+        .run("First message", "")
+        .await
+        .expect("first run should succeed");
+    engine
+        .run("Second message", "")
+        .await
+        .expect("second run should succeed");
 
     // Load the persisted session and count accumulated messages
     let session_manager = SessionManager::new(dir.path().to_path_buf(), 10);
@@ -250,10 +262,19 @@ async fn test_engine_token_usage_tracking() {
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
-    let result = engine.run("Do work", "").await.expect("engine should succeed");
+    let result = engine
+        .run("Do work", "")
+        .await
+        .expect("engine should succeed");
 
-    assert_eq!(result.usage.input_tokens, 180, "input tokens should accumulate across turns");
-    assert_eq!(result.usage.output_tokens, 80, "output tokens should accumulate across turns");
+    assert_eq!(
+        result.usage.input_tokens, 180,
+        "input tokens should accumulate across turns"
+    );
+    assert_eq!(
+        result.usage.output_tokens, 80,
+        "output tokens should accumulate across turns"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -288,7 +309,10 @@ async fn test_engine_max_turns_exceeded() {
         ]
     };
 
-    let provider = Arc::new(MockLlmProvider::with_turns(vec![tool_use_turn(), tool_use_turn()]));
+    let provider = Arc::new(MockLlmProvider::with_turns(vec![
+        tool_use_turn(),
+        tool_use_turn(),
+    ]));
 
     let mut config = test_config();
     config.max_turns = 1;

@@ -102,12 +102,7 @@ impl Tool for SpawnTool {
                 let status = if r.is_error { "ERROR" } else { "OK" };
                 format!(
                     "## {} [{}]\n{}\n[turns: {} | tokens: {} in / {} out]",
-                    r.name,
-                    status,
-                    r.text,
-                    r.turns,
-                    r.usage.input_tokens,
-                    r.usage.output_tokens
+                    r.name, status, r.text, r.turns, r.usage.input_tokens, r.usage.output_tokens
                 )
             })
             .collect();
@@ -125,7 +120,10 @@ impl Tool for SpawnTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let task = input.get("task").and_then(|v| v.as_str()).unwrap_or("sub-agent");
+        let task = input
+            .get("task")
+            .and_then(|v| v.as_str())
+            .unwrap_or("sub-agent");
         let display = if task.len() > 80 { &task[..80] } else { task };
         format!("Spawn: {}", display)
     }

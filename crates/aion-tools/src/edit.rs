@@ -128,7 +128,10 @@ impl Tool for EditTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let path = input.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let path = input
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
         format!("Edit {}", path)
     }
 }

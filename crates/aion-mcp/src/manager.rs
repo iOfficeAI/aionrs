@@ -4,11 +4,11 @@ use serde_json::json;
 
 use crate::config::{McpServerConfig, TransportType};
 use crate::protocol::{
-    ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, JsonRpcRequest,
-    McpToolDef, McpToolResult, ToolsListResult,
+    ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, JsonRpcRequest, McpToolDef,
+    McpToolResult, ToolsListResult,
 };
-use crate::transport::stdio::StdioTransport;
 use crate::transport::sse::SseTransport;
+use crate::transport::stdio::StdioTransport;
 use crate::transport::streamable_http::StreamableHttpTransport;
 use crate::transport::{McpError, McpTransport};
 
@@ -27,9 +27,7 @@ pub struct McpManager {
 
 impl McpManager {
     /// Connect to all configured MCP servers
-    pub async fn connect_all(
-        configs: &HashMap<String, McpServerConfig>,
-    ) -> Result<Self, McpError> {
+    pub async fn connect_all(configs: &HashMap<String, McpServerConfig>) -> Result<Self, McpError> {
         let mut servers = HashMap::new();
 
         for (name, config) in configs {
@@ -53,19 +51,15 @@ impl McpManager {
     }
 
     /// Connect to a single MCP server: create transport, initialize, discover tools
-    async fn connect_server(
-        name: &str,
-        config: &McpServerConfig,
-    ) -> Result<McpServer, McpError> {
+    async fn connect_server(name: &str, config: &McpServerConfig) -> Result<McpServer, McpError> {
         let empty_map = HashMap::new();
 
         // 1. Create transport
         let transport: Box<dyn McpTransport> = match config.transport {
             TransportType::Stdio => {
-                let command = config
-                    .command
-                    .as_deref()
-                    .ok_or_else(|| McpError::InitFailed("stdio transport requires 'command'".into()))?;
+                let command = config.command.as_deref().ok_or_else(|| {
+                    McpError::InitFailed("stdio transport requires 'command'".into())
+                })?;
                 let args = config.args.as_deref().unwrap_or(&[]);
                 let env = config.env.as_ref().unwrap_or(&empty_map);
                 Box::new(StdioTransport::spawn(command, args, env).await?)
@@ -79,10 +73,9 @@ impl McpManager {
                 Box::new(SseTransport::connect(url, headers).await?)
             }
             TransportType::StreamableHttp => {
-                let url = config
-                    .url
-                    .as_deref()
-                    .ok_or_else(|| McpError::InitFailed("streamable-http transport requires 'url'".into()))?;
+                let url = config.url.as_deref().ok_or_else(|| {
+                    McpError::InitFailed("streamable-http transport requires 'url'".into())
+                })?;
                 let headers = config.headers.as_ref().unwrap_or(&empty_map);
                 Box::new(StreamableHttpTransport::connect(url, headers).await?)
             }

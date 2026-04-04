@@ -6,6 +6,11 @@ pub struct ToolRegistry {
     tools: Vec<Box<dyn Tool>>,
 }
 
+impl Default for ToolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl ToolRegistry {
     pub fn new() -> Self {
         Self { tools: Vec::new() }
@@ -44,10 +49,10 @@ impl ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
-    use aion_protocol::events::ToolCategory;
     use crate::Tool;
+    use aion_protocol::events::ToolCategory;
     use aion_types::tool::ToolResult;
+    use async_trait::async_trait;
 
     /// A minimal Tool implementation used only in tests
     struct MockTool {
@@ -74,7 +79,10 @@ mod tests {
         }
 
         async fn execute(&self, _input: serde_json::Value) -> ToolResult {
-            ToolResult { content: "ok".to_string(), is_error: false }
+            ToolResult {
+                content: "ok".to_string(),
+                is_error: false,
+            }
         }
 
         fn category(&self) -> ToolCategory {
@@ -96,7 +104,10 @@ mod tests {
         registry.register(make_tool("my_tool", "does something"));
 
         let found = registry.get("my_tool");
-        assert!(found.is_some(), "registered tool should be retrievable by name");
+        assert!(
+            found.is_some(),
+            "registered tool should be retrievable by name"
+        );
         assert_eq!(found.unwrap().name(), "my_tool");
     }
 
@@ -105,7 +116,10 @@ mod tests {
         let registry = ToolRegistry::new();
 
         let result = registry.get("ghost");
-        assert!(result.is_none(), "looking up an unregistered name should return None");
+        assert!(
+            result.is_none(),
+            "looking up an unregistered name should return None"
+        );
     }
 
     #[test]
@@ -127,7 +141,11 @@ mod tests {
         registry.register(make_tool("tool_b", "description B"));
 
         let defs = registry.to_tool_defs();
-        assert_eq!(defs.len(), 2, "to_tool_defs should return one entry per registered tool");
+        assert_eq!(
+            defs.len(),
+            2,
+            "to_tool_defs should return one entry per registered tool"
+        );
 
         // Collect (name, description) pairs for assertion independent of order
         let mut pairs: Vec<(&str, &str)> = defs

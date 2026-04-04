@@ -101,6 +101,7 @@ impl VcrLayer {
     }
 
     /// Record an interaction (only in record mode)
+    #[allow(clippy::too_many_arguments)]
     pub fn record_interaction(
         &self,
         method: &str,
@@ -178,7 +179,11 @@ impl VcrLayer {
 
             let json = serde_json::to_string_pretty(&*cassette)?;
             std::fs::write(path, json)?;
-            eprintln!("[vcr] Saved {} interactions to {}", cassette.interactions.len(), path.display());
+            eprintln!(
+                "[vcr] Saved {} interactions to {}",
+                cassette.interactions.len(),
+                path.display()
+            );
         }
         Ok(())
     }

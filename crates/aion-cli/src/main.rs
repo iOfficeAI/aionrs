@@ -2,34 +2,38 @@ use std::sync::Arc;
 
 use clap::Parser;
 
+use aion_agent::context;
+use aion_agent::engine::AgentEngine;
+use aion_agent::output::OutputSink;
+use aion_agent::output::protocol_sink::ProtocolSink;
+use aion_agent::output::terminal::TerminalSink;
 use aion_agent::spawner::AgentSpawner;
 use aion_config::auth;
 use aion_config::config::{self, CliArgs, Config};
-use aion_agent::context;
-use aion_agent::engine::AgentEngine;
 use aion_mcp::manager::McpManager;
 use aion_mcp::tool_proxy::register_mcp_tools;
-use aion_agent::output::protocol_sink::ProtocolSink;
-use aion_agent::output::terminal::TerminalSink;
-use aion_agent::output::OutputSink;
-use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 use aion_protocol::commands::ProtocolCommand;
+use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 
+use aion_agent::session;
+use aion_agent::spawn_tool::SpawnTool;
 use aion_protocol::reader::spawn_stdin_reader;
 use aion_protocol::writer::ProtocolWriter;
 use aion_providers::create_provider;
-use aion_agent::session;
 use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
 use aion_tools::glob::GlobTool;
 use aion_tools::grep::GrepTool;
 use aion_tools::read::ReadTool;
 use aion_tools::registry::ToolRegistry;
-use aion_agent::spawn_tool::SpawnTool;
 use aion_tools::write::WriteTool;
 
 #[derive(Parser)]
-#[command(name = "aionrs", about = "A multi-provider AI agent CLI with tool orchestration support", version)]
+#[command(
+    name = "aionrs",
+    about = "A multi-provider AI agent CLI with tool orchestration support",
+    version
+)]
 struct Cli {
     /// Provider: "anthropic" or "openai"
     #[arg(short, long, env = "PROVIDER")]
@@ -157,9 +161,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut config = Config::resolve(&cli_args)?;
 
-    let cwd = std::env::current_dir()?
-        .to_string_lossy()
-        .to_string();
+    let cwd = std::env::current_dir()?.to_string_lossy().to_string();
 
     // Handle --list-sessions
     if cli.list_sessions {
@@ -171,7 +173,10 @@ async fn main() -> anyhow::Result<()> {
         if sessions.is_empty() {
             eprintln!("No saved sessions.");
         } else {
-            eprintln!("{:<8} {:<12} {:<30} {:>5}  {}", "ID", "Date", "Model", "Msgs", "Summary");
+            eprintln!(
+                "{:<8} {:<12} {:<30} {:>5}  Summary",
+                "ID", "Date", "Model", "Msgs"
+            );
             for s in &sessions {
                 eprintln!(
                     "{:<8} {:<12} {:<30} {:>5}  {}",
@@ -222,14 +227,19 @@ async fn main() -> anyhow::Result<()> {
     let provider = create_provider(&config);
 
     // Register SpawnTool (sub-agent spawning)
-    let spawner = Arc::new(AgentSpawner::new(
-        provider.clone(),
-        config.clone(),
-    ));
+    let spawner = Arc::new(AgentSpawner::new(provider.clone(), config.clone()));
     registry.register(Box::new(SpawnTool::new(spawner)));
 
     if cli.json_stream {
-        return run_json_stream_mode(config, registry, provider, mcp_manager, cli.resume, cli.session_id).await;
+        return run_json_stream_mode(
+            config,
+            registry,
+            provider,
+            mcp_manager,
+            cli.resume,
+            cli.session_id,
+        )
+        .await;
     }
 
     let provider_name = format!("{:?}", config.provider).to_lowercase();
@@ -358,7 +368,11 @@ async fn run_json_stream_mode(
 
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
-            ProtocolCommand::Message { msg_id, input, files: _ } => {
+            ProtocolCommand::Message {
+                msg_id,
+                input,
+                files: _,
+            } => {
                 let engine_fut = engine.run(&input, &msg_id);
                 tokio::pin!(engine_fut);
 

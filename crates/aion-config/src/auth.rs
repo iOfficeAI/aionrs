@@ -140,10 +140,7 @@ impl OAuthManager {
                 .form(&[
                     ("client_id", self.config.client_id.as_str()),
                     ("device_code", device_resp.device_code.as_str()),
-                    (
-                        "grant_type",
-                        "urn:ietf:params:oauth:grant-type:device_code",
-                    ),
+                    ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ])
                 .send()
                 .await?;
@@ -156,8 +153,7 @@ impl OAuthManager {
                 let credentials = OAuthCredentials {
                     access_token: token.access_token,
                     refresh_token: token.refresh_token,
-                    expires_at: Utc::now()
-                        + chrono::Duration::seconds(token.expires_in as i64),
+                    expires_at: Utc::now() + chrono::Duration::seconds(token.expires_in as i64),
                     token_type: token.token_type,
                 };
                 self.save_credentials(&credentials)?;
@@ -203,9 +199,7 @@ impl OAuthManager {
             return Ok(new_creds.access_token);
         }
 
-        anyhow::bail!(
-            "Token expired and no refresh token available. Run 'aionrs --login'"
-        )
+        anyhow::bail!("Token expired and no refresh token available. Run 'aionrs --login'")
     }
 
     /// Refresh the access token
@@ -305,9 +299,7 @@ mod tests {
         assert_eq!(loaded.refresh_token, Some("test-refresh-token".to_string()));
         assert_eq!(loaded.token_type, "Bearer");
         // Allow 1 second tolerance for serialization round-trip
-        let diff = (loaded.expires_at - creds.expires_at)
-            .num_seconds()
-            .abs();
+        let diff = (loaded.expires_at - creds.expires_at).num_seconds().abs();
         assert!(diff <= 1, "expires_at mismatch: diff={diff}s");
     }
 

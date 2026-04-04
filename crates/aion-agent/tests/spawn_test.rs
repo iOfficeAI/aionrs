@@ -80,15 +80,13 @@ async fn test_spawn_parallel_agents() {
         assert!(
             !result.is_error,
             "sub-agent '{}' returned an error: {}",
-            result.name,
-            result.text
+            result.name, result.text
         );
     }
 
     // Each result should contain one of the expected texts (order may vary due
     // to concurrent scheduling, so we just verify the full set is covered).
-    let texts: std::collections::HashSet<&str> =
-        results.iter().map(|r| r.text.as_str()).collect();
+    let texts: std::collections::HashSet<&str> = results.iter().map(|r| r.text.as_str()).collect();
     assert!(texts.contains("result-A"), "missing result-A");
     assert!(texts.contains("result-B"), "missing result-B");
     assert!(texts.contains("result-C"), "missing result-C");

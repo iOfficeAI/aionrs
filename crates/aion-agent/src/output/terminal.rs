@@ -48,8 +48,13 @@ impl OutputSink for TerminalSink {
         cache_creation_tokens: u64,
         cache_read_tokens: u64,
     ) {
-        self.formatter
-            .turn_stats(turns, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens);
+        self.formatter.turn_stats(
+            turns,
+            input_tokens,
+            output_tokens,
+            cache_creation_tokens,
+            cache_read_tokens,
+        );
     }
 
     fn emit_error(&self, msg: &str) {
