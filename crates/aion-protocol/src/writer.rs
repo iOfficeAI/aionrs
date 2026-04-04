@@ -8,6 +8,12 @@ pub struct ProtocolWriter {
     writer: Mutex<BufWriter<Stdout>>,
 }
 
+impl Default for ProtocolWriter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProtocolWriter {
     pub fn new() -> Self {
         Self {
@@ -54,4 +60,3 @@ mod tests {
         let _ = writer.emit(&event);
     }
 }
-

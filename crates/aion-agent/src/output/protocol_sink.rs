@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use aion_protocol::events::{
-    Capabilities, ErrorInfo, ProtocolEvent, Usage,
-};
+use aion_protocol::events::{Capabilities, ErrorInfo, ProtocolEvent, Usage};
 use aion_protocol::writer::ProtocolWriter;
 
 use super::OutputSink;
@@ -19,7 +17,7 @@ impl ProtocolSink {
 
     /// Emit the ready event at session start
     pub fn emit_ready(&self, has_mcp: bool, session_id: Option<String>) {
-        self.writer.emit(&ProtocolEvent::Ready {
+        let _ = self.writer.emit(&ProtocolEvent::Ready {
             version: env!("CARGO_PKG_VERSION").to_string(),
             session_id,
             capabilities: Capabilities {
@@ -38,14 +36,14 @@ impl ProtocolSink {
 
 impl OutputSink for ProtocolSink {
     fn emit_text_delta(&self, text: &str, msg_id: &str) {
-        self.writer.emit(&ProtocolEvent::TextDelta {
+        let _ = self.writer.emit(&ProtocolEvent::TextDelta {
             text: text.to_string(),
             msg_id: msg_id.to_string(),
         });
     }
 
     fn emit_thinking(&self, text: &str, msg_id: &str) {
-        self.writer.emit(&ProtocolEvent::Thinking {
+        let _ = self.writer.emit(&ProtocolEvent::Thinking {
             text: text.to_string(),
             msg_id: msg_id.to_string(),
         });
@@ -54,7 +52,7 @@ impl OutputSink for ProtocolSink {
     fn emit_tool_call(&self, name: &str, _input: &str) {
         // In protocol mode, tool_call is handled by tool_request/tool_running events.
         // This is a fallback for compatibility.
-        self.writer.emit(&ProtocolEvent::Info {
+        let _ = self.writer.emit(&ProtocolEvent::Info {
             msg_id: String::new(),
             message: format!("Tool call: {name}"),
         });
@@ -64,14 +62,14 @@ impl OutputSink for ProtocolSink {
         // In protocol mode, tool results are emitted via explicit ToolResult events
         // with call_id. This fallback emits an info event.
         let status = if is_error { "error" } else { "success" };
-        self.writer.emit(&ProtocolEvent::Info {
+        let _ = self.writer.emit(&ProtocolEvent::Info {
             msg_id: String::new(),
             message: format!("[{name} {status}] {content}"),
         });
     }
 
     fn emit_stream_start(&self, msg_id: &str) {
-        self.writer.emit(&ProtocolEvent::StreamStart {
+        let _ = self.writer.emit(&ProtocolEvent::StreamStart {
             msg_id: msg_id.to_string(),
         });
     }
@@ -85,7 +83,7 @@ impl OutputSink for ProtocolSink {
         cache_creation_tokens: u64,
         cache_read_tokens: u64,
     ) {
-        self.writer.emit(&ProtocolEvent::StreamEnd {
+        let _ = self.writer.emit(&ProtocolEvent::StreamEnd {
             msg_id: msg_id.to_string(),
             usage: Some(Usage {
                 input_tokens,
@@ -105,7 +103,7 @@ impl OutputSink for ProtocolSink {
     }
 
     fn emit_error(&self, msg: &str) {
-        self.writer.emit(&ProtocolEvent::Error {
+        let _ = self.writer.emit(&ProtocolEvent::Error {
             msg_id: None,
             error: ErrorInfo {
                 code: "engine_error".to_string(),
@@ -116,7 +114,7 @@ impl OutputSink for ProtocolSink {
     }
 
     fn emit_info(&self, msg: &str) {
-        self.writer.emit(&ProtocolEvent::Info {
+        let _ = self.writer.emit(&ProtocolEvent::Info {
             msg_id: String::new(),
             message: msg.to_string(),
         });

@@ -178,12 +178,10 @@ fn strip_additional_properties(val: &mut Value) {
 fn normalize_array_types(val: &mut Value) {
     if let Some(obj) = val.as_object_mut() {
         // Normalize ["string", "null"] → "string"
-        if let Some(type_val) = obj.get("type").cloned() {
-            if let Some(arr) = type_val.as_array() {
-                let non_null: Vec<&Value> = arr.iter().filter(|v| v.as_str() != Some("null")).collect();
-                if non_null.len() == 1 {
-                    obj.insert("type".to_string(), non_null[0].clone());
-                }
+        if let Some(arr) = obj.get("type").and_then(Value::as_array) {
+            let non_null: Vec<&Value> = arr.iter().filter(|v| v.as_str() != Some("null")).collect();
+            if non_null.len() == 1 {
+                obj.insert("type".to_string(), non_null[0].clone());
             }
         }
         for v in obj.values_mut() {
@@ -241,7 +239,10 @@ mod tests {
         };
 
         let merged = ProviderCompat::merge(defaults, user);
-        assert_eq!(merged.max_tokens_field.as_deref(), Some("max_completion_tokens"));
+        assert_eq!(
+            merged.max_tokens_field.as_deref(),
+            Some("max_completion_tokens")
+        );
         assert!(!merged.merge_assistant_messages());
         // Non-overridden fields keep defaults
         assert!(merged.clean_orphan_tool_calls());
@@ -280,7 +281,9 @@ mod tests {
         let sanitized = sanitize_json_schema(&schema);
 
         assert!(sanitized.get("additionalProperties").is_none());
-        assert!(sanitized["properties"]["name"].get("additionalProperties").is_none());
+        assert!(sanitized["properties"]["name"]
+            .get("additionalProperties")
+            .is_none());
     }
 
     #[test]
@@ -319,9 +322,15 @@ merge_assistant_messages = true
 strip_patterns = ["__REASONING__"]
 "#;
         let compat: ProviderCompat = toml::from_str(toml_str).unwrap();
-        assert_eq!(compat.max_tokens_field.as_deref(), Some("max_completion_tokens"));
+        assert_eq!(
+            compat.max_tokens_field.as_deref(),
+            Some("max_completion_tokens")
+        );
         assert_eq!(compat.merge_assistant_messages, Some(true));
-        assert_eq!(compat.strip_patterns, Some(vec!["__REASONING__".to_string()]));
+        assert_eq!(
+            compat.strip_patterns,
+            Some(vec!["__REASONING__".to_string()])
+        );
         assert!(compat.clean_orphan_tool_calls.is_none());
     }
 }

@@ -78,10 +78,13 @@ impl ToolApprovalManager {
     }
 
     pub fn resolve(&self, call_id: &str, result: ToolApprovalResult) {
-        if let Ok(mut pending) = self.pending.lock() {
-            if let Some(pending) = pending.remove(call_id) {
-                let _ = pending.tx.send(result);
-            }
+        if let Some(pending) = self
+            .pending
+            .lock()
+            .ok()
+            .and_then(|mut pending| pending.remove(call_id))
+        {
+            let _ = pending.tx.send(result);
         }
     }
 
