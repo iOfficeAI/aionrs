@@ -1,0 +1,43 @@
+[package]
+name = "aion-agent"
+description = "Agent engine, session management, output sinks, and orchestration for aionrs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aion-types.workspace     = true
+aion-protocol.workspace  = true
+aion-config.workspace    = true
+aion-providers.workspace = true
+aion-tools.workspace     = true
+aion-mcp.workspace       = true
+
+tokio.workspace       = true
+futures.workspace     = true
+serde.workspace       = true
+serde_json.workspace  = true
+async-trait.workspace = true
+anyhow.workspace      = true
+thiserror.workspace   = true
+glob.workspace        = true
+chrono.workspace      = true
+crossterm.workspace   = true
+is-terminal.workspace = true
+
+workspace-hack.workspace = true
+
+[dev-dependencies]
+wiremock.workspace   = true
+tokio-test.workspace = true
+tempfile.workspace   = true
+mockall.workspace    = true
+rstest.workspace     = true
+
+# ── Integration test binaries ──────────────────────────────────────────────
+[[test]]
+name = "e2e"
+path = "tests/e2e/mod.rs"
+# E2E tests require real API keys; run via: cargo nextest run --profile e2e --test e2e
+

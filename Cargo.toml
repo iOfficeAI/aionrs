@@ -1,23 +1,42 @@
-[package]
-name = "aionrs"
-version = "0.1.1"
+[workspace]
+resolver = "2"
+members = [
+    "crates/aion-types",
+    "crates/aion-protocol",
+    "crates/aion-config",
+    "crates/aion-providers",
+    "crates/aion-tools",
+    "crates/aion-mcp",
+    "crates/aion-agent",
+    "crates/aion-cli",
+    "workspace-hack",
+]
+
+[workspace.package]
+version = "0.2.0"
 edition = "2024"
-description = "A multi-provider AI agent CLI with tool orchestration support"
 license = "Apache-2.0"
 repository = "https://github.com/iOfficeAI/aionrs"
-keywords = ["ai", "agent", "cli", "llm", "anthropic"]
-categories = ["command-line-utilities"]
 
-[dependencies]
+[workspace.dependencies]
+# Internal crates
+aion-types     = { path = "crates/aion-types" }
+aion-protocol  = { path = "crates/aion-protocol" }
+aion-config    = { path = "crates/aion-config" }
+aion-providers = { path = "crates/aion-providers" }
+aion-tools     = { path = "crates/aion-tools" }
+aion-mcp       = { path = "crates/aion-mcp" }
+aion-agent     = { path = "crates/aion-agent" }
+
 # Async runtime
-tokio = { version = "1", features = ["full"] }
+tokio   = { version = "1", features = ["full"] }
 futures = "0.3"
 
 # HTTP client
 reqwest = { version = "0.12", features = ["json", "stream"] }
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
+serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Async trait support
@@ -28,7 +47,7 @@ clap = { version = "4", features = ["derive", "env"] }
 
 # Error handling
 thiserror = "2"
-anyhow = "1"
+anyhow    = "1"
 
 # File globbing
 glob = "0.3"
@@ -49,22 +68,26 @@ crossterm = "0.28"
 is-terminal = "0.4"
 
 # AWS SigV4 signing (for Bedrock provider)
-aws-sigv4 = "1"
+aws-sigv4            = "1"
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
-aws-config = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-sts = "1"
+aws-config           = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-sts          = "1"
 
 # JWT creation (for Vertex GCP service account auth)
 jsonwebtoken = "9"
 
-# Base64 encoding (for various auth encodings)
+# Base64 encoding
 base64 = "0.22"
 
 # URL parsing
 url = "2"
 
-[dev-dependencies]
-wiremock = "0.6"
+# workspace-hack (managed by cargo-hakari for build speed)
+workspace-hack = { path = "workspace-hack" }
+
+# Test utilities
+wiremock   = "0.6"
 tokio-test = "0.4"
-tempfile = "3"
-mockall = "0.13"
+tempfile   = "3"
+mockall    = "0.13"
+rstest     = "0.23"

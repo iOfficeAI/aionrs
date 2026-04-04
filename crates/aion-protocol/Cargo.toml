@@ -1,0 +1,19 @@
+[package]
+name = "aion-protocol"
+description = "JSON stream protocol (events, commands, approval manager) for aionrs host integration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aion-types.workspace = true
+
+serde.workspace      = true
+serde_json.workspace = true
+tokio.workspace      = true
+
+workspace-hack.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true

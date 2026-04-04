@@ -1,0 +1,139 @@
+name: E2E Tests
+
+# E2E tests call real LLM APIs. They run:
+#   1. Manually via workflow_dispatch (any branch)
+#   2. Automatically on push to main (requires secrets to be configured)
+#
+# On forks / PRs the secrets are not available — tests gracefully skip
+# themselves when the API key env var is absent.
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Provider to test (anthropic / openai / all)"
+        required: false
+        default: "all"
+        type: choice
+        options: [all, anthropic, openai]
+  push:
+    branches: [main]
+    paths:
+      # Only re-run e2e when provider or agent code changes
+      - "crates/aion-providers/**"
+      - "crates/aion-agent/**"
+      - "crates/aion-config/**"
+      - "crates/aion-types/**"
+      - ".github/workflows/e2e.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E (${{ matrix.provider }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - provider: anthropic
+            secret_name: ANTHROPIC_API_KEY
+            filter: "test(anthropic)"
+          - provider: openai
+            secret_name: OPENAI_API_KEY
+            filter: "test(openai)"
+
+    # Skip the matrix leg when the workflow_dispatch limits to a single provider
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      github.event.inputs.provider == 'all' ||
+      github.event.inputs.provider == matrix.provider
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust 1.93.1
+        uses: dtolnay/rust-toolchain@1.93.1
+
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: e2e-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: e2e-${{ runner.os }}-
+
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      # Check whether the secret is available before running
+      - name: Check API key availability
+        id: check_key
+        env:
+          API_KEY: ${{ secrets[matrix.secret_name] }}
+        run: |
+          if [ -z "$API_KEY" ]; then
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::${{ matrix.secret_name }} is not set — skipping ${{ matrix.provider }} e2e tests"
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run E2E tests — ${{ matrix.provider }}
+        if: steps.check_key.outputs.available == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ matrix.provider == 'anthropic' && secrets.ANTHROPIC_API_KEY || '' }}
+          OPENAI_API_KEY:    ${{ matrix.provider == 'openai'    && secrets.OPENAI_API_KEY    || '' }}
+        run: |
+          cargo nextest run \
+            -p aion-agent \
+            --profile e2e \
+            --test e2e \
+            -E '${{ matrix.filter }}' \
+            --no-fail-fast
+
+      - name: Upload E2E JUnit report
+        if: always() && steps.check_key.outputs.available == 'true'
+        uses: actions/upload-artifact@v6
+        with:
+          name: e2e-junit-${{ matrix.provider }}
+          path: target/nextest/e2e/junit.xml
+          if-no-files-found: ignore
+
+  # ── Annotate PR / commit with E2E results ─────────────────────────────
+  report:
+    needs: e2e
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download E2E JUnit reports
+        uses: actions/download-artifact@v6
+        with:
+          pattern: e2e-junit-*
+          merge-multiple: true
+          path: e2e-reports
+        continue-on-error: true
+
+      - name: Publish E2E test report
+        uses: dorny/test-reporter@v2
+        if: hashFiles('e2e-reports/**/*.xml') != ''
+        with:
+          name: E2E Tests
+          path: e2e-reports/**/*.xml
+          reporter: java-junit
+          fail-on-error: false

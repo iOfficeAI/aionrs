@@ -1,0 +1,36 @@
+[package]
+name = "aion-providers"
+description = "LLM provider implementations for aionrs (Anthropic, OpenAI, Bedrock, Vertex)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aion-types.workspace  = true
+aion-config.workspace = true
+
+tokio.workspace        = true
+futures.workspace      = true
+reqwest.workspace      = true
+serde.workspace        = true
+serde_json.workspace   = true
+async-trait.workspace  = true
+thiserror.workspace    = true
+anyhow.workspace       = true
+dirs.workspace         = true
+url.workspace          = true
+base64.workspace       = true
+jsonwebtoken.workspace = true
+chrono.workspace       = true
+
+aws-sigv4.workspace            = true
+aws-credential-types.workspace = true
+aws-config.workspace           = true
+aws-sdk-sts.workspace          = true
+
+workspace-hack.workspace = true
+
+[dev-dependencies]
+wiremock.workspace   = true
+tokio-test.workspace = true

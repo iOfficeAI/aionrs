@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  checks: write      # required for test-reporter to post results
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Code quality + unit & integration tests ────────────────────────────
+  ci:
+    uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@v4
+    with:
+      rust-toolchain: 1.93.1
+
+      # Three-platform matrix: Linux / macOS / Windows
+      test-platforms: '["ubuntu-latest", "macos-latest", "windows-latest"]'
+      # nextest for fast parallel execution with the CI profile
+      use-nextest: true
+      # Pass --profile ci so nextest uses the CI-specific settings
+      test-args: "--profile ci"
+      # Security audit on every run
+      enable-audit: true
+      # Coverage only on push to main (PRs stay fast)
+      enable-coverage: ${{ github.event_name == 'push' }}
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # ── Upload nextest JUnit report as check annotations ──────────────────
+  report:
+    needs: ci
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      checks: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download nextest JUnit artifacts
+        uses: actions/download-artifact@v6
+        with:
+          pattern: nextest-junit-*
+          merge-multiple: true
+          path: junit-reports
+        continue-on-error: true   # artifact may not exist if ci was skipped
+
+      - name: Publish test report
+        uses: dorny/test-reporter@v2
+        if: hashFiles('junit-reports/**/*.xml') != ''
+        with:
+          name: Unit & Integration Tests
+          path: junit-reports/**/*.xml
+          reporter: java-junit
+          fail-on-error: false

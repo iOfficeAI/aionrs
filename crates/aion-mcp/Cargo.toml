@@ -1,0 +1,24 @@
+[package]
+name = "aion-mcp"
+description = "MCP (Model Context Protocol) client implementation for aionrs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+aion-types.workspace    = true
+aion-protocol.workspace = true
+aion-tools.workspace    = true
+aion-config.workspace   = true
+
+tokio.workspace       = true
+serde.workspace       = true
+serde_json.workspace  = true
+async-trait.workspace = true
+thiserror.workspace   = true
+anyhow.workspace      = true
+reqwest.workspace     = true
+futures.workspace     = true
+
+workspace-hack.workspace = true
