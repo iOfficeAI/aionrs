@@ -1,6 +1,6 @@
 [tools]
-just = "latest"
-rust = "stable"
+just = "1.48.1"
+rust = "1.93.1"
 
 [settings]
 # Automatically install missing tools when entering dev environment
@@ -23,7 +23,7 @@ format = "cargo fmt"
 hakari-generate = "just hakari-generate"
 hakari-verify = "just hakari-verify"
 lint = "cargo clippy"
-nextest = "just nextest"
+nextest = "cargo nextest"
 test = "cargo test"
 test-verbose = "just test-verbose"
 version = "just version"

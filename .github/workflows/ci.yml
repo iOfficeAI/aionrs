@@ -19,7 +19,8 @@ jobs:
   ci:
     uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-ci.yml@v4
     with:
-      rust-toolchain: stable
+      rust-toolchain: 1.93.1
+
       # Three-platform matrix: Linux / macOS / Windows
       test-platforms: '["ubuntu-latest", "macos-latest", "windows-latest"]'
       # nextest for fast parallel execution with the CI profile

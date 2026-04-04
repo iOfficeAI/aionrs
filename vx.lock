@@ -4,20 +4,20 @@
 version = 2
 
 [metadata]
-generated_at = "2026-04-03T23:22:14Z"
+generated_at = "2026-04-04T02:13:43Z"
 vx_version = "0.8.15"
 platform = "x86_64-pc-windows-msvc"
 
 [tools.just]
 version = "1.48.1"
 source = "generic"
-resolved_from = "latest"
+resolved_from = "1.48.1"
 ecosystem = "generic"
 download_url = "https://github.com/casey/just/releases/download/1.48.1/just-1.48.1-x86_64-pc-windows-msvc.zip"
 
 [tools.rust]
-version = "0.0.0"
+version = "1.93.1"
 source = "rust"
-resolved_from = "stable"
+resolved_from = "1.93.1"
 ecosystem = "rust"
 download_url = "https://github.com/rust-lang/rustup/releases/download/1.29.0/rustup-init-1.29.0-x86_64-pc-windows-msvc.exe"

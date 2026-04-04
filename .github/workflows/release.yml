@@ -18,5 +18,6 @@ jobs:
   release:
     uses: loonghao/rust-actions-toolkit/.github/workflows/reusable-release.yml@v4
     with:
-      rust-toolchain: stable
+      rust-toolchain: 1.93.1
+
       binary-name: aionrs
