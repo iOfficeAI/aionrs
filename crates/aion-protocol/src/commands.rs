@@ -74,8 +74,7 @@ mod tests {
 
     #[test]
     fn test_message_command_with_files() {
-        let json =
-            r#"{"type":"message","msg_id":"m2","input":"Read this","files":["/tmp/a.rs"]}"#;
+        let json = r#"{"type":"message","msg_id":"m2","input":"Read this","files":["/tmp/a.rs"]}"#;
         let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
         match cmd {
             ProtocolCommand::Message { files, .. } => {
