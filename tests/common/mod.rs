@@ -250,6 +250,7 @@ pub fn test_config() -> Config {
         tools: ToolsConfig {
             auto_approve: true,
             allow_list: vec![],
+            skills: aionrs::config::SkillsPermissionConfig::default(),
         },
         session: SessionConfig {
             enabled: false,

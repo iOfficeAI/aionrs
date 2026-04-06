@@ -5,6 +5,7 @@ use serde_json::{Value, json};
 
 use crate::protocol::events::ToolCategory;
 use crate::skills::executor::{check_execution_context, prepare_inline_content};
+use crate::skills::permissions::{SkillPermission, SkillPermissionChecker};
 use crate::skills::types::SkillMetadata;
 use crate::types::tool::{JsonSchema, ToolResult};
 
@@ -20,11 +21,13 @@ pub struct SkillTool {
     skills: Arc<Vec<SkillMetadata>>,
     /// Working directory for shell command execution inside skill content.
     cwd: String,
+    /// Permission checker for skill-level deny/allow rules.
+    checker: SkillPermissionChecker,
 }
 
 impl SkillTool {
-    pub fn new(skills: Arc<Vec<SkillMetadata>>, cwd: String) -> Self {
-        Self { skills, cwd }
+    pub fn new(skills: Arc<Vec<SkillMetadata>>, cwd: String, checker: SkillPermissionChecker) -> Self {
+        Self { skills, cwd, checker }
     }
 
     /// Find a skill by exact name (case-sensitive, leading `/` stripped).
@@ -107,6 +110,28 @@ impl Tool for SkillTool {
             };
         }
 
+        // Check skill-level permissions.
+        match self.checker.check(skill) {
+            SkillPermission::Deny => {
+                return ToolResult {
+                    content: format!("Skill '{}' is denied by configuration.", skill.name),
+                    is_error: true,
+                };
+            }
+            SkillPermission::Ask { reason } => {
+                return ToolResult {
+                    content: format!(
+                        "Skill '{}' requires user approval before execution. \
+                         {} \
+                         Please ask the user to approve this skill in their configuration.",
+                        skill.name, reason
+                    ),
+                    is_error: true,
+                };
+            }
+            SkillPermission::Allow => {}
+        }
+
         let args = input["args"].as_str();
         // session_id: None in Phase 3/4; wired in Phase 6
         let content = match prepare_inline_content(skill, args, None, &self.cwd).await {
@@ -147,6 +172,7 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skills::permissions::SkillPermissionChecker;
     use crate::skills::types::{ExecutionContext, LoadedFrom, SkillSource};
     use serde_json::json;
 
@@ -179,7 +205,7 @@ mod tests {
     }
 
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
-        SkillTool::new(Arc::new(skills), "/tmp".to_string())
+        SkillTool::new(Arc::new(skills), "/tmp".to_string(), SkillPermissionChecker::new(vec![], vec![], false))
     }
 
     #[tokio::test]
@@ -269,6 +295,7 @@ mod supplemental_tests {
 
     use serde_json::json;
 
+    use crate::skills::permissions::SkillPermissionChecker;
     use crate::skills::types::{
         ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
     };
@@ -305,7 +332,7 @@ mod supplemental_tests {
     }
 
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
-        SkillTool::new(Arc::new(skills), "/tmp".to_string())
+        SkillTool::new(Arc::new(skills), "/tmp".to_string(), SkillPermissionChecker::new(vec![], vec![], false))
     }
 
     // -----------------------------------------------------------------------
@@ -472,5 +499,80 @@ mod supplemental_tests {
     fn tc_14_2_empty_skills_description_no_panic() {
         let tool = tool_with(vec![]);
         assert!(!tool.description().is_empty());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Permission integration tests (P5-11, P5-12)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod permission_tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use crate::skills::permissions::SkillPermissionChecker;
+    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+
+    use super::SkillTool;
+    use crate::tools::Tool;
+
+    fn make_skill(name: &str, content: &str) -> SkillMetadata {
+        SkillMetadata {
+            name: name.to_string(),
+            display_name: None,
+            description: format!("desc of {name}"),
+            has_user_specified_description: true,
+            allowed_tools: vec![],
+            argument_hint: None,
+            argument_names: vec![],
+            when_to_use: None,
+            version: None,
+            model: None,
+            disable_model_invocation: false,
+            user_invocable: true,
+            execution_context: ExecutionContext::Inline,
+            agent: None,
+            effort: None,
+            shell: None,
+            paths: vec![],
+            hooks_raw: None,
+            source: SkillSource::User,
+            loaded_from: LoadedFrom::Skills,
+            content: content.to_string(),
+            content_length: content.len(),
+            skill_root: None,
+        }
+    }
+
+    // P5-11: SkillTool returns error for a denied skill.
+    #[tokio::test]
+    async fn p5_11_denied_skill_returns_error() {
+        let checker = SkillPermissionChecker::new(vec!["dangerous".to_string()], vec![], false);
+        let tool = SkillTool::new(
+            Arc::new(vec![make_skill("dangerous", "rm -rf /")]),
+            "/tmp".to_string(),
+            checker,
+        );
+        let result = tool.execute(json!({"skill": "dangerous"})).await;
+        assert!(result.is_error);
+        assert!(result.content.contains("denied"), "content: {}", result.content);
+    }
+
+    // P5-12: SkillTool returns informative message for a skill that needs approval.
+    #[tokio::test]
+    async fn p5_12_ask_skill_returns_approval_prompt() {
+        let checker = SkillPermissionChecker::new(vec![], vec![], false);
+        let mut skill = make_skill("hooked", "body");
+        skill.hooks_raw = Some(serde_json::json!({ "pre": "echo hi" }));
+        let tool = SkillTool::new(Arc::new(vec![skill]), "/tmp".to_string(), checker);
+        let result = tool.execute(json!({"skill": "hooked"})).await;
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("approval") || result.content.contains("approve"),
+            "content should mention approval: {}",
+            result.content
+        );
     }
 }

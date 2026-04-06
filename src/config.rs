@@ -93,12 +93,24 @@ pub struct ProfileConfig {
     pub compat: Option<ProviderCompat>,
 }
 
+/// Per-skill deny/allow rule lists loaded from `[tools.skills]` in config.toml.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct SkillsPermissionConfig {
+    #[serde(default)]
+    pub deny: Vec<String>,
+    #[serde(default)]
+    pub allow: Vec<String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ToolsConfig {
     #[serde(default)]
     pub auto_approve: bool,
     #[serde(default = "default_allow_list")]
     pub allow_list: Vec<String>,
+    /// Skill-level deny/allow rules. Merged by concatenation across global + project configs.
+    #[serde(default)]
+    pub skills: SkillsPermissionConfig,
 }
 
 impl Default for ToolsConfig {
@@ -106,6 +118,7 @@ impl Default for ToolsConfig {
         Self {
             auto_approve: false,
             allow_list: default_allow_list(),
+            skills: SkillsPermissionConfig::default(),
         }
     }
 }
@@ -448,16 +461,24 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
     let mut profiles = global.profiles;
     profiles.extend(project.profiles);
 
-    // Tools: project overrides global
+    // Tools: project overrides global for scalar fields; skills deny/allow are concatenated
+    // (global first, then project) — consistent with the hooks merge strategy.
     let tools = if project.tools.allow_list != default_allow_list() || project.tools.auto_approve {
-        project.tools
+        ToolsConfig {
+            auto_approve: global.tools.auto_approve || project.tools.auto_approve,
+            allow_list: project.tools.allow_list,
+            skills: SkillsPermissionConfig {
+                deny: [global.tools.skills.deny, project.tools.skills.deny].concat(),
+                allow: [global.tools.skills.allow, project.tools.skills.allow].concat(),
+            },
+        }
     } else {
         ToolsConfig {
             auto_approve: global.tools.auto_approve || project.tools.auto_approve,
-            allow_list: if project.tools.allow_list != default_allow_list() {
-                project.tools.allow_list
-            } else {
-                global.tools.allow_list
+            allow_list: global.tools.allow_list,
+            skills: SkillsPermissionConfig {
+                deny: [global.tools.skills.deny, project.tools.skills.deny].concat(),
+                allow: [global.tools.skills.allow, project.tools.skills.allow].concat(),
             },
         }
     };
@@ -867,6 +888,95 @@ mod tests {
         // Vertex uses GCP credentials, so an empty key is the expected success value.
         let result = resolve_api_key(None, None, ProviderType::Vertex).unwrap();
         assert_eq!(result, "");
+    }
+
+    // -------------------------------------------------------------------------
+    // P5-14: SkillsPermissionConfig TOML deserialization
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn test_merge_config_global_auto_approve_preserved_with_project_allow_list() {
+        let global = ConfigFile {
+            tools: ToolsConfig {
+                auto_approve: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let project = ConfigFile {
+            tools: ToolsConfig {
+                allow_list: vec!["Bash".into()], // non-default, triggers if branch
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let merged = merge_config_files(global, project);
+        assert!(merged.tools.auto_approve, "global auto_approve=true should be preserved");
+    }
+
+    #[test]
+    fn p5_14_skills_deny_allow_deserialized() {
+        let toml_str = r#"
+[tools]
+auto_approve = false
+allow_list = ["Read"]
+
+[tools.skills]
+deny = ["dangerous-skill", "admin:*"]
+allow = ["commit", "review-pr", "db:*"]
+"#;
+        let config: ConfigFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            config.tools.skills.deny,
+            vec!["dangerous-skill".to_string(), "admin:*".to_string()]
+        );
+        assert_eq!(
+            config.tools.skills.allow,
+            vec!["commit".to_string(), "review-pr".to_string(), "db:*".to_string()]
+        );
+    }
+
+    #[test]
+    fn p5_14_skills_defaults_to_empty() {
+        // When [tools.skills] is absent, deny and allow default to empty vecs.
+        let config: ConfigFile = toml::from_str("").unwrap();
+        assert!(config.tools.skills.deny.is_empty());
+        assert!(config.tools.skills.allow.is_empty());
+    }
+
+    #[test]
+    fn p5_14_merge_skills_concat() {
+        // global and project skills lists are concatenated.
+        let global = ConfigFile {
+            tools: ToolsConfig {
+                skills: SkillsPermissionConfig {
+                    deny: vec!["global-deny".to_string()],
+                    allow: vec!["global-allow".to_string()],
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let project = ConfigFile {
+            tools: ToolsConfig {
+                skills: SkillsPermissionConfig {
+                    deny: vec!["project-deny".to_string()],
+                    allow: vec!["project-allow".to_string()],
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let merged = merge_config_files(global, project);
+        assert_eq!(
+            merged.tools.skills.deny,
+            vec!["global-deny".to_string(), "project-deny".to_string()]
+        );
+        assert_eq!(
+            merged.tools.skills.allow,
+            vec!["global-allow".to_string(), "project-allow".to_string()]
+        );
     }
 
     // -------------------------------------------------------------------------
