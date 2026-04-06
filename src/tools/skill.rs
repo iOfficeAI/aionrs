@@ -13,16 +13,18 @@ use super::Tool;
 /// A tool that allows the LLM to invoke named skills.
 ///
 /// Each skill is looked up by name (exact match, leading `/` stripped),
-/// its content is prepared with variable substitution, and returned as a
-/// `ToolResult`.  The Skill list is injected into the system prompt in
-/// Phase 9; this tool's `description()` returns a fixed string.
+/// its content is prepared with variable substitution and shell execution,
+/// and returned as a `ToolResult`.  The Skill list is injected into the
+/// system prompt in Phase 9; this tool's `description()` returns a fixed string.
 pub struct SkillTool {
     skills: Arc<Vec<SkillMetadata>>,
+    /// Working directory for shell command execution inside skill content.
+    cwd: String,
 }
 
 impl SkillTool {
-    pub fn new(skills: Arc<Vec<SkillMetadata>>) -> Self {
-        Self { skills }
+    pub fn new(skills: Arc<Vec<SkillMetadata>>, cwd: String) -> Self {
+        Self { skills, cwd }
     }
 
     /// Find a skill by exact name (case-sensitive, leading `/` stripped).
@@ -106,8 +108,16 @@ impl Tool for SkillTool {
         }
 
         let args = input["args"].as_str();
-        // session_id: None in Phase 3; wired in Phase 6
-        let content = prepare_inline_content(skill, args, None);
+        // session_id: None in Phase 3/4; wired in Phase 6
+        let content = match prepare_inline_content(skill, args, None, &self.cwd).await {
+            Ok(c) => c,
+            Err(e) => {
+                return ToolResult {
+                    content: e.to_string(),
+                    is_error: true,
+                }
+            }
+        };
 
         ToolResult {
             content,
@@ -169,7 +179,7 @@ mod tests {
     }
 
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
-        SkillTool::new(Arc::new(skills))
+        SkillTool::new(Arc::new(skills), "/tmp".to_string())
     }
 
     #[tokio::test]
@@ -295,7 +305,7 @@ mod supplemental_tests {
     }
 
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
-        SkillTool::new(Arc::new(skills))
+        SkillTool::new(Arc::new(skills), "/tmp".to_string())
     }
 
     // -----------------------------------------------------------------------

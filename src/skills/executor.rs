@@ -1,3 +1,4 @@
+use crate::skills::shell::{ShellExecutionError, execute_shell_commands};
 use crate::skills::substitution::substitute_arguments;
 use crate::skills::types::{ExecutionContext, SkillMetadata};
 
@@ -6,13 +7,15 @@ use crate::skills::types::{ExecutionContext, SkillMetadata};
 /// Steps:
 /// 1. If the skill has a known `skill_root`, prepend a base-directory header.
 /// 2. Perform variable substitution (arguments + env vars).
+/// 3. Execute any embedded shell commands (skipped for MCP skills).
 ///
 /// The `session_id` is `None` in Phase 3; it will be wired in Phase 6.
-pub fn prepare_inline_content(
+pub async fn prepare_inline_content(
     skill: &SkillMetadata,
     args: Option<&str>,
     session_id: Option<&str>,
-) -> String {
+    cwd: &str,
+) -> Result<String, ShellExecutionError> {
     // Prepend base directory header so the model can resolve relative paths
     // (e.g. `./schemas/foo.json`). Matches TS `processPromptSlashCommand`.
     let base = match skill.skill_root.as_deref() {
@@ -23,13 +26,15 @@ pub fn prepare_inline_content(
         None => skill.content.clone(),
     };
 
-    substitute_arguments(
+    let substituted = substitute_arguments(
         &base,
         args,
         &skill.argument_names,
         skill.skill_root.as_deref(),
         session_id,
-    )
+    );
+
+    execute_shell_commands(&substituted, skill.loaded_from, cwd).await
 }
 
 /// Normalize path separators to forward slashes.
@@ -63,7 +68,7 @@ pub fn check_execution_context(skill: &SkillMetadata) -> Result<(), String> {
 mod tests {
     use super::*;
     use crate::skills::types::{
-        ExecutionContext, EffortLevel, LoadedFrom, SkillMetadata, SkillSource,
+        ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
     };
 
     fn make_skill(content: &str, skill_root: Option<&str>) -> SkillMetadata {
@@ -94,17 +99,17 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_prepare_inline_no_args() {
+    #[tokio::test]
+    async fn test_prepare_inline_no_args() {
         let skill = make_skill("Do the thing.", None);
-        let result = prepare_inline_content(&skill, None, None);
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
         assert_eq!(result, "Do the thing.");
     }
 
-    #[test]
-    fn test_prepare_inline_with_base_directory_header() {
+    #[tokio::test]
+    async fn test_prepare_inline_with_base_directory_header() {
         let skill = make_skill("Content here.", Some("/my/skill/dir"));
-        let result = prepare_inline_content(&skill, None, None);
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
         assert!(
             result.starts_with("Base directory for this skill: /my/skill/dir\n\n"),
             "expected base directory header, got: {result}"
@@ -112,25 +117,25 @@ mod tests {
         assert!(result.contains("Content here."));
     }
 
-    #[test]
-    fn test_prepare_inline_substitutes_arguments() {
+    #[tokio::test]
+    async fn test_prepare_inline_substitutes_arguments() {
         let skill = make_skill("Target: $ARGUMENTS", None);
-        let result = prepare_inline_content(&skill, Some("foo"), None);
+        let result = prepare_inline_content(&skill, Some("foo"), None, "/tmp").await.unwrap();
         assert_eq!(result, "Target: foo");
     }
 
-    #[test]
-    fn test_prepare_inline_substitutes_skill_dir() {
+    #[tokio::test]
+    async fn test_prepare_inline_substitutes_skill_dir() {
         let skill = make_skill("Dir: ${CLAUDE_SKILL_DIR}", Some("/skills/mine"));
-        let result = prepare_inline_content(&skill, None, None);
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
         // Header + substituted dir
         assert!(result.contains("Dir: /skills/mine"));
     }
 
-    #[test]
-    fn test_prepare_inline_substitutes_session_id() {
+    #[tokio::test]
+    async fn test_prepare_inline_substitutes_session_id() {
         let skill = make_skill("Session: ${CLAUDE_SESSION_ID}", None);
-        let result = prepare_inline_content(&skill, None, Some("sess-abc"));
+        let result = prepare_inline_content(&skill, None, Some("sess-abc"), "/tmp").await.unwrap();
         assert!(result.contains("Session: sess-abc"));
     }
 
@@ -193,24 +198,24 @@ mod supplemental_tests {
     }
 
     // TC-10.1: basic prepare_inline_content call
-    #[test]
-    fn tc_10_1_prepare_inline_substitutes_arguments() {
+    #[tokio::test]
+    async fn tc_10_1_prepare_inline_substitutes_arguments() {
         let skill = make_skill_full("s", "Search $ARGUMENTS", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, Some("rust"), None);
+        let result = prepare_inline_content(&skill, Some("rust"), None, "/tmp").await.unwrap();
         assert_eq!(result, "Search rust");
     }
 
     // TC-10.2: no args, no placeholder → content unchanged
-    #[test]
-    fn tc_10_2_no_args_no_placeholder_unchanged() {
+    #[tokio::test]
+    async fn tc_10_2_no_args_no_placeholder_unchanged() {
         let skill = make_skill_full("s", "Just content.", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, None, None);
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
         assert_eq!(result, "Just content.");
     }
 
     // TC-10.3: skill_root causes base directory header to be prepended
-    #[test]
-    fn tc_10_3_skill_root_prepends_header() {
+    #[tokio::test]
+    async fn tc_10_3_skill_root_prepends_header() {
         let skill = make_skill_full(
             "s",
             "${CLAUDE_SKILL_DIR}/script.sh",
@@ -218,32 +223,28 @@ mod supplemental_tests {
             vec![],
             ExecutionContext::Inline,
         );
-        let result = prepare_inline_content(&skill, None, None);
-        // Header should be prepended
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
         assert!(
             result.starts_with("Base directory for this skill: /path/to/skill"),
             "expected header, got: {result}"
         );
-        // ${CLAUDE_SKILL_DIR} should be substituted
         assert!(result.contains("/path/to/skill/script.sh"));
     }
 
     // TC-10.x: session_id substitution wired through
-    #[test]
-    fn tc_10_x_session_id_substituted() {
+    #[tokio::test]
+    async fn tc_10_x_session_id_substituted() {
         let skill = make_skill_full("s", "${CLAUDE_SESSION_ID}", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, None, Some("sess-xyz"));
+        let result = prepare_inline_content(&skill, None, Some("sess-xyz"), "/tmp").await.unwrap();
         assert_eq!(result, "sess-xyz");
     }
 
     // TC-10.x: argument_names from metadata are used
-    #[test]
-    fn tc_10_x_argument_names_from_metadata() {
-        // $query maps to index 0; "main function" parses to ["main", "function"],
-        // so $query is replaced with "main" (the first argument).
+    #[tokio::test]
+    async fn tc_10_x_argument_names_from_metadata() {
         let names = vec!["query".to_string()];
         let skill = make_skill_full("s", "Find $query in codebase", None, names, ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, Some("main function"), None);
+        let result = prepare_inline_content(&skill, Some("main function"), None, "/tmp").await.unwrap();
         assert_eq!(result, "Find main in codebase");
     }
 
@@ -263,5 +264,69 @@ mod supplemental_tests {
     fn tc_10_x_check_context_inline_returns_ok() {
         let skill = make_skill_full("inline-skill", "body", None, vec![], ExecutionContext::Inline);
         assert!(check_execution_context(&skill).is_ok());
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 4 additions: shell integration in prepare_inline_content
+    // -----------------------------------------------------------------------
+
+    // TC-10.4: Block shell 命令被执行替换
+    #[tokio::test]
+    async fn tc_10_4_block_shell_executed_in_prepare() {
+        let skill = make_skill_full(
+            "s",
+            "Result:\n```!\necho shell_output\n```\nDone.",
+            None,
+            vec![],
+            ExecutionContext::Inline,
+        );
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        assert!(result.contains("shell_output"), "block shell output missing: {result}");
+        assert!(!result.contains("```!"), "block syntax should be replaced: {result}");
+    }
+
+    // TC-10.5: Inline shell 命令被执行替换
+    #[tokio::test]
+    async fn tc_10_5_inline_shell_executed_in_prepare() {
+        let skill = make_skill_full(
+            "s",
+            "Dir: !`echo /inline_dir`",
+            None,
+            vec![],
+            ExecutionContext::Inline,
+        );
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        assert!(result.contains("/inline_dir"), "inline shell output missing: {result}");
+        assert!(!result.contains("!`"), "inline syntax should be replaced: {result}");
+    }
+
+    // TC-10.6: MCP skill 跳过 shell — content 中的 shell 语法原样保留
+    #[tokio::test]
+    async fn tc_10_6_mcp_skill_shell_skipped() {
+        let mut skill = make_skill_full("s", "run !`pwd` here", None, vec![], ExecutionContext::Inline);
+        skill.loaded_from = LoadedFrom::Mcp;
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        // MCP skill: shell command NOT executed, syntax remains
+        assert_eq!(result, "run !`pwd` here", "MCP skill should preserve shell syntax: {result}");
+    }
+
+    // TC-10.7: 变量替换 + shell 顺序 — 先变量替换再 shell 执行
+    #[tokio::test]
+    async fn tc_10_7_variable_substitution_before_shell() {
+        // $ARGUMENTS is substituted first, then the resulting content is shell-executed
+        // We verify by having a non-shell placeholder that gets substituted
+        let skill = make_skill_full("s", "Text: $ARGUMENTS !`echo done`", None, vec![], ExecutionContext::Inline);
+        let result = prepare_inline_content(&skill, Some("hello"), None, "/tmp").await.unwrap();
+        assert!(result.contains("hello"), "variable substitution should have happened: {result}");
+        assert!(result.contains("done"), "shell should have executed: {result}");
+    }
+
+    // TC-10.8: cwd 参数传递给 execute_shell_commands
+    #[tokio::test]
+    async fn tc_10_8_cwd_passed_to_shell() {
+        let skill = make_skill_full("s", "!`pwd`", None, vec![], ExecutionContext::Inline);
+        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        // /tmp or /private/tmp on macOS
+        assert!(result.contains("tmp"), "cwd should be reflected in pwd output: {result}");
     }
 }
