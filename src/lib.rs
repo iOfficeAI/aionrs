@@ -12,6 +12,7 @@ pub mod output;
 pub mod protocol;
 pub mod provider;
 pub mod session;
+pub mod skills;
 pub mod tools;
 pub mod types;
 pub mod vcr;

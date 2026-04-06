@@ -39,6 +39,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # TOML config parsing
 toml = "0.8"
 
+# YAML frontmatter parsing (for skill files)
+serde_yaml = "0.9"
+
 # XDG/platform config directory
 dirs = "6"
 
