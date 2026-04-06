@@ -45,6 +45,9 @@ serde_yaml = "0.9"
 # XDG/platform config directory
 dirs = "6"
 
+# Regular expressions (for argument substitution in skills)
+regex = "1"
+
 # Terminal color support
 crossterm = "0.28"
 

@@ -5,6 +5,7 @@ pub mod grep;
 pub mod orchestration;
 pub mod read;
 pub mod registry;
+pub mod skill;
 pub mod spawn;
 pub mod write;
 
