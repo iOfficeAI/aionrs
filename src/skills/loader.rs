@@ -108,7 +108,7 @@ pub async fn load_all_skills(
 /// Only the directory format is supported: each direct or nested subdirectory
 /// that contains a `SKILL.md` file (case-sensitive) is loaded.
 /// The skill name is derived from the relative path using colon separators.
-async fn load_skills_from_dir(
+pub(crate) async fn load_skills_from_dir(
     base_dir: &Path,
     source: SkillSource,
     loaded_from: LoadedFrom,

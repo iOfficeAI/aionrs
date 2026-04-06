@@ -1,4 +1,6 @@
+pub mod conditional;
 pub mod context_modifier;
+pub mod discovery;
 pub mod executor;
 pub mod frontmatter;
 pub mod loader;
