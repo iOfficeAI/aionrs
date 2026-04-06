@@ -1,3 +1,5 @@
+use crate::agent::spawner::{ForkOverrides, Spawner, SubAgentConfig};
+use crate::skills::context_modifier::effort_to_string;
 use crate::skills::shell::{ShellExecutionError, execute_shell_commands};
 use crate::skills::substitution::substitute_arguments;
 use crate::skills::types::{ExecutionContext, SkillMetadata};
@@ -48,16 +50,60 @@ fn normalize_path_separators(path: &str) -> String {
 }
 
 /// Check whether a skill can be executed in inline mode.
-/// Returns an error string if it cannot (e.g. fork-only skill).
+///
+/// Returns an error if the skill requires fork execution context.
+/// Retained for test compatibility — SkillTool no longer calls this directly;
+/// it uses an inline/fork match branch instead.
 pub fn check_execution_context(skill: &SkillMetadata) -> Result<(), String> {
     if skill.execution_context == ExecutionContext::Fork {
         return Err(format!(
-            "Skill '{}' requires fork execution context, which is not yet supported \
-             (planned for Phase 7). Use an inline skill instead.",
+            "Skill '{}' requires fork execution context, \
+             which requires fork support. This function only validates inline context.",
             skill.name
         ));
     }
     Ok(())
+}
+
+/// Execute a fork skill by spawning an independent sub-agent.
+///
+/// Steps:
+/// 1. Prepare skill content (variable substitution + shell execution).
+/// 2. Build a SubAgentConfig from skill metadata overrides.
+/// 3. Spawn the sub-agent and wait for its result.
+/// 4. Return the sub-agent's output text, or an error string on failure.
+pub async fn execute_fork(
+    skill: &SkillMetadata,
+    args: Option<&str>,
+    session_id: Option<&str>,
+    cwd: &str,
+    spawner: &dyn Spawner,
+) -> Result<String, String> {
+    // Prepare content (substitution + shell) — same pipeline as inline mode
+    let prompt = prepare_inline_content(skill, args, session_id, cwd)
+        .await
+        .map_err(|e: ShellExecutionError| e.to_string())?;
+
+    let sub_config = SubAgentConfig {
+        name: skill.name.clone(),
+        prompt,
+        max_turns: 10,
+        max_tokens: 16384,
+        system_prompt: None,
+    };
+
+    let overrides = ForkOverrides {
+        model: skill.model.clone(),
+        effort: skill.effort.map(effort_to_string),
+        allowed_tools: skill.allowed_tools.clone(),
+    };
+
+    let result = spawner.spawn_fork(sub_config, overrides).await;
+    if result.is_error {
+        Err(result.text)
+    } else {
+        Ok(result.text)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -328,5 +374,283 @@ mod supplemental_tests {
         let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
         // /tmp or /private/tmp on macOS
         assert!(result.contains("tmp"), "cwd should be reflected in pwd output: {result}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 tests — execute_fork() with MockSpawner
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod phase7_tests {
+    use std::sync::Mutex;
+
+    use async_trait::async_trait;
+
+    use super::execute_fork;
+    use crate::agent::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
+    use crate::skills::types::{
+        EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
+    };
+    use crate::types::message::TokenUsage;
+
+    // ---------------------------------------------------------------------------
+    // MockSpawner — captures args passed to spawn_fork, returns preset result
+    // ---------------------------------------------------------------------------
+
+    struct MockSpawner {
+        /// Preset is_error value for the returned SubAgentResult.
+        is_error: bool,
+        /// Preset text value for the returned SubAgentResult.
+        text: String,
+        /// Captures the SubAgentConfig passed to spawn_fork.
+        captured_config: Mutex<Option<SubAgentConfig>>,
+        /// Captures the ForkOverrides passed to spawn_fork.
+        captured_overrides: Mutex<Option<ForkOverrides>>,
+    }
+
+    impl MockSpawner {
+        fn success(text: &str) -> Self {
+            Self {
+                is_error: false,
+                text: text.to_string(),
+                captured_config: Mutex::new(None),
+                captured_overrides: Mutex::new(None),
+            }
+        }
+
+        fn error(text: &str) -> Self {
+            Self {
+                is_error: true,
+                text: text.to_string(),
+                captured_config: Mutex::new(None),
+                captured_overrides: Mutex::new(None),
+            }
+        }
+
+        fn take_config(&self) -> SubAgentConfig {
+            self.captured_config.lock().unwrap().take().expect("spawn_fork was not called")
+        }
+
+        fn take_overrides(&self) -> ForkOverrides {
+            self.captured_overrides.lock().unwrap().take().expect("spawn_fork was not called")
+        }
+    }
+
+    #[async_trait]
+    impl Spawner for MockSpawner {
+        async fn spawn_fork(&self, config: SubAgentConfig, overrides: ForkOverrides) -> SubAgentResult {
+            *self.captured_config.lock().unwrap() = Some(config.clone());
+            *self.captured_overrides.lock().unwrap() = Some(overrides.clone());
+            SubAgentResult {
+                name: config.name.clone(),
+                text: self.text.clone(),
+                usage: TokenUsage::default(),
+                turns: 1,
+                is_error: self.is_error,
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // Helpers
+    // ---------------------------------------------------------------------------
+
+    fn make_fork_skill(name: &str, content: &str) -> SkillMetadata {
+        SkillMetadata {
+            name: name.to_string(),
+            display_name: None,
+            description: String::new(),
+            has_user_specified_description: false,
+            allowed_tools: Vec::new(),
+            argument_hint: None,
+            argument_names: Vec::new(),
+            when_to_use: None,
+            version: None,
+            model: None,
+            disable_model_invocation: false,
+            user_invocable: true,
+            execution_context: ExecutionContext::Fork,
+            agent: None,
+            effort: None,
+            shell: None,
+            paths: Vec::new(),
+            hooks_raw: None,
+            source: SkillSource::User,
+            loaded_from: LoadedFrom::Skills,
+            content: content.to_string(),
+            content_length: content.len(),
+            skill_root: None,
+        }
+    }
+
+    // ---------------------------------------------------------------------------
+    // TC-7.10: execute_fork success — returns Ok with sub-agent text
+    // ---------------------------------------------------------------------------
+    #[tokio::test]
+    async fn tc_7_10_fork_success_returns_ok() {
+        let skill = make_fork_skill("my-fork", "Do the task.");
+        let spawner = MockSpawner::success("agent completed task");
+        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        assert_eq!(result.unwrap(), "agent completed task");
+    }
+
+    // TC-7.11: execute_fork sub-agent error — returns Err with error text
+    #[tokio::test]
+    async fn tc_7_11_fork_sub_agent_error_returns_err() {
+        let skill = make_fork_skill("failing-fork", "Do something.");
+        let spawner = MockSpawner::error("sub-agent crashed");
+        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        assert!(result.is_err(), "expected Err, got: {result:?}");
+        assert_eq!(result.unwrap_err(), "sub-agent crashed");
+    }
+
+    // TC-7.13: model from SkillMetadata propagates to ForkOverrides
+    #[tokio::test]
+    async fn tc_7_13_model_propagated_to_fork_overrides() {
+        let mut skill = make_fork_skill("model-fork", "content");
+        skill.model = Some("claude-sonnet-4-6".to_string());
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let overrides = spawner.take_overrides();
+        assert_eq!(overrides.model.as_deref(), Some("claude-sonnet-4-6"));
+    }
+
+    // TC-7.14: effort from SkillMetadata propagates to ForkOverrides as string
+    #[tokio::test]
+    async fn tc_7_14_effort_propagated_to_fork_overrides() {
+        let mut skill = make_fork_skill("effort-fork", "content");
+        skill.effort = Some(EffortLevel::High);
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let overrides = spawner.take_overrides();
+        assert_eq!(overrides.effort.as_deref(), Some("high"));
+    }
+
+    // TC-7.15: allowed_tools from SkillMetadata propagates to ForkOverrides
+    #[tokio::test]
+    async fn tc_7_15_allowed_tools_propagated_to_fork_overrides() {
+        let mut skill = make_fork_skill("tools-fork", "content");
+        skill.allowed_tools = vec!["Bash".to_string(), "Read".to_string()];
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let overrides = spawner.take_overrides();
+        assert_eq!(overrides.allowed_tools, vec!["Bash", "Read"]);
+    }
+
+    // TC-7.16: prompt passed to SubAgentConfig equals prepare_inline_content output
+    #[tokio::test]
+    async fn tc_7_16_prompt_is_prepared_content() {
+        let mut skill = make_fork_skill("prompt-fork", "Search $ARGUMENTS");
+        skill.argument_names = vec![]; // use $ARGUMENTS placeholder
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, Some("rust"), None, "/tmp", &spawner).await.unwrap();
+        let config = spawner.take_config();
+        // Variable substitution should have replaced $ARGUMENTS with "rust"
+        assert_eq!(config.prompt, "Search rust", "prompt should contain substituted content");
+    }
+
+    // TC-7.17: SubAgentConfig.name equals skill.name
+    #[tokio::test]
+    async fn tc_7_17_sub_agent_config_name_equals_skill_name() {
+        let skill = make_fork_skill("my-skill-name", "content");
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let config = spawner.take_config();
+        assert_eq!(config.name, "my-skill-name");
+    }
+
+    // TC-7.40: empty skill content produces empty prompt (no parse error)
+    #[tokio::test]
+    async fn tc_7_40_empty_content_no_error() {
+        let skill = make_fork_skill("empty-fork", "");
+        let spawner = MockSpawner::success("ok");
+        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        assert!(result.is_ok(), "empty content should not cause error: {result:?}");
+        let config = spawner.take_config();
+        assert_eq!(config.prompt, "");
+    }
+
+    // TC-7.41: MCP fork skill behaves the same as regular fork skill
+    #[tokio::test]
+    async fn tc_7_41_mcp_fork_skill_allowed() {
+        let mut skill = make_fork_skill("mcp-fork", "content");
+        skill.source = SkillSource::Mcp;
+        skill.loaded_from = LoadedFrom::Mcp;
+        let spawner = MockSpawner::success("mcp result");
+        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        assert!(result.is_ok(), "MCP fork skill should be allowed: {result:?}");
+    }
+
+    // TC-7.42: no model/effort → ForkOverrides fields are None/empty
+    #[tokio::test]
+    async fn tc_7_42_no_model_no_effort_fork_overrides_empty() {
+        let skill = make_fork_skill("plain-fork", "content");
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let overrides = spawner.take_overrides();
+        assert!(overrides.model.is_none(), "model should be None");
+        assert!(overrides.effort.is_none(), "effort should be None");
+        assert!(overrides.allowed_tools.is_empty(), "allowed_tools should be empty");
+    }
+
+    // TC-7.43 (allowed_tools empty): empty allowed_tools passes through
+    #[tokio::test]
+    async fn tc_7_43_empty_allowed_tools_passthrough() {
+        let skill = make_fork_skill("no-tools-fork", "content");
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let overrides = spawner.take_overrides();
+        assert!(overrides.allowed_tools.is_empty());
+    }
+
+    // TC-7.44: sub-agent result text propagated to Ok return value
+    #[tokio::test]
+    async fn tc_7_44_result_text_propagated() {
+        let skill = make_fork_skill("text-fork", "content");
+        let spawner = MockSpawner::success("the final answer");
+        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        assert_eq!(result.unwrap(), "the final answer");
+    }
+
+    // TC-7.45: SubAgentConfig.max_turns defaults to 10
+    #[tokio::test]
+    async fn tc_7_45_max_turns_default_is_10() {
+        let skill = make_fork_skill("turns-fork", "content");
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let config = spawner.take_config();
+        assert_eq!(config.max_turns, 10);
+    }
+
+    // TC-7.46: SubAgentConfig.max_tokens defaults to 16384
+    #[tokio::test]
+    async fn tc_7_46_max_tokens_default_is_16384() {
+        let skill = make_fork_skill("tokens-fork", "content");
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let config = spawner.take_config();
+        assert_eq!(config.max_tokens, 16384);
+    }
+
+    // TC-7.47: SubAgentConfig.system_prompt defaults to None
+    #[tokio::test]
+    async fn tc_7_47_system_prompt_default_is_none() {
+        let skill = make_fork_skill("sysprompt-fork", "content");
+        let spawner = MockSpawner::success("ok");
+        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        let config = spawner.take_config();
+        assert!(config.system_prompt.is_none(), "system_prompt should default to None");
+    }
+
+    // All effort levels convert to their string representations
+    #[test]
+    fn tc_7_effort_all_variants_to_string() {
+        use crate::skills::context_modifier::effort_to_string;
+        assert_eq!(effort_to_string(EffortLevel::Low), "low");
+        assert_eq!(effort_to_string(EffortLevel::Medium), "medium");
+        assert_eq!(effort_to_string(EffortLevel::High), "high");
+        assert_eq!(effort_to_string(EffortLevel::Max), "max");
     }
 }

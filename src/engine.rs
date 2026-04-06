@@ -191,6 +191,11 @@ impl AgentEngine {
         self.protocol_writer = Some(writer);
     }
 
+    /// Set the initial reasoning effort override (used by sub-agents spawned with an effort override).
+    pub fn set_initial_reasoning_effort(&mut self, effort: Option<String>) {
+        self.current_reasoning_effort = effort;
+    }
+
     /// Run the agent loop with user input
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
         self.current_msg_id = msg_id.to_string();
