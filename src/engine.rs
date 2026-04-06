@@ -6,6 +6,7 @@ use crate::hooks::HookEngine;
 use crate::output::OutputSink;
 use crate::provider::{LlmProvider, ProviderError, create_provider};
 use crate::session::{Session, SessionManager};
+use crate::skills::context_modifier::{ContextModifier, effort_to_string};
 use crate::tools::orchestration::{ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval};
 use crate::tools::registry::ToolRegistry;
 use crate::types::llm::{LlmEvent, LlmRequest};
@@ -30,6 +31,9 @@ pub struct AgentEngine {
     approval_manager: Option<Arc<crate::protocol::ToolApprovalManager>>,
     protocol_writer: Option<Arc<crate::protocol::writer::ProtocolWriter>>,
     allow_list: Vec<String>,
+    /// Persisted reasoning effort, updated by skill context modifiers.
+    /// Carried into each turn's LlmRequest.reasoning_effort.
+    current_reasoning_effort: Option<String>,
 }
 
 impl AgentEngine {
@@ -88,6 +92,7 @@ impl AgentEngine {
             approval_manager: None,
             protocol_writer: None,
             allow_list,
+            current_reasoning_effort: None,
         }
     }
 
@@ -148,6 +153,9 @@ impl AgentEngine {
             approval_manager: None,
             protocol_writer: None,
             allow_list,
+            // TODO(phase-7+): persist skill-overridden model/effort in Session
+            // so they survive session resume. Currently resets to defaults.
+            current_reasoning_effort: None,
         }
     }
 
@@ -202,7 +210,7 @@ impl AgentEngine {
                 tools: self.tools.to_tool_defs(),
                 max_tokens: self.max_tokens,
                 thinking: self.thinking.clone(),
-                reasoning_effort: None,
+                reasoning_effort: self.current_reasoning_effort.clone(),
             };
 
             let mut rx = self.provider.stream(&request).await?;
@@ -266,7 +274,7 @@ impl AgentEngine {
                 });
             }
 
-            let tool_results = if let Some(ref approval_mgr) = self.approval_manager {
+            let outcome = if let Some(ref approval_mgr) = self.approval_manager {
                 // JSON stream mode: use protocol-based approval
                 let writer = self.protocol_writer.as_ref().expect("protocol writer required for approval");
                 let auto_approve = self.confirmer.lock().unwrap().is_auto_approve();
@@ -280,7 +288,7 @@ impl AgentEngine {
                     &self.allow_list,
                     self.hooks.as_ref(),
                 ).await {
-                    Ok(results) => results,
+                    Ok(o) => o,
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
                         return Err(AgentError::UserAborted);
@@ -289,7 +297,7 @@ impl AgentEngine {
             } else {
                 // Terminal mode: use interactive confirmation
                 match execute_tool_calls(&self.tools, &tool_calls, &self.confirmer, self.hooks.as_ref()).await {
-                    Ok(results) => results,
+                    Ok(o) => o,
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
                         return Err(AgentError::UserAborted);
@@ -297,8 +305,11 @@ impl AgentEngine {
                 }
             };
 
+            // Apply any context modifiers from skill executions before the next turn
+            self.apply_context_modifiers(&outcome.modifiers);
+
             // Display tool results
-            for result in &tool_results {
+            for result in &outcome.results {
                 if let ContentBlock::ToolResult {
                     content, is_error, ..
                 } = result
@@ -322,7 +333,7 @@ impl AgentEngine {
 
             self.messages.push(Message {
                 role: Role::User,
-                content: tool_results,
+                content: outcome.results,
             });
 
             // Save session after each turn
@@ -343,6 +354,25 @@ impl AgentEngine {
         }
     }
 
+    /// Apply context modifiers collected from skill tool executions.
+    /// Called after each batch of tool results, before building the next turn's LlmRequest.
+    fn apply_context_modifiers(&mut self, modifiers: &[Option<ContextModifier>]) {
+        for modifier in modifiers.iter().flatten() {
+            if let Some(ref model) = modifier.model {
+                self.model = model.clone();
+            }
+            if let Some(effort) = modifier.effort {
+                self.current_reasoning_effort = Some(effort_to_string(effort));
+            }
+            for tool_name in &modifier.allowed_tools {
+                if !self.allow_list.contains(tool_name) {
+                    self.allow_list.push(tool_name.clone());
+                }
+                self.confirmer.lock().unwrap().add_to_allow_list(tool_name);
+            }
+        }
+    }
+
     fn save_session(&mut self) {
         if let (Some(mgr), Some(session)) = (&self.session_manager, &mut self.current_session) {
             session.messages = self.messages.clone();
@@ -355,6 +385,215 @@ impl AgentEngine {
                 self.output.emit_error(&format!("Failed to update session index: {}", e));
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 6 tests — apply_context_modifiers()
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod phase6_tests {
+    use std::sync::{Arc, Mutex};
+
+    use crate::confirm::ToolConfirmer;
+    use crate::output::OutputSink;
+    use crate::provider::{LlmProvider, ProviderError};
+    use crate::skills::context_modifier::ContextModifier;
+    use crate::skills::types::EffortLevel;
+    use crate::tools::registry::ToolRegistry;
+    use crate::types::llm::{LlmEvent, LlmRequest};
+
+    struct NullOutput;
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+    #[async_trait::async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(
+            &self,
+            _: &LlmRequest,
+        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    fn make_engine(model: &str, allow_list: Vec<String>) -> super::AgentEngine {
+        super::AgentEngine {
+            provider: Arc::new(NullProvider),
+            tools: ToolRegistry::new(),
+            messages: vec![],
+            system_prompt: String::new(),
+            model: model.to_string(),
+            max_tokens: 4096,
+            max_turns: 10,
+            total_usage: Default::default(),
+            thinking: None,
+            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
+            hooks: None,
+            session_manager: None,
+            current_session: None,
+            output: Arc::new(NullOutput),
+            current_msg_id: String::new(),
+            approval_manager: None,
+            protocol_writer: None,
+            allow_list,
+            current_reasoning_effort: None,
+        }
+    }
+
+    // TC-6.21: model override → self.model updated
+    #[test]
+    fn tc_6_21_model_override_applied() {
+        let mut engine = make_engine("original-model", vec![]);
+        let modifiers = vec![Some(ContextModifier {
+            model: Some("override-model".to_string()),
+            effort: None,
+            allowed_tools: vec![],
+        })];
+        engine.apply_context_modifiers(&modifiers);
+        assert_eq!(engine.model, "override-model");
+    }
+
+    // TC-6.22: effort override → current_reasoning_effort updated
+    #[test]
+    fn tc_6_22_effort_override_applied() {
+        let mut engine = make_engine("m", vec![]);
+        let modifiers = vec![Some(ContextModifier {
+            model: None,
+            effort: Some(EffortLevel::High),
+            allowed_tools: vec![],
+        })];
+        engine.apply_context_modifiers(&modifiers);
+        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
+    }
+
+    // TC-6.22b: all EffortLevel variants map correctly
+    #[test]
+    fn tc_6_22b_effort_all_variants() {
+        for (level, expected) in [
+            (EffortLevel::Low, "low"),
+            (EffortLevel::Medium, "medium"),
+            (EffortLevel::High, "high"),
+            (EffortLevel::Max, "max"),
+        ] {
+            let mut engine = make_engine("m", vec![]);
+            engine.apply_context_modifiers(&[Some(ContextModifier {
+                model: None,
+                effort: Some(level),
+                allowed_tools: vec![],
+            })]);
+            assert_eq!(
+                engine.current_reasoning_effort.as_deref(),
+                Some(expected),
+                "EffortLevel::{level:?} should map to {expected:?}"
+            );
+        }
+    }
+
+    // TC-6.23: allowed_tools added to allow_list; duplicates not added
+    #[test]
+    fn tc_6_23_allowed_tools_no_duplicates() {
+        let mut engine = make_engine("m", vec!["Bash".to_string()]);
+        let modifiers = vec![Some(ContextModifier {
+            model: None,
+            effort: None,
+            allowed_tools: vec!["Bash".to_string(), "Read".to_string()],
+        })];
+        engine.apply_context_modifiers(&modifiers);
+
+        let bash_count = engine.allow_list.iter().filter(|t| t.as_str() == "Bash").count();
+        assert_eq!(bash_count, 1, "Bash should appear exactly once");
+        assert!(engine.allow_list.contains(&"Read".to_string()));
+    }
+
+    // TC-6.24: None modifiers in list are skipped without panic
+    #[test]
+    fn tc_6_24_none_modifiers_skipped() {
+        let mut engine = make_engine("original", vec![]);
+        engine.apply_context_modifiers(&[None, None]);
+        assert_eq!(engine.model, "original");
+        assert!(engine.current_reasoning_effort.is_none());
+    }
+
+    // TC-6.25: empty modifier list leaves engine state unchanged
+    #[test]
+    fn tc_6_25_empty_modifiers_no_change() {
+        let mut engine = make_engine("current-model", vec![]);
+        engine.apply_context_modifiers(&[]);
+        assert_eq!(engine.model, "current-model");
+        assert!(engine.allow_list.is_empty());
+    }
+
+    // TC-6.26: modifier.model = None does not overwrite existing model
+    #[test]
+    fn tc_6_26_none_model_does_not_overwrite() {
+        let mut engine = make_engine("current-model", vec![]);
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            model: None,
+            effort: None,
+            allowed_tools: vec!["Bash".to_string()],
+        })]);
+        assert_eq!(engine.model, "current-model");
+        assert!(engine.allow_list.contains(&"Bash".to_string()));
+    }
+
+    // TC-6.27: multiple modifiers — model from last, allowed_tools merged
+    #[test]
+    fn tc_6_27_multiple_modifiers_stacked() {
+        let mut engine = make_engine("initial", vec![]);
+        let modifiers = vec![
+            Some(ContextModifier {
+                model: Some("model-a".to_string()),
+                effort: None,
+                allowed_tools: vec!["Bash".to_string()],
+            }),
+            Some(ContextModifier {
+                model: Some("model-b".to_string()),
+                effort: None,
+                allowed_tools: vec!["Read".to_string()],
+            }),
+        ];
+        engine.apply_context_modifiers(&modifiers);
+        assert_eq!(engine.model, "model-b", "last model wins");
+        assert!(engine.allow_list.contains(&"Bash".to_string()));
+        assert!(engine.allow_list.contains(&"Read".to_string()));
+    }
+
+    // TC-6.28: same-turn isolation — modifier only affects state AFTER apply_context_modifiers
+    // The model used to build the LlmRequest is self.model BEFORE apply_context_modifiers runs.
+    // We simulate this by checking that apply_context_modifiers mutates state only after the call.
+    #[test]
+    fn tc_6_28_modifier_applied_after_tool_execution_not_during() {
+        let mut engine = make_engine("original", vec![]);
+        // Capture model before applying
+        let model_before = engine.model.clone();
+
+        // Simulate: tools have executed, modifiers collected
+        let modifiers = vec![Some(ContextModifier {
+            model: Some("new-model".to_string()),
+            effort: None,
+            allowed_tools: vec![],
+        })];
+
+        // Before apply: model unchanged
+        assert_eq!(engine.model, model_before);
+
+        // After apply: model updated (affects next turn only)
+        engine.apply_context_modifiers(&modifiers);
+        assert_eq!(engine.model, "new-model");
+        // model_before is unchanged as a value — representing what was sent to provider this turn
+        assert_eq!(model_before, "original");
     }
 }
 

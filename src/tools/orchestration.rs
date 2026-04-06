@@ -5,10 +5,31 @@ use crate::hooks::HookEngine;
 use crate::protocol::{ToolApprovalManager, ToolApprovalResult};
 use crate::protocol::events::{ToolCategory, ToolInfo, OutputType, ProtocolEvent, ToolStatus};
 use crate::protocol::writer::ProtocolWriter;
+use crate::skills::context_modifier::ContextModifier;
 use crate::types::message::ContentBlock;
 use crate::types::tool::ToolResult;
 
 use super::registry::ToolRegistry;
+
+/// The combined output of a tool execution batch: protocol content blocks
+/// paired with per-call context modifiers (None for non-skill tools).
+pub struct ToolCallOutcome {
+    pub results: Vec<ContentBlock>,
+    pub modifiers: Vec<Option<ContextModifier>>,
+}
+
+impl std::ops::Deref for ToolCallOutcome {
+    type Target = Vec<ContentBlock>;
+    fn deref(&self) -> &Self::Target {
+        &self.results
+    }
+}
+
+impl std::ops::DerefMut for ToolCallOutcome {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.results
+    }
+}
 
 /// Partition tool calls and execute them with optional confirmation and hooks
 pub async fn execute_tool_calls(
@@ -16,8 +37,9 @@ pub async fn execute_tool_calls(
     tool_calls: &[ContentBlock],
     confirmer: &Arc<Mutex<ToolConfirmer>>,
     hooks: Option<&HookEngine>,
-) -> Result<Vec<ContentBlock>, ExecutionControl> {
+) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
+    let mut modifiers = Vec::new();
 
     for batch in partition(registry, tool_calls) {
         if batch.is_concurrent {
@@ -25,7 +47,10 @@ pub async fn execute_tool_calls(
             let mut approved = Vec::new();
             for call in &batch.calls {
                 match confirm_call(confirmer, call)? {
-                    Some(denied) => results.push(denied),
+                    Some(denied) => {
+                        results.push(denied);
+                        modifiers.push(None);
+                    }
                     None => approved.push(call),
                 }
             }
@@ -34,18 +59,28 @@ pub async fn execute_tool_calls(
                 .map(|call| execute_single(registry, call, hooks))
                 .collect();
             let batch_results = futures::future::join_all(futures).await;
-            results.extend(batch_results);
+            for (block, modifier) in batch_results {
+                results.push(block);
+                modifiers.push(modifier);
+            }
         } else {
             for call in &batch.calls {
                 match confirm_call(confirmer, call)? {
-                    Some(denied) => results.push(denied),
-                    None => results.push(execute_single(registry, call, hooks).await),
+                    Some(denied) => {
+                        results.push(denied);
+                        modifiers.push(None);
+                    }
+                    None => {
+                        let (block, modifier) = execute_single(registry, call, hooks).await;
+                        results.push(block);
+                        modifiers.push(modifier);
+                    }
                 }
             }
         }
     }
 
-    Ok(results)
+    Ok(ToolCallOutcome { results, modifiers })
 }
 
 /// Signal that the user wants to abort
@@ -81,35 +116,49 @@ async fn execute_single(
     registry: &ToolRegistry,
     call: &ContentBlock,
     hooks: Option<&HookEngine>,
-) -> ContentBlock {
+) -> (ContentBlock, Option<ContextModifier>) {
     let ContentBlock::ToolUse { id, name, input } = call else {
         unreachable!("execute_single called with non-ToolUse block")
     };
 
     // Run pre-tool-use hooks
-    if let Some(hook_engine) = hooks {
-        if let Err(e) = hook_engine.run_pre_tool_use(name, input).await {
-            return ContentBlock::ToolResult {
+    if let Some(hook_engine) = hooks
+        && let Err(e) = hook_engine.run_pre_tool_use(name, input).await
+    {
+        return (
+            ContentBlock::ToolResult {
                 tool_use_id: id.clone(),
                 content: format!("Blocked by hook: {}", e),
                 is_error: true,
-            };
-        }
+            },
+            None,
+        );
     }
 
-    let result = match registry.get(name) {
+    let (result, modifier) = match registry.get(name) {
         Some(tool) => {
             let max_size = tool.max_result_size();
             let r = tool.execute(input.clone()).await;
-            ToolResult {
-                content: truncate_result(&r.content, max_size),
-                is_error: r.is_error,
-            }
+            let modifier = if r.is_error {
+                None
+            } else {
+                tool.context_modifier_for(input)
+            };
+            (
+                ToolResult {
+                    content: truncate_result(&r.content, max_size),
+                    is_error: r.is_error,
+                },
+                modifier,
+            )
         }
-        None => ToolResult {
-            content: format!("Unknown tool: {}", name),
-            is_error: true,
-        },
+        None => (
+            ToolResult {
+                content: format!("Unknown tool: {}", name),
+                is_error: true,
+            },
+            None,
+        ),
     };
 
     // Run post-tool-use hooks
@@ -122,11 +171,14 @@ async fn execute_single(
         }
     }
 
-    ContentBlock::ToolResult {
-        tool_use_id: id.clone(),
-        content: result.content,
-        is_error: result.is_error,
-    }
+    (
+        ContentBlock::ToolResult {
+            tool_use_id: id.clone(),
+            content: result.content,
+            is_error: result.is_error,
+        },
+        modifier,
+    )
 }
 
 /// Execute tool calls with JSON stream protocol approval flow
@@ -139,8 +191,9 @@ pub async fn execute_tool_calls_with_approval(
     auto_approve: bool,
     allow_list: &[String],
     hooks: Option<&HookEngine>,
-) -> Result<Vec<ContentBlock>, ExecutionControl> {
+) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
+    let mut modifiers = Vec::new();
 
     for call in tool_calls {
         let ContentBlock::ToolUse { id, name, input } = call else {
@@ -183,6 +236,7 @@ pub async fn execute_tool_calls_with_approval(
                         content: format!("Tool denied: {reason}"),
                         is_error: true,
                     });
+                    modifiers.push(None);
                     continue;
                 }
                 Err(_) => {
@@ -200,7 +254,7 @@ pub async fn execute_tool_calls_with_approval(
         });
 
         // Execute the tool
-        let result = execute_single(registry, call, hooks).await;
+        let (result, modifier) = execute_single(registry, call, hooks).await;
 
         // Emit tool_result event
         if let ContentBlock::ToolResult { content, is_error, .. } = &result {
@@ -217,9 +271,10 @@ pub async fn execute_tool_calls_with_approval(
         }
 
         results.push(result);
+        modifiers.push(modifier);
     }
 
-    Ok(results)
+    Ok(ToolCallOutcome { results, modifiers })
 }
 
 fn truncate_result(content: &str, max_chars: usize) -> String {

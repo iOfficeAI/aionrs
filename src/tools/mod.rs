@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::protocol::events::ToolCategory;
+use crate::skills::context_modifier::ContextModifier;
 use crate::types::tool::{JsonSchema, ToolResult};
 
 /// A tool that the agent can invoke
@@ -33,6 +34,13 @@ pub trait Tool: Send + Sync {
     /// Execute the tool
     async fn execute(&self, input: Value) -> ToolResult;
 
+    /// Return an optional context modifier based on the tool input.
+    /// Called after execute() to collect any engine-level overrides.
+    /// Only SkillTool overrides this; all other tools return None.
+    fn context_modifier_for(&self, _input: &Value) -> Option<ContextModifier> {
+        None
+    }
+
     /// Max result size in chars before truncation
     fn max_result_size(&self) -> usize {
         50_000
@@ -44,5 +52,46 @@ pub trait Tool: Send + Sync {
     /// Human-readable description of what the tool will do with the given input
     fn describe(&self, input: &Value) -> String {
         format!("{}: {}", self.name(), serde_json::to_string(input).unwrap_or_default())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests — TC-6.13: Tool trait default context_modifier_for() returns None
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod phase6_tests {
+    use super::*;
+    use crate::protocol::events::ToolCategory;
+    use crate::types::tool::{JsonSchema, ToolResult};
+    use serde_json::json;
+
+    /// Minimal tool stub that uses only the default trait implementations.
+    struct StubTool;
+
+    #[async_trait::async_trait]
+    impl Tool for StubTool {
+        fn name(&self) -> &str { "Stub" }
+        fn description(&self) -> &str { "stub" }
+        fn input_schema(&self) -> JsonSchema { json!({}) }
+        fn is_concurrency_safe(&self, _input: &Value) -> bool { false }
+        async fn execute(&self, _input: Value) -> ToolResult {
+            ToolResult { content: String::new(), is_error: false }
+        }
+        fn category(&self) -> ToolCategory { ToolCategory::Info }
+    }
+
+    // TC-6.13: default context_modifier_for() returns None for non-SkillTool
+    #[test]
+    fn tc_6_13_default_context_modifier_for_returns_none() {
+        let tool = StubTool;
+        assert!(
+            tool.context_modifier_for(&json!({})).is_none(),
+            "default implementation must return None"
+        );
+        assert!(
+            tool.context_modifier_for(&json!({"skill": "anything"})).is_none(),
+            "default implementation must return None for any input"
+        );
     }
 }
