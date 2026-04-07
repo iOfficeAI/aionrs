@@ -47,7 +47,7 @@ mod bundled_supplemental_tests {
         register_bundled_skill(minimal_def("bundled-only"));
 
         let tmp = TempDir::new().unwrap();
-        let result = load_all_skills(tmp.path(), &[], false).await;
+        let result = load_all_skills(tmp.path(), &[], false, None).await;
 
         let found = result
             .iter()
@@ -73,7 +73,7 @@ mod bundled_supplemental_tests {
         write_skill_dir(tmp.path(), "shared-name");
 
         let result =
-            load_all_skills(tmp.path(), &[tmp.path().to_path_buf()], false).await;
+            load_all_skills(tmp.path(), &[tmp.path().to_path_buf()], false, None).await;
 
         let matches: Vec<_> = result.iter().filter(|s| s.name == "shared-name").collect();
         assert_eq!(
@@ -106,7 +106,7 @@ mod bundled_supplemental_tests {
         register_bundled_skill(minimal_def("bundled-bare"));
 
         let tmp = TempDir::new().unwrap();
-        let result = load_all_skills(tmp.path(), &[], true).await;
+        let result = load_all_skills(tmp.path(), &[], true, None).await;
 
         let found = result
             .iter()

@@ -1,10 +1,12 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use futures::future::join_all;
 
+use crate::mcp::manager::McpManager;
 use crate::skills::bundled;
 use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
+use crate::skills::mcp::load_mcp_skills;
 use crate::skills::paths::{
     additional_skills_dirs, project_commands_dirs, project_skills_dirs, user_commands_dir,
     user_skills_dir,
@@ -26,19 +28,22 @@ pub struct LoadedSkill {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Load all skills from the filesystem.
+/// Load all skills from the filesystem and optionally from MCP servers.
 ///
-/// Priority order (highest first): bundled → user → project → additional → legacy.
-/// Deduplicates by canonical path; first occurrence wins.
-/// Bundled skills always take precedence over same-named filesystem skills.
+/// Priority order (highest first): bundled → MCP → user → project → additional → legacy.
+/// Deduplicates first by canonical path (symlinks resolved), then by name (first wins).
+/// Bundled skills always take precedence over same-named MCP or filesystem skills.
 ///
 /// If `bare` is true, only `add_dirs` are consulted (used for isolated
 /// environments where the user/project directories should be ignored).
 /// Bundled skills are included in bare mode as well.
+///
+/// Pass `mcp_manager: Some(&manager)` to include MCP-discovered skills.
 pub async fn load_all_skills(
     cwd: &Path,
     add_dirs: &[PathBuf],
     bare: bool,
+    mcp_manager: Option<&McpManager>,
 ) -> Vec<SkillMetadata> {
     // Resolve bundled skills with file extraction (async context).
     let bundled_loaded = prepare_bundled_loaded().await;
@@ -57,7 +62,7 @@ pub async fn load_all_skills(
         }
         // Bundled skills prepended so they win deduplication
         all.splice(0..0, bundled_loaded);
-        return deduplicate(all);
+        return deduplicate_by_name(deduplicate(all));
     }
 
     // 1. User-level skills (highest priority)
@@ -104,11 +109,20 @@ pub async fn load_all_skills(
         all.extend(batch);
     }
 
-    // Bundled skills prepended so they win deduplication against same-named
-    // filesystem skills.
+    // MCP skills inserted after bundled (highest priority) but before filesystem
+    // skills, so: bundled > MCP > user > project > additional > legacy.
+    let mcp_loaded = match mcp_manager {
+        Some(mgr) => load_mcp_skills(mgr).await,
+        None => Vec::new(),
+    };
+
+    // Bundled skills first, then MCP, then filesystem
+    all.splice(0..0, mcp_loaded);
     all.splice(0..0, bundled_loaded);
 
-    deduplicate(all)
+    // Path-based dedup first (handles symlinked duplicates), then name-based
+    // dedup to enforce MCP vs. filesystem priority.
+    deduplicate_by_name(deduplicate(all))
 }
 
 /// Call `bundled::prepare_bundled_skills()` and wrap results as `LoadedSkill`.
@@ -376,6 +390,23 @@ fn deduplicate(skills: Vec<LoadedSkill>) -> Vec<SkillMetadata> {
     for skill in skills {
         if seen.insert(skill.resolved_path) {
             result.push(skill.metadata);
+        }
+    }
+
+    result
+}
+
+/// Deduplicate by skill name (case-sensitive). First occurrence wins.
+///
+/// Called after path-based dedup to enforce priority between bundled, MCP,
+/// and filesystem skills that share the same name but have different paths.
+fn deduplicate_by_name(skills: Vec<SkillMetadata>) -> Vec<SkillMetadata> {
+    let mut seen: HashMap<String, ()> = HashMap::new();
+    let mut result = Vec::new();
+
+    for skill in skills {
+        if seen.insert(skill.name.clone(), ()).is_none() {
+            result.push(skill);
         }
     }
 

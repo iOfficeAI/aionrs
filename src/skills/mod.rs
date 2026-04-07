@@ -6,6 +6,7 @@ pub mod executor;
 pub mod frontmatter;
 pub mod hooks;
 pub mod loader;
+pub mod mcp;
 pub mod paths;
 pub mod permissions;
 pub mod prompt;

@@ -124,6 +124,40 @@ pub struct ToolsListResult {
     pub tools: Vec<McpToolDef>,
 }
 
+/// MCP resource definition returned by resources/list
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpResource {
+    pub uri: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    #[serde(rename = "mimeType", default)]
+    pub mime_type: Option<String>,
+}
+
+/// resources/list response
+#[derive(Debug, Deserialize)]
+pub struct ResourcesListResult {
+    pub resources: Vec<McpResource>,
+}
+
+/// resources/read response
+#[derive(Debug, Deserialize)]
+pub struct ResourcesReadResult {
+    pub contents: Vec<ResourceContent>,
+}
+
+/// Content of a single resource from resources/read
+#[derive(Debug, Deserialize)]
+pub struct ResourceContent {
+    #[allow(dead_code)]
+    pub uri: String,
+    #[serde(rename = "mimeType", default)]
+    pub mime_type: Option<String>,
+    /// Text content — None for blob resources (binary); skill resources are always text
+    #[serde(default)]
+    pub text: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,5 +253,161 @@ mod tests {
             }
             other => panic!("expected McpContent::Image, got {:?}", other),
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // TC-1.x: McpResource deserialization [黑盒]
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tc_1_1_mcp_resource_all_fields() {
+        // [黑盒] TC-1.1: McpResource complete deserialization with all optional fields
+        let json_str = r#"{
+            "uri": "skill://my-skill",
+            "name": "My Skill",
+            "description": "A test skill",
+            "mimeType": "text/plain"
+        }"#;
+        let resource: McpResource = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(resource.uri, "skill://my-skill");
+        assert_eq!(resource.name.as_deref(), Some("My Skill"));
+        assert_eq!(resource.description.as_deref(), Some("A test skill"));
+        assert_eq!(resource.mime_type.as_deref(), Some("text/plain"));
+    }
+
+    #[test]
+    fn tc_1_2_mcp_resource_uri_only() {
+        // [黑盒] TC-1.2: McpResource with only the required uri field — all options are None
+        let json_str = r#"{"uri": "skill://minimal"}"#;
+        let resource: McpResource = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(resource.uri, "skill://minimal");
+        assert!(resource.name.is_none());
+        assert!(resource.description.is_none());
+        assert!(resource.mime_type.is_none());
+    }
+
+    #[test]
+    fn tc_1_3_mcp_resource_mime_type_camel_case_mapping() {
+        // [白盒] TC-1.3: JSON field "mimeType" (camelCase) maps to Rust field mime_type via serde rename
+        let json_str = r#"{"uri": "skill://x", "mimeType": "text/markdown"}"#;
+        let resource: McpResource = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(resource.mime_type.as_deref(), Some("text/markdown"));
+    }
+
+    #[test]
+    fn tc_1_3b_mcp_resource_mime_type_snake_case_absent() {
+        // [白盒] TC-1.3b: snake_case "mime_type" key is not accepted — mime_type stays None
+        let json_str = r#"{"uri": "skill://x", "mime_type": "text/markdown"}"#;
+        let resource: McpResource = serde_json::from_str(json_str).unwrap();
+
+        // The snake_case key is unknown and ignored; mime_type should be None (default)
+        assert!(resource.mime_type.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // TC-1.4: ResourcesListResult deserialization [黑盒]
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tc_1_4_resources_list_result_multiple() {
+        // [黑盒] TC-1.4: ResourcesListResult with multiple resources
+        let json_str = r#"{
+            "resources": [
+                {"uri": "skill://skill-a"},
+                {"uri": "skill://skill-b", "name": "Skill B"}
+            ]
+        }"#;
+        let result: ResourcesListResult = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(result.resources.len(), 2);
+        assert_eq!(result.resources[0].uri, "skill://skill-a");
+        assert_eq!(result.resources[1].uri, "skill://skill-b");
+        assert_eq!(result.resources[1].name.as_deref(), Some("Skill B"));
+    }
+
+    #[test]
+    fn tc_1_5_resources_list_result_empty() {
+        // [黑盒] TC-1.5: ResourcesListResult with empty resources array
+        let json_str = r#"{"resources": []}"#;
+        let result: ResourcesListResult = serde_json::from_str(json_str).unwrap();
+
+        assert!(result.resources.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // TC-1.6/1.7/1.8: ResourcesReadResult and ResourceContent [黑盒]
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn tc_1_6_resources_read_result_with_text() {
+        // [黑盒] TC-1.6: ResourcesReadResult with text content
+        let json_str = r#"{
+            "contents": [
+                {
+                    "uri": "skill://my-skill",
+                    "mimeType": "text/plain",
+                    "text": "---\ndescription: My skill\n---\n# My Skill"
+                }
+            ]
+        }"#;
+        let result: ResourcesReadResult = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(result.contents.len(), 1);
+        let content = &result.contents[0];
+        assert_eq!(content.uri, "skill://my-skill");
+        assert_eq!(content.mime_type.as_deref(), Some("text/plain"));
+        assert!(content.text.as_deref().unwrap().contains("description: My skill"));
+    }
+
+    #[test]
+    fn tc_1_7_resource_content_no_text_field() {
+        // [黑盒] TC-1.7: ResourceContent without text (blob resource) — text is None
+        let json_str = r#"{"uri": "skill://binary", "mimeType": "application/octet-stream"}"#;
+        let content: ResourceContent = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(content.uri, "skill://binary");
+        assert_eq!(content.mime_type.as_deref(), Some("application/octet-stream"));
+        assert!(content.text.is_none());
+    }
+
+    #[test]
+    fn tc_1_8_resource_content_no_mime_type() {
+        // [黑盒] TC-1.8: ResourceContent without mimeType — mime_type is None
+        let json_str = r#"{"uri": "skill://no-mime", "text": "content"}"#;
+        let content: ResourceContent = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(content.uri, "skill://no-mime");
+        assert!(content.mime_type.is_none());
+        assert_eq!(content.text.as_deref(), Some("content"));
+    }
+
+    #[test]
+    fn tc_1_wb_resource_content_mime_type_camel_case() {
+        // [白盒] ResourceContent.mimeType uses same serde rename as McpResource
+        let json_str = r#"{"uri": "skill://x", "mimeType": "text/markdown", "text": "hello"}"#;
+        let content: ResourceContent = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(content.mime_type.as_deref(), Some("text/markdown"));
+        assert_eq!(content.text.as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn tc_1_wb_resources_read_result_multiple_contents() {
+        // [白盒] TC: read_resource uses find_map — multiple contents, only first text is used
+        // Here we verify the protocol type itself can hold multiple contents
+        let json_str = r#"{
+            "contents": [
+                {"uri": "skill://x", "text": null},
+                {"uri": "skill://x", "text": "actual content"}
+            ]
+        }"#;
+        let result: ResourcesReadResult = serde_json::from_str(json_str).unwrap();
+
+        assert_eq!(result.contents.len(), 2);
+        assert!(result.contents[0].text.is_none());
+        assert_eq!(result.contents[1].text.as_deref(), Some("actual content"));
     }
 }

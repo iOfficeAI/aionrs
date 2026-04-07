@@ -268,7 +268,7 @@ async fn test_load_all_skills_bare_mode() {
     write_skill(&skills_dir, "my-skill/SKILL.md", "---\n---\n");
 
     let result =
-        load_all_skills(Path::new("/nonexistent"), &[tmp.path().to_owned()], true).await;
+        load_all_skills(Path::new("/nonexistent"), &[tmp.path().to_owned()], true, None).await;
     assert_eq!(result.len(), 1);
 }
 
@@ -284,7 +284,7 @@ async fn test_load_all_skills_deduplicates() {
     fs::create_dir_all(&skills_dir).unwrap();
     write_skill(&skills_dir, "my-skill/SKILL.md", "---\n---\n");
 
-    let result = load_all_skills(root, &[], false).await;
+    let result = load_all_skills(root, &[], false, None).await;
     let names: Vec<_> = result.iter().map(|s| s.name.as_str()).collect();
     let count = names.iter().filter(|&&n| n == "my-skill").count();
     assert_eq!(count, 1, "skill should appear exactly once after dedup");
