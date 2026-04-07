@@ -68,6 +68,7 @@ base64 = "0.22"
 
 # URL parsing
 url = "2"
+unicode-width = "0.2.2"
 
 [dev-dependencies]
 wiremock = "0.6"

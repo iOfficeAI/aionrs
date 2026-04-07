@@ -186,7 +186,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Build system prompt from context
-    let system_prompt = context::build_system_prompt(config.system_prompt.as_deref(), &cwd);
+    let system_prompt = context::build_system_prompt(config.system_prompt.as_deref(), &cwd, &[], None);
     config.system_prompt = Some(system_prompt);
 
     // Register built-in tools
