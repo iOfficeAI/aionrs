@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use futures::future::join_all;
 
+use crate::skills::bundled;
 use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
 use crate::skills::paths::{
     additional_skills_dirs, project_commands_dirs, project_skills_dirs, user_commands_dir,
@@ -27,16 +28,21 @@ pub struct LoadedSkill {
 
 /// Load all skills from the filesystem.
 ///
-/// Priority order (highest first): user → project → additional → legacy.
+/// Priority order (highest first): bundled → user → project → additional → legacy.
 /// Deduplicates by canonical path; first occurrence wins.
+/// Bundled skills always take precedence over same-named filesystem skills.
 ///
 /// If `bare` is true, only `add_dirs` are consulted (used for isolated
 /// environments where the user/project directories should be ignored).
+/// Bundled skills are included in bare mode as well.
 pub async fn load_all_skills(
     cwd: &Path,
     add_dirs: &[PathBuf],
     bare: bool,
 ) -> Vec<SkillMetadata> {
+    // Resolve bundled skills with file extraction (async context).
+    let bundled_loaded = prepare_bundled_loaded().await;
+
     let mut all: Vec<LoadedSkill> = Vec::new();
 
     if bare {
@@ -49,6 +55,8 @@ pub async fn load_all_skills(
         for batch in join_all(futures).await {
             all.extend(batch);
         }
+        // Bundled skills prepended so they win deduplication
+        all.splice(0..0, bundled_loaded);
         return deduplicate(all);
     }
 
@@ -96,7 +104,29 @@ pub async fn load_all_skills(
         all.extend(batch);
     }
 
+    // Bundled skills prepended so they win deduplication against same-named
+    // filesystem skills.
+    all.splice(0..0, bundled_loaded);
+
     deduplicate(all)
+}
+
+/// Call `bundled::prepare_bundled_skills()` and wrap results as `LoadedSkill`.
+///
+/// Each bundled skill is assigned a virtual path `<bundled:name>` for
+/// deduplication purposes (these paths can never match real filesystem paths).
+async fn prepare_bundled_loaded() -> Vec<LoadedSkill> {
+    bundled::prepare_bundled_skills()
+        .await
+        .into_iter()
+        .map(|meta| {
+            let virtual_path = PathBuf::from(format!("<bundled:{}>", meta.name));
+            LoadedSkill {
+                metadata: meta,
+                resolved_path: virtual_path,
+            }
+        })
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
