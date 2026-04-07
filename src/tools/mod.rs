@@ -12,6 +12,7 @@ pub mod write;
 use async_trait::async_trait;
 use serde_json::Value;
 
+use crate::hooks::HooksConfig;
 use crate::protocol::events::ToolCategory;
 use crate::skills::context_modifier::ContextModifier;
 use crate::types::tool::{JsonSchema, ToolResult};
@@ -38,6 +39,14 @@ pub trait Tool: Send + Sync {
     /// Called after execute() to collect any engine-level overrides.
     /// Only SkillTool overrides this; all other tools return None.
     fn context_modifier_for(&self, _input: &Value) -> Option<ContextModifier> {
+        None
+    }
+
+    /// Return any hooks declared in the skill's frontmatter for dynamic registration.
+    /// Called after a successful execute() so the orchestration layer can merge
+    /// the returned hooks into the active HookEngine.
+    /// Only SkillTool overrides this; all other tools return None.
+    fn skill_hooks_for(&self, _input: &Value) -> Option<HooksConfig> {
         None
     }
 
@@ -92,6 +101,20 @@ mod phase6_tests {
         assert!(
             tool.context_modifier_for(&json!({"skill": "anything"})).is_none(),
             "default implementation must return None for any input"
+        );
+    }
+
+    // TC-11.46: default skill_hooks_for() returns None for non-SkillTool
+    #[test]
+    fn tc_11_46_default_skill_hooks_for_returns_none() {
+        let tool = StubTool;
+        assert!(
+            tool.skill_hooks_for(&json!({})).is_none(),
+            "TC-11.46: default skill_hooks_for must return None"
+        );
+        assert!(
+            tool.skill_hooks_for(&json!({"skill": "anything"})).is_none(),
+            "TC-11.46: default skill_hooks_for must return None for any input"
         );
     }
 }

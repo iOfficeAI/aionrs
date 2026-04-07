@@ -129,6 +129,23 @@ impl HookEngine {
             || !self.config.post_tool_use.is_empty()
             || !self.config.stop.is_empty()
     }
+
+    /// Merge additional hooks into the engine's config, skipping duplicates by name.
+    /// Used by SkillTool to register skill-specific hooks at invocation time (idempotent).
+    pub fn merge_hooks(&mut self, additional: HooksConfig) {
+        merge_vec(&mut self.config.pre_tool_use, additional.pre_tool_use);
+        merge_vec(&mut self.config.post_tool_use, additional.post_tool_use);
+        merge_vec(&mut self.config.stop, additional.stop);
+    }
+}
+
+/// Append `incoming` hooks into `existing`, skipping any whose name already exists.
+fn merge_vec(existing: &mut Vec<HookDef>, incoming: Vec<HookDef>) {
+    for hook in incoming {
+        if !existing.iter().any(|h| h.name == hook.name) {
+            existing.push(hook);
+        }
+    }
 }
 
 /// Environment variables available to hook commands
@@ -366,5 +383,144 @@ mod tests {
         let result = engine.run_pre_tool_use("Read", &json!({})).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), HookError::Timeout(_)));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 tests — merge_hooks() (TC-11.30 ~ TC-11.38)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod phase11_tests {
+    use super::*;
+
+    fn make_hook(name: &str) -> HookDef {
+        HookDef {
+            name: name.to_string(),
+            tool_match: vec![],
+            file_match: vec![],
+            command: "echo ok".to_string(),
+            timeout_ms: 30_000,
+        }
+    }
+
+    fn make_config_pre(names: &[&str]) -> HooksConfig {
+        HooksConfig {
+            pre_tool_use: names.iter().map(|n| make_hook(n)).collect(),
+            post_tool_use: vec![],
+            stop: vec![],
+        }
+    }
+
+    // TC-11.30: pre_tool_use count accumulates correctly
+    #[test]
+    fn tc_11_30_pre_tool_use_count_accumulates() {
+        let mut engine = HookEngine::new(make_config_pre(&["pre-a"]));
+        let additional = HooksConfig {
+            pre_tool_use: vec![make_hook("pre-b"), make_hook("pre-c")],
+            post_tool_use: vec![],
+            stop: vec![],
+        };
+        engine.merge_hooks(additional);
+        assert_eq!(engine.config.pre_tool_use.len(), 3);
+    }
+
+    // TC-11.31: post_tool_use count accumulates correctly
+    #[test]
+    fn tc_11_31_post_tool_use_count_accumulates() {
+        let mut engine = HookEngine::new(HooksConfig::default());
+        let additional = HooksConfig {
+            pre_tool_use: vec![],
+            post_tool_use: vec![make_hook("post-a")],
+            stop: vec![],
+        };
+        engine.merge_hooks(additional);
+        assert_eq!(engine.config.post_tool_use.len(), 1);
+    }
+
+    // TC-11.32: stop count accumulates correctly
+    #[test]
+    fn tc_11_32_stop_count_accumulates() {
+        let initial = HooksConfig {
+            pre_tool_use: vec![],
+            post_tool_use: vec![],
+            stop: vec![make_hook("stop-a")],
+        };
+        let mut engine = HookEngine::new(initial);
+        let additional = HooksConfig {
+            pre_tool_use: vec![],
+            post_tool_use: vec![],
+            stop: vec![make_hook("stop-b")],
+        };
+        engine.merge_hooks(additional);
+        assert_eq!(engine.config.stop.len(), 2);
+    }
+
+    // TC-11.33: merging empty config doesn't change existing hooks
+    #[test]
+    fn tc_11_33_merge_empty_does_not_change_existing() {
+        let mut engine = HookEngine::new(make_config_pre(&["pre-a", "pre-b"]));
+        engine.merge_hooks(HooksConfig::default());
+        assert_eq!(engine.config.pre_tool_use.len(), 2);
+    }
+
+    // TC-11.34: has_hooks() is true after merging
+    #[test]
+    fn tc_11_34_has_hooks_true_after_merge() {
+        let mut engine = HookEngine::new(HooksConfig::default());
+        assert!(!engine.has_hooks(), "precondition: engine starts with no hooks");
+        engine.merge_hooks(make_config_pre(&["pre-a"]));
+        assert!(engine.has_hooks(), "TC-11.34: has_hooks must be true after merge");
+    }
+
+    // TC-11.35: multiple successive merges accumulate correctly (different names)
+    #[test]
+    fn tc_11_35_successive_merges_accumulate() {
+        let mut engine = HookEngine::new(HooksConfig::default());
+        engine.merge_hooks(make_config_pre(&["a"]));
+        engine.merge_hooks(make_config_pre(&["b"]));
+        engine.merge_hooks(make_config_pre(&["c"]));
+        assert_eq!(engine.config.pre_tool_use.len(), 3);
+    }
+
+    // TC-11.36: merging stop hooks does not affect pre_tool_use
+    #[test]
+    fn tc_11_36_merge_stop_does_not_affect_pre() {
+        let mut engine = HookEngine::new(make_config_pre(&["pre-a"]));
+        let additional = HooksConfig {
+            pre_tool_use: vec![],
+            post_tool_use: vec![],
+            stop: vec![make_hook("stop-x")],
+        };
+        engine.merge_hooks(additional);
+        assert_eq!(engine.config.pre_tool_use.len(), 1, "TC-11.36: pre unchanged");
+        assert_eq!(engine.config.stop.len(), 1, "TC-11.36: stop added");
+    }
+
+    // TC-11.37: same-name hook not duplicated (idempotent dedup — C-4)
+    #[test]
+    fn tc_11_37_same_name_hook_not_duplicated() {
+        let mut engine = HookEngine::new(HooksConfig::default());
+        let config = make_config_pre(&["skill:my-skill:pre_tool_use:0"]);
+        engine.merge_hooks(config.clone());
+        engine.merge_hooks(config);
+        assert_eq!(
+            engine.config.pre_tool_use.len(),
+            1,
+            "TC-11.37: same-name hook must not be duplicated"
+        );
+    }
+
+    // TC-11.38: different-name hooks both appended (no false dedup — C-4)
+    #[test]
+    fn tc_11_38_different_name_hooks_both_appended() {
+        let mut engine = HookEngine::new(HooksConfig::default());
+        engine.merge_hooks(make_config_pre(&["hook-a"]));
+        engine.merge_hooks(make_config_pre(&["hook-b"]));
+        assert_eq!(
+            engine.config.pre_tool_use.len(),
+            2,
+            "TC-11.38: different-name hooks must both be appended"
+        );
     }
 }

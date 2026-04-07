@@ -4,9 +4,11 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use crate::agent::spawner::Spawner;
+use crate::hooks::HooksConfig;
 use crate::protocol::events::ToolCategory;
 use crate::skills::context_modifier::ContextModifier;
 use crate::skills::executor::{execute_fork, prepare_inline_content};
+use crate::skills::hooks::{parse_skill_hooks, to_hook_defs};
 use crate::skills::permissions::{SkillPermission, SkillPermissionChecker};
 use crate::skills::types::{ExecutionContext, SkillMetadata};
 use crate::types::tool::{JsonSchema, ToolResult};
@@ -193,6 +195,17 @@ impl Tool for SkillTool {
             return None;
         }
         ContextModifier::from_skill(skill)
+    }
+
+    fn skill_hooks_for(&self, input: &serde_json::Value) -> Option<HooksConfig> {
+        let skill_name = input["skill"].as_str()?;
+        let skill = self.find_skill(skill_name)?;
+        let config = parse_skill_hooks(
+            skill.hooks_raw.as_ref(),
+            &skill.name,
+            skill.source,
+        )?;
+        Some(to_hook_defs(&config, &skill.name))
     }
 
     fn category(&self) -> ToolCategory {
@@ -1098,5 +1111,119 @@ mod phase7_tests {
             SkillPermissionChecker::new(vec![], vec![], false),
         );
         assert!(tool.spawner.is_none());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 tests — skill_hooks_for() (TC-11.40 ~ TC-11.45)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod phase11_tests {
+    use std::sync::Arc;
+
+    use serde_json::json;
+
+    use crate::skills::permissions::SkillPermissionChecker;
+    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use crate::tools::Tool;
+
+    use super::SkillTool;
+
+    fn base_skill(name: &str, source: SkillSource, hooks_raw: Option<serde_json::Value>) -> SkillMetadata {
+        SkillMetadata {
+            name: name.to_string(),
+            display_name: None,
+            description: format!("desc of {name}"),
+            has_user_specified_description: true,
+            allowed_tools: vec![],
+            argument_hint: None,
+            argument_names: vec![],
+            when_to_use: None,
+            version: None,
+            model: None,
+            disable_model_invocation: false,
+            user_invocable: true,
+            execution_context: ExecutionContext::Inline,
+            agent: None,
+            effort: None,
+            shell: None,
+            paths: vec![],
+            hooks_raw,
+            source,
+            loaded_from: LoadedFrom::Skills,
+            content: "body".to_string(),
+            content_length: 4,
+            skill_root: None,
+        }
+    }
+
+    fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
+        SkillTool::new(
+            Arc::new(skills),
+            "/tmp".to_string(),
+            SkillPermissionChecker::new(vec![], vec![], false),
+        )
+    }
+
+    fn valid_hooks_json() -> serde_json::Value {
+        json!({
+            "PreToolUse": [{"hooks": [{"type": "command", "command": "echo pre"}]}]
+        })
+    }
+
+    // TC-11.40: skill with valid hooks_raw returns Some(HooksConfig)
+    #[test]
+    fn tc_11_40_skill_with_hooks_returns_some() {
+        let skill = base_skill("my-skill", SkillSource::User, Some(valid_hooks_json()));
+        let tool = tool_with(vec![skill]);
+        let result = tool.skill_hooks_for(&json!({"skill": "my-skill"}));
+        assert!(result.is_some(), "TC-11.40: skill with valid hooks must return Some");
+        let config = result.unwrap();
+        assert!(!config.pre_tool_use.is_empty(), "TC-11.40: pre_tool_use must be non-empty");
+    }
+
+    // TC-11.41: skill without hooks_raw returns None
+    #[test]
+    fn tc_11_41_skill_without_hooks_returns_none() {
+        let skill = base_skill("no-hooks", SkillSource::User, None);
+        let tool = tool_with(vec![skill]);
+        let result = tool.skill_hooks_for(&json!({"skill": "no-hooks"}));
+        assert!(result.is_none(), "TC-11.41: skill without hooks must return None");
+    }
+
+    // TC-11.42: nonexistent skill name returns None
+    #[test]
+    fn tc_11_42_nonexistent_skill_returns_none() {
+        let tool = tool_with(vec![]);
+        let result = tool.skill_hooks_for(&json!({"skill": "nonexistent"}));
+        assert!(result.is_none(), "TC-11.42: nonexistent skill must return None");
+    }
+
+    // TC-11.43: input missing skill field returns None
+    #[test]
+    fn tc_11_43_missing_skill_field_returns_none() {
+        let skill = base_skill("my-skill", SkillSource::User, Some(valid_hooks_json()));
+        let tool = tool_with(vec![skill]);
+        assert!(tool.skill_hooks_for(&json!({})).is_none(), "TC-11.43: no skill field → None");
+        assert!(tool.skill_hooks_for(&json!({"foo": "bar"})).is_none(), "TC-11.43: wrong field → None");
+    }
+
+    // TC-11.44: MCP source skill with hooks_raw returns None
+    #[test]
+    fn tc_11_44_mcp_source_returns_none() {
+        let skill = base_skill("mcp-skill", SkillSource::Mcp, Some(valid_hooks_json()));
+        let tool = tool_with(vec![skill]);
+        let result = tool.skill_hooks_for(&json!({"skill": "mcp-skill"}));
+        assert!(result.is_none(), "TC-11.44: MCP source must return None");
+    }
+
+    // TC-11.45: invalid hooks_raw (array, not object) returns None without panic
+    #[test]
+    fn tc_11_45_invalid_hooks_raw_returns_none() {
+        let skill = base_skill("bad-hooks", SkillSource::User, Some(json!([1, 2, 3])));
+        let tool = tool_with(vec![skill]);
+        let result = tool.skill_hooks_for(&json!({"skill": "bad-hooks"}));
+        assert!(result.is_none(), "TC-11.45: invalid hooks_raw (array) must return None");
     }
 }

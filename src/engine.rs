@@ -55,13 +55,6 @@ impl AgentEngine {
             config.tools.allow_list.clone(),
         );
 
-        let hooks_engine = HookEngine::new(config.hooks.clone());
-        let hooks = if hooks_engine.has_hooks() {
-            Some(hooks_engine)
-        } else {
-            None
-        };
-
         let session_manager = if config.session.enabled {
             Some(SessionManager::new(
                 config.session.directory.clone().into(),
@@ -84,7 +77,9 @@ impl AgentEngine {
             total_usage: TokenUsage::default(),
             thinking: config.thinking,
             confirmer: Arc::new(Mutex::new(confirmer)),
-            hooks,
+            // Always initialise Some so that skill-declared hooks can be merged in
+            // even when the global config has no static hooks configured.
+            hooks: Some(HookEngine::new(config.hooks.clone())),
             session_manager,
             current_session: None,
             output,
@@ -116,13 +111,6 @@ impl AgentEngine {
             config.tools.allow_list.clone(),
         );
 
-        let hooks_engine = HookEngine::new(config.hooks.clone());
-        let hooks = if hooks_engine.has_hooks() {
-            Some(hooks_engine)
-        } else {
-            None
-        };
-
         let session_manager = if config.session.enabled {
             Some(SessionManager::new(
                 config.session.directory.clone().into(),
@@ -145,7 +133,9 @@ impl AgentEngine {
             total_usage: session.total_usage.clone(),
             thinking: config.thinking,
             confirmer: Arc::new(Mutex::new(confirmer)),
-            hooks,
+            // Always initialise Some so that skill-declared hooks can be merged in
+            // even when the global config has no static hooks configured.
+            hooks: Some(HookEngine::new(config.hooks.clone())),
             session_manager,
             current_session: Some(session),
             output,
@@ -291,7 +281,7 @@ impl AgentEngine {
                     &self.current_msg_id,
                     auto_approve,
                     &self.allow_list,
-                    self.hooks.as_ref(),
+                    self.hooks.as_mut(),
                 ).await {
                     Ok(o) => o,
                     Err(ExecutionControl::Quit) => {
@@ -301,7 +291,7 @@ impl AgentEngine {
                 }
             } else {
                 // Terminal mode: use interactive confirmation
-                match execute_tool_calls(&self.tools, &tool_calls, &self.confirmer, self.hooks.as_ref()).await {
+                match execute_tool_calls(&self.tools, &tool_calls, &self.confirmer, self.hooks.as_mut()).await {
                     Ok(o) => o,
                     Err(ExecutionControl::Quit) => {
                         self.save_session();

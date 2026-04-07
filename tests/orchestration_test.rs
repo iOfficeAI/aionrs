@@ -197,7 +197,7 @@ async fn test_pre_hook_blocks_tool() {
         post_tool_use: vec![],
         stop: vec![],
     };
-    let hook_engine = HookEngine::new(hook_config);
+    let mut hook_engine = HookEngine::new(hook_config);
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("echo", "should not appear", false)));
@@ -205,7 +205,7 @@ async fn test_pre_hook_blocks_tool() {
     let tool_calls = vec![make_tool_use("id-blocked", "echo")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, Some(&hook_engine))
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, Some(&mut hook_engine))
         .await
         .expect("execute_tool_calls itself should not fail");
 
@@ -233,7 +233,7 @@ async fn test_post_hook_runs_after_tool() {
         post_tool_use: vec![make_post_hook("post-logger", "echo", "echo done")],
         stop: vec![],
     };
-    let hook_engine = HookEngine::new(hook_config);
+    let mut hook_engine = HookEngine::new(hook_config);
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("echo", "result", false)));
@@ -241,7 +241,7 @@ async fn test_post_hook_runs_after_tool() {
     let tool_calls = vec![make_tool_use("id-post", "echo")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, Some(&hook_engine))
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, Some(&mut hook_engine))
         .await
         .expect("execution should succeed");
 

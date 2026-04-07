@@ -4,6 +4,7 @@ pub mod context_modifier;
 pub mod discovery;
 pub mod executor;
 pub mod frontmatter;
+pub mod hooks;
 pub mod loader;
 pub mod paths;
 pub mod permissions;

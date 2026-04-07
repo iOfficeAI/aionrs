@@ -36,14 +36,16 @@ pub async fn execute_tool_calls(
     registry: &ToolRegistry,
     tool_calls: &[ContentBlock],
     confirmer: &Arc<Mutex<ToolConfirmer>>,
-    hooks: Option<&HookEngine>,
+    mut hooks: Option<&mut HookEngine>,
 ) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
     let mut modifiers = Vec::new();
 
     for batch in partition(registry, tool_calls) {
         if batch.is_concurrent {
-            // For concurrent batch, confirm all first, then execute approved ones
+            // For concurrent batch, confirm all first, then execute approved ones.
+            // Concurrent tools are never SkillTool (is_concurrency_safe=false for Skill),
+            // so no skill hooks merging is needed here.
             let mut approved = Vec::new();
             for call in &batch.calls {
                 match confirm_call(confirmer, call)? {
@@ -54,9 +56,11 @@ pub async fn execute_tool_calls(
                     None => approved.push(call),
                 }
             }
+            // Reborrow as shared for concurrent execution.
+            let hooks_shared: Option<&HookEngine> = hooks.as_deref();
             let futures: Vec<_> = approved
                 .iter()
-                .map(|call| execute_single(registry, call, hooks))
+                .map(|call| execute_single(registry, call, hooks_shared))
                 .collect();
             let batch_results = futures::future::join_all(futures).await;
             for (block, modifier) in batch_results {
@@ -71,7 +75,17 @@ pub async fn execute_tool_calls(
                         modifiers.push(None);
                     }
                     None => {
-                        let (block, modifier) = execute_single(registry, call, hooks).await;
+                        // Reborrow as shared for execute_single, then reclaim mut for merge.
+                        let block;
+                        let modifier;
+                        {
+                            let hooks_shared: Option<&HookEngine> = hooks.as_deref();
+                            (block, modifier) = execute_single(registry, call, hooks_shared).await;
+                        }
+                        // Merge skill hooks after a successful sequential execution.
+                        if !block_is_error(&block) {
+                            maybe_merge_skill_hooks(registry, call, hooks.as_deref_mut());
+                        }
                         results.push(block);
                         modifiers.push(modifier);
                     }
@@ -190,7 +204,7 @@ pub async fn execute_tool_calls_with_approval(
     msg_id: &str,
     auto_approve: bool,
     allow_list: &[String],
-    hooks: Option<&HookEngine>,
+    mut hooks: Option<&mut HookEngine>,
 ) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
     let mut modifiers = Vec::new();
@@ -253,8 +267,13 @@ pub async fn execute_tool_calls_with_approval(
             tool_name: name.clone(),
         });
 
-        // Execute the tool
-        let (result, modifier) = execute_single(registry, call, hooks).await;
+        // Execute the tool (reborrow as shared for execute_single, then reclaim mut for merge).
+        let result;
+        let modifier;
+        {
+            let hooks_shared: Option<&HookEngine> = hooks.as_deref();
+            (result, modifier) = execute_single(registry, call, hooks_shared).await;
+        }
 
         // Emit tool_result event
         if let ContentBlock::ToolResult { content, is_error, .. } = &result {
@@ -270,11 +289,41 @@ pub async fn execute_tool_calls_with_approval(
             });
         }
 
+        // Merge skill hooks after a successful execution.
+        if !block_is_error(&result) {
+            maybe_merge_skill_hooks(registry, call, hooks.as_deref_mut());
+        }
+
         results.push(result);
         modifiers.push(modifier);
     }
 
     Ok(ToolCallOutcome { results, modifiers })
+}
+
+/// If `call` is a Skill tool call that returned successfully, parse and merge
+/// its declared hooks into the active HookEngine.
+fn maybe_merge_skill_hooks(
+    registry: &ToolRegistry,
+    call: &ContentBlock,
+    hooks: Option<&mut HookEngine>,
+) {
+    let Some(engine) = hooks else { return };
+    let ContentBlock::ToolUse { name, input, .. } = call else { return };
+
+    // Fast-path: only Skill tool can have skill hooks.
+    if name != "Skill" { return; }
+
+    if let Some(tool) = registry.get(name) {
+        if let Some(skill_hooks) = tool.skill_hooks_for(input) {
+            engine.merge_hooks(skill_hooks);
+        }
+    }
+}
+
+/// Returns true when a ContentBlock::ToolResult has is_error=true.
+fn block_is_error(block: &ContentBlock) -> bool {
+    matches!(block, ContentBlock::ToolResult { is_error: true, .. })
 }
 
 fn truncate_result(content: &str, max_chars: usize) -> String {
