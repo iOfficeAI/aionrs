@@ -200,6 +200,10 @@ impl Drop for SkillWatcher {
 /// - `Modify(Metadata(_))` events (timestamp/permission/xattr changes only —
 ///   macOS FSEvents emits these on the parent directory when a hidden file is
 ///   written, which would otherwise bypass the hidden-file name filter)
+/// - `Create(Folder)` events — macOS FSEvents emits a `Create(Folder)` event
+///   on the watched directory itself when the watcher is first registered.
+///   This is a spurious watcher-init event, not a real skill-relevant change.
+///   On Linux (inotify) this event is not emitted for existing directories.
 /// - Events on hidden files/directories (names starting with `.`)
 fn should_ignore(event: &Event) -> bool {
     // Filter access-only and pure metadata events.
@@ -208,6 +212,14 @@ fn should_ignore(event: &Event) -> bool {
         EventKind::Access(_)
             | EventKind::Modify(notify::event::ModifyKind::Metadata(_))
     ) {
+        return true;
+    }
+
+    // Filter directory-creation events.  macOS FSEvents fires Create(Folder)
+    // on the watched directory itself upon watcher registration, and also when
+    // a hidden file is written (the parent directory appears "created" again).
+    // Directory creation is never a skill-relevant change — skills are files.
+    if matches!(event.kind, EventKind::Create(notify::event::CreateKind::Folder)) {
         return true;
     }
 

@@ -88,6 +88,66 @@ provider-specific details. Keep it that way:
 - `src/mcp/` — MCP client implementation
 - `src/protocol/` — JSON stream protocol for host integration
 
+## Skills Module
+
+`src/skills/` implements the Skill system — user-defined prompt snippets that
+the agent can invoke by name.  The module is split into focused submodules:
+
+| Submodule | Responsibility |
+|-----------|----------------|
+| `types` | Core data types: `SkillDefinition`, `SkillSource`, `SkillPermissions`, etc. |
+| `frontmatter` | Parse YAML front matter from SKILL.md files |
+| `loader` | Discover and load skills from the filesystem |
+| `paths` | Platform skill directory resolution (`~/.config/aionrs/skills/`, `.aionrs/skills/`, legacy paths) |
+| `discovery` | Runtime directory lookup keyed on the active working directory |
+| `executor` | Execute a skill: variable substitution + optional shell command expansion |
+| `substitution` | `$ARGUMENTS`, `$0`, `${CLAUDE_SKILL_DIR}` replacement logic |
+| `shell` | Shell command execution for `` !`cmd` `` syntax in skill bodies |
+| `permissions` | Permission chain evaluation (deny → allow → safe-properties → ask) |
+| `conditional` | Conditional activation: `paths:` glob matching |
+| `context_modifier` | Apply skill-specified `model`/`effort`/`allowedTools` overrides |
+| `bundled` | Built-in skills compiled into the binary (never truncated by budget) |
+| `mcp` | Load skills from MCP servers; shell commands disabled for MCP skills |
+| `hooks` | Parse and classify `PreToolUse`/`PostToolUse`/`Stop` hooks from skill front matter |
+| `prompt` | Render the skill list for injection into the system prompt; budget control |
+| `watcher` | Watch skill directories for file changes; debounced version counter |
+
+### Development conventions
+
+**Adding a new front matter field**
+
+1. Add the field to the appropriate struct in `types.rs`
+2. Parse it in `frontmatter.rs` (`parse_frontmatter`)
+3. Add a unit test in `frontmatter.rs` inline tests
+
+**Adding a new built-in (bundled) skill**
+
+1. Create a `SKILL.md` file under `src/skills/bundled/`
+2. Register it in `bundled.rs` — the `BUNDLED_SKILLS` static slice
+3. Bundled skills are never truncated by prompt budget; use sparingly
+
+**Extending the permission system**
+
+- Permission priority is fixed: deny > allow > safe-properties > ask
+- Never reorder; tests in `permissions.rs` and `permissions_supplemental_tests.rs`
+  encode the expected chain
+
+**Filesystem watcher**
+
+- `SkillWatcher` uses `notify` (cross-platform) with a 300 ms debounce
+- `should_ignore` filters spurious events; update it (with a comment) when
+  adding new filter rules — do not add `#[cfg(target_os)]` conditionals
+
+### Test organization
+
+| Location | What goes there |
+|----------|----------------|
+| Inline `#[cfg(test)]` in each `.rs` file | White-box unit tests for that module's internals |
+| `src/skills/watcher_tests.rs` | Black-box tests for `SkillWatcher` (filesystem events) |
+| `src/skills/permissions_supplemental_tests.rs` | Additional permission chain edge cases |
+| `src/skills/bundled_supplemental_tests.rs` | Bundled skill edge cases |
+| `src/skills/integration_tests.rs` | Cross-module end-to-end tests |
+
 ## Code Style
 
 - Rust 2021 edition, stable toolchain

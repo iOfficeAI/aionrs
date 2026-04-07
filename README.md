@@ -9,6 +9,7 @@ A Rust-based LLM tool-use agent for the command line. It connects to LLM APIs, a
 - **Reasoning model support** — OpenAI `o1`/`o3` reasoning models with `reasoning_effort` control
 - **7 built-in tools** — Read, Write, Edit, Bash, Grep, Glob, Spawn (sub-agents)
 - **MCP client** — Connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio / SSE / streamable-http)
+- **Skills** — Named prompt snippets with variable substitution, shell expansion, conditional activation, and per-skill model/permission overrides (see [docs/skills.md](docs/skills.md))
 - **Hook system** — Event-driven automation on tool lifecycle (auto-format, lint, audit)
 - **Sub-agent spawning** — Parallel task execution via the Spawn tool
 - **Session persistence** — Save and resume conversation history
