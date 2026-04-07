@@ -48,6 +48,9 @@ dirs = "6"
 # Regular expressions (for argument substitution in skills)
 regex = "1"
 
+# File system change notification (for skill hot-reload)
+notify = "8"
+
 # Terminal color support
 crossterm = "0.28"
 

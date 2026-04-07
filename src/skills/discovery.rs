@@ -189,6 +189,16 @@ impl RuntimeDiscovery {
     pub fn clear_dynamic_skills(&mut self) {
         self.dynamic_skills.clear();
     }
+
+    /// Clear the set of directories that have already been checked for
+    /// `.aionrs/skills/` subdirectories.
+    ///
+    /// Call this when a file-system watcher detects changes so that newly
+    /// created directories (or directories that were previously absent) are
+    /// re-examined on the next [`discover_dirs_for_paths`](Self::discover_dirs_for_paths) call.
+    pub fn clear_checked_dirs(&mut self) {
+        self.checked_dirs.clear();
+    }
 }
 
 // ---------------------------------------------------------------------------

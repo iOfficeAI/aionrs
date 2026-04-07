@@ -13,9 +13,13 @@ pub mod prompt;
 pub mod shell;
 pub mod substitution;
 pub mod types;
+pub mod watcher;
 
 #[cfg(test)]
 mod permissions_supplemental_tests;
 
 #[cfg(test)]
 mod bundled_supplemental_tests;
+
+#[cfg(test)]
+mod watcher_tests;
