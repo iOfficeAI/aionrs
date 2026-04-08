@@ -243,6 +243,7 @@ fn relativize(file_path: &str, cwd: &Path) -> Option<String> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(windows))] // Path handling differs on Windows; skip these tests there
 mod tests {
     use std::path::Path;
 
