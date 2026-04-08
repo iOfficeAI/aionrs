@@ -114,6 +114,7 @@ pub async fn execute_fork(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(windows))] // Shell execution and path handling differ on Windows
 mod tests {
     use super::*;
     use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
