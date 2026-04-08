@@ -3,8 +3,8 @@
 
 #[cfg(test)]
 mod conditional_supplemental_tests {
-    use crate::skills::conditional::ConditionalSkillManager;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use crate::conditional::ConditionalSkillManager;
+    use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     // ---------------------------------------------------------------------------
     // Test helpers

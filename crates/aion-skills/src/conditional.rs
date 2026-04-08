@@ -3,7 +3,7 @@ use std::path::Path;
 
 use glob::Pattern;
 
-use crate::skills::types::SkillMetadata;
+use crate::types::SkillMetadata;
 
 // ---------------------------------------------------------------------------
 // Internal types

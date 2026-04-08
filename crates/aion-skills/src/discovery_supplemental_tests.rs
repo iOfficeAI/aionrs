@@ -11,7 +11,7 @@ mod discovery_supplemental_tests {
 
     use tempfile::TempDir;
 
-    use crate::skills::discovery::RuntimeDiscovery;
+    use crate::discovery::RuntimeDiscovery;
 
     // ---------------------------------------------------------------------------
     // Helpers

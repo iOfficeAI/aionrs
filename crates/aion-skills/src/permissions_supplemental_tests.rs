@@ -6,8 +6,8 @@
 
 #[cfg(test)]
 mod permissions_supplemental_tests {
-    use crate::skills::permissions::{PermissionRule, SkillPermission, SkillPermissionChecker};
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use crate::permissions::{PermissionRule, SkillPermission, SkillPermissionChecker};
+    use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     fn make_skill(name: &str) -> SkillMetadata {
         SkillMetadata {

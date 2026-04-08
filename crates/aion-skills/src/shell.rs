@@ -2,7 +2,7 @@ use futures::future::join_all;
 use regex::Regex;
 use std::sync::OnceLock;
 
-use crate::skills::types::LoadedFrom;
+use crate::types::LoadedFrom;
 
 // ---------------------------------------------------------------------------
 // Public API

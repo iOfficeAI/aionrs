@@ -403,7 +403,7 @@ fn coerce_description(value: &Option<String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::types::{LoadedFrom, SkillSource};
+    use crate::types::{LoadedFrom, SkillSource};
 
     // --- extract_frontmatter_bounds ---
 

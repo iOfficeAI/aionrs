@@ -1,6 +1,6 @@
 use unicode_width::UnicodeWidthStr;
 
-use crate::skills::types::{SkillMetadata, SkillSource};
+use crate::types::{SkillMetadata, SkillSource};
 
 // Skill listing gets 1% of the context window (in characters)
 pub const SKILL_BUDGET_CONTEXT_PERCENT: f64 = 0.01;
@@ -167,7 +167,7 @@ pub fn format_skills_within_budget(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     fn make_skill(
         name: &str,

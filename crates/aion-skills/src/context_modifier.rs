@@ -1,4 +1,4 @@
-use crate::skills::types::SkillMetadata;
+use crate::types::SkillMetadata;
 
 // Re-export from aion-types so callers can use a single import path
 pub use aion_types::skill_types::{ContextModifier, effort_to_string};
@@ -23,7 +23,7 @@ pub fn from_skill(skill: &SkillMetadata) -> Option<ContextModifier> {
 mod tests {
     use super::*;
     use aion_types::skill_types::EffortLevel;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillSource};
+    use crate::types::{ExecutionContext, LoadedFrom, SkillSource};
 
     fn make_skill(model: Option<&str>, effort: Option<EffortLevel>, allowed_tools: Vec<String>) -> SkillMetadata {
         SkillMetadata {

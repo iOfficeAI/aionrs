@@ -3,7 +3,7 @@
 // `use super::*` gives access to private functions in frontmatter.rs.
 
 use super::*;
-use crate::skills::types::{
+use crate::types::{
     BoolOrString, EffortLevel, ExecutionContext, FrontmatterData, LoadedFrom, SkillSource,
     StringOrNumber, StringOrVec,
 };

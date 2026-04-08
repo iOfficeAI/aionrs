@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::skills::loader::{load_skills_from_dir, LoadedSkill};
-use crate::skills::types::{LoadedFrom, SkillMetadata, SkillSource};
+use crate::loader::{load_skills_from_dir, LoadedSkill};
+use crate::types::{LoadedFrom, SkillMetadata, SkillSource};
 
 // ---------------------------------------------------------------------------
 // Public manager
@@ -252,7 +252,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{is_path_gitignored, is_prompt_type};
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     fn make_skill(name: &str) -> SkillMetadata {
         SkillMetadata {

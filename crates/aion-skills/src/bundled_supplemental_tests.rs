@@ -7,11 +7,11 @@
 
 #[cfg(test)]
 mod bundled_supplemental_tests {
-    use crate::skills::bundled::{
+    use crate::bundled::{
         clear_bundled_skills, get_bundled_skills, register_bundled_skill, BundledSkillDefinition,
     };
-    use crate::skills::loader::load_all_skills;
-    use crate::skills::types::SkillSource;
+    use crate::loader::load_all_skills;
+    use crate::types::SkillSource;
     use serial_test::serial;
     use std::fs;
     use tempfile::TempDir;

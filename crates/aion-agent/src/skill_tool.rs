@@ -6,11 +6,11 @@ use serde_json::{Value, json};
 use crate::spawner::Spawner;
 use aion_config::hooks::HooksConfig;
 use aion_protocol::events::ToolCategory;
-use crate::skills::context_modifier::ContextModifier;
-use crate::skills::executor::{execute_fork, prepare_inline_content};
-use crate::skills::hooks::{parse_skill_hooks, to_hook_defs};
-use crate::skills::permissions::{SkillPermission, SkillPermissionChecker};
-use crate::skills::types::{ExecutionContext, SkillMetadata};
+use aion_skills::context_modifier::ContextModifier;
+use aion_skills::executor::{execute_fork, prepare_inline_content};
+use aion_skills::hooks::{parse_skill_hooks, to_hook_defs};
+use aion_skills::permissions::{SkillPermission, SkillPermissionChecker};
+use aion_skills::types::{ExecutionContext, SkillMetadata};
 use aion_types::tool::{JsonSchema, ToolResult};
 
 use aion_tools::Tool;
@@ -194,7 +194,7 @@ impl Tool for SkillTool {
         if skill.execution_context == ExecutionContext::Fork {
             return None;
         }
-        crate::skills::context_modifier::from_skill(skill)
+        aion_skills::context_modifier::from_skill(skill)
     }
 
     fn skill_hooks_for(&self, input: &serde_json::Value) -> Option<HooksConfig> {
@@ -230,8 +230,8 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::permissions::SkillPermissionChecker;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillSource};
+    use aion_skills::permissions::SkillPermissionChecker;
+    use aion_skills::types::{ExecutionContext, LoadedFrom, SkillSource};
     use serde_json::json;
 
     fn make_skill(name: &str, content: &str) -> SkillMetadata {
@@ -353,8 +353,8 @@ mod supplemental_tests {
 
     use serde_json::json;
 
-    use crate::skills::permissions::SkillPermissionChecker;
-    use crate::skills::types::{
+    use aion_skills::permissions::SkillPermissionChecker;
+    use aion_skills::types::{
         ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
     };
 
@@ -570,8 +570,8 @@ mod supplemental_tests_p6 {
 
     use serde_json::json;
 
-    use crate::skills::permissions::SkillPermissionChecker;
-    use crate::skills::types::{
+    use aion_skills::permissions::SkillPermissionChecker;
+    use aion_skills::types::{
         EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
     };
     use aion_tools::Tool;
@@ -748,8 +748,8 @@ mod permission_tests {
 
     use serde_json::json;
 
-    use crate::skills::permissions::SkillPermissionChecker;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use aion_skills::permissions::SkillPermissionChecker;
+    use aion_skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     use super::SkillTool;
     use aion_tools::Tool;
@@ -825,8 +825,8 @@ mod phase7_tests {
     use serde_json::json;
 
     use crate::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
-    use crate::skills::permissions::SkillPermissionChecker;
-    use crate::skills::types::{
+    use aion_skills::permissions::SkillPermissionChecker;
+    use aion_skills::types::{
         EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
     };
     use aion_tools::Tool;
@@ -1124,8 +1124,8 @@ mod phase11_tests {
 
     use serde_json::json;
 
-    use crate::skills::permissions::SkillPermissionChecker;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use aion_skills::permissions::SkillPermissionChecker;
+    use aion_skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
     use aion_tools::Tool;
 
     use super::SkillTool;

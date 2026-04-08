@@ -1,5 +1,5 @@
-use crate::skills::prompt::format_skills_within_budget;
-use crate::skills::types::SkillMetadata;
+use aion_skills::prompt::format_skills_within_budget;
+use aion_skills::types::SkillMetadata;
 use aion_types::message::{ContentBlock, Message, Role};
 
 /// Build the system prompt from config and environment
@@ -200,7 +200,7 @@ mod tests {
 
     // --- build_system_prompt Phase 9 tests ---
 
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use aion_skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     fn make_test_skill(
         name: &str,

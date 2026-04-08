@@ -1,5 +1,5 @@
 use aion_config::hooks::{HookDef, HooksConfig};
-use crate::skills::types::SkillSource;
+use crate::types::SkillSource;
 
 /// A single hook command extracted from skill frontmatter.
 /// Only command-type hooks are supported; prompt/http/agent are silently skipped.
@@ -174,7 +174,7 @@ fn build_defs(cmds: &[SkillHookCommand], skill_name: &str, event: &str) -> Vec<H
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::types::SkillSource;
+    use crate::types::SkillSource;
     use serde_json::json;
 
     // -----------------------------------------------------------------------

@@ -329,7 +329,7 @@ async fn repl_loop(
 }
 
 fn print_skills_paths() {
-    use aion_agent::skills::paths::{
+    use aion_skills::paths::{
         project_commands_dirs, project_skills_dirs, user_commands_dir, user_skills_dir,
     };
 

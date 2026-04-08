@@ -27,8 +27,8 @@ use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::timeout;
 
-use crate::skills::discovery::RuntimeDiscovery;
-use crate::skills::watcher::SkillWatcher;
+use crate::discovery::RuntimeDiscovery;
+use crate::watcher::SkillWatcher;
 
 /// Create a uniquely named, non-hidden test directory under `/tmp/`.
 ///

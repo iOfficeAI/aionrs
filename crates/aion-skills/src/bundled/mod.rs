@@ -3,7 +3,7 @@ mod hello;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use crate::skills::types::{
+use crate::types::{
     ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
 };
 

@@ -7,6 +7,7 @@ members = [
     "crates/aion-providers",
     "crates/aion-tools",
     "crates/aion-mcp",
+    "crates/aion-skills",
     "crates/aion-agent",
     "crates/aion-cli",
     "workspace-hack",
@@ -26,6 +27,7 @@ aion-config    = { path = "crates/aion-config" }
 aion-providers = { path = "crates/aion-providers" }
 aion-tools     = { path = "crates/aion-tools" }
 aion-mcp       = { path = "crates/aion-mcp" }
+aion-skills    = { path = "crates/aion-skills" }
 aion-agent     = { path = "crates/aion-agent" }
 
 # Async runtime

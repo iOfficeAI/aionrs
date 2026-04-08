@@ -1,4 +1,4 @@
-use crate::skills::types::SkillMetadata;
+use crate::types::SkillMetadata;
 
 /// A parsed permission rule for skill name matching.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,7 +130,7 @@ fn build_ask_reason(skill: &SkillMetadata) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     fn make_skill(name: &str) -> SkillMetadata {
         SkillMetadata {

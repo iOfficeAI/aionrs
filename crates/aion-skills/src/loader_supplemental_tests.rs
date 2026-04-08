@@ -1,5 +1,5 @@
 use super::*;
-use crate::skills::types::{FrontmatterData, LoadedFrom, SkillSource};
+use crate::types::{FrontmatterData, LoadedFrom, SkillSource};
 use std::fs;
 use tempfile::TempDir;
 
@@ -11,7 +11,7 @@ fn write_skill(dir: &Path, rel_path: &str, content: &str) {
 
 fn make_loaded_skill(path: PathBuf, name: &str) -> LoadedSkill {
     let fm = FrontmatterData::default();
-    let metadata = crate::skills::frontmatter::parse_skill_fields(
+    let metadata = crate::frontmatter::parse_skill_fields(
         &fm,
         "",
         name,
@@ -234,10 +234,10 @@ fn tc_10_2_deduplicate_first_occurrence_wins() {
 
     // Two LoadedSkill with the same path but different names (first should win)
     let fm = FrontmatterData::default();
-    let meta_first = crate::skills::frontmatter::parse_skill_fields(
+    let meta_first = crate::frontmatter::parse_skill_fields(
         &fm, "", "first-name", SkillSource::User, LoadedFrom::Skills, None,
     );
-    let meta_second = crate::skills::frontmatter::parse_skill_fields(
+    let meta_second = crate::frontmatter::parse_skill_fields(
         &fm, "", "second-name", SkillSource::User, LoadedFrom::Skills, None,
     );
 
@@ -400,7 +400,7 @@ fn tc_wb_deduplicate_by_name_first_wins() {
     // Decision 6: HashMap<String, ()> with .insert().is_none() check
     let fm = FrontmatterData::default();
     let make_meta = |name: &str, source: SkillSource| {
-        crate::skills::frontmatter::parse_skill_fields(
+        crate::frontmatter::parse_skill_fields(
             &fm, "", name, source, LoadedFrom::Skills, None,
         )
     };
@@ -430,7 +430,7 @@ fn tc_wb_deduplicate_by_name_all_unique() {
     // [白盒] no duplicates — all preserved in order
     let fm = FrontmatterData::default();
     let make_meta = |name: &str| {
-        crate::skills::frontmatter::parse_skill_fields(
+        crate::frontmatter::parse_skill_fields(
             &fm, "", name, SkillSource::User, LoadedFrom::Skills, None,
         )
     };
@@ -448,7 +448,7 @@ fn tc_wb_deduplicate_by_name_case_sensitive() {
     // [白盒] name matching is case-sensitive — "Skill" and "skill" are different
     let fm = FrontmatterData::default();
     let make_meta = |name: &str| {
-        crate::skills::frontmatter::parse_skill_fields(
+        crate::frontmatter::parse_skill_fields(
             &fm, "", name, SkillSource::User, LoadedFrom::Skills, None,
         )
     };
@@ -478,7 +478,7 @@ async fn tc_4_5_mcp_manager_none_returns_no_mcp_skills() {
     for skill in &result {
         assert_ne!(
             skill.source,
-            crate::skills::types::SkillSource::Mcp,
+            crate::types::SkillSource::Mcp,
             "mcp_manager=None should produce no MCP skills"
         );
     }

@@ -63,9 +63,9 @@ fn test_deduplicate_removes_duplicates() {
     fs::write(&file, "").unwrap();
     let canonical = std::fs::canonicalize(&file).unwrap();
 
-    let fm = crate::skills::types::FrontmatterData::default();
+    let fm = crate::types::FrontmatterData::default();
     let make_meta = || {
-        crate::skills::frontmatter::parse_skill_fields(
+        crate::frontmatter::parse_skill_fields(
             &fm,
             "",
             "test",
@@ -98,9 +98,9 @@ fn test_deduplicate_different_paths_preserved() {
     fs::write(&file1, "").unwrap();
     fs::write(&file2, "").unwrap();
 
-    let fm = crate::skills::types::FrontmatterData::default();
+    let fm = crate::types::FrontmatterData::default();
     let make_meta = || {
-        crate::skills::frontmatter::parse_skill_fields(
+        crate::frontmatter::parse_skill_fields(
             &fm,
             "",
             "test",

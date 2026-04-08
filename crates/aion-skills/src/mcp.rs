@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
 use aion_mcp::manager::McpManager;
-use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
-use crate::skills::loader::LoadedSkill;
-use crate::skills::types::{LoadedFrom, SkillSource};
+use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
+use crate::loader::LoadedSkill;
+use crate::types::{LoadedFrom, SkillSource};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -236,8 +236,8 @@ mod tests {
         assert_eq!(results.len(), 1);
         let meta = &results[0].metadata;
         assert_eq!(meta.name, "my-server:my-skill");
-        assert_eq!(meta.source, crate::skills::types::SkillSource::Mcp);
-        assert_eq!(meta.loaded_from, crate::skills::types::LoadedFrom::Mcp);
+        assert_eq!(meta.source, crate::types::SkillSource::Mcp);
+        assert_eq!(meta.loaded_from, crate::types::LoadedFrom::Mcp);
         assert!(meta.skill_root.is_none());
     }
 
@@ -308,8 +308,8 @@ mod tests {
 
         let results = load_mcp_skills(&manager).await;
         let meta = &results[0].metadata;
-        assert_eq!(meta.source, crate::skills::types::SkillSource::Mcp);
-        assert_eq!(meta.loaded_from, crate::skills::types::LoadedFrom::Mcp);
+        assert_eq!(meta.source, crate::types::SkillSource::Mcp);
+        assert_eq!(meta.loaded_from, crate::types::LoadedFrom::Mcp);
         assert!(meta.skill_root.is_none());
     }
 

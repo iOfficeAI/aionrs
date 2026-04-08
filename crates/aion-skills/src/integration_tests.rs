@@ -9,14 +9,14 @@ use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
 
-use crate::skills::conditional::ConditionalSkillManager;
-use crate::skills::context_modifier::ContextModifier;
-use crate::skills::executor::prepare_inline_content;
-use crate::skills::hooks::{parse_skill_hooks, to_hook_defs};
-use crate::skills::loader::load_skills_from_dir;
-use crate::skills::permissions::{SkillPermission, SkillPermissionChecker};
-use crate::skills::prompt::format_skills_within_budget;
-use crate::skills::types::{
+use crate::conditional::ConditionalSkillManager;
+use crate::context_modifier::ContextModifier;
+use crate::executor::prepare_inline_content;
+use crate::hooks::{parse_skill_hooks, to_hook_defs};
+use crate::loader::load_skills_from_dir;
+use crate::permissions::{SkillPermission, SkillPermissionChecker};
+use crate::prompt::format_skills_within_budget;
+use crate::types::{
     EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
 };
 
@@ -305,7 +305,7 @@ fn tc_e2e_6_context_modifier_overrides() {
     skill.effort = Some(EffortLevel::High);
     skill.allowed_tools = vec!["Bash".to_string(), "Read".to_string()];
 
-    let modifier = crate::skills::context_modifier::from_skill(&skill)
+    let modifier = crate::context_modifier::from_skill(&skill)
         .expect("modifier should be present when overrides are set");
 
     // AC-9 assertions
@@ -499,7 +499,7 @@ async fn tc_e2e_10_multi_dir_dedup_first_wins() {
 
 #[tokio::test]
 async fn tc_e2e_11_legacy_commands_loaded() {
-    use crate::skills::loader::load_all_skills;
+    use crate::loader::load_all_skills;
 
     let tmp = TempDir::new().unwrap();
 
@@ -673,7 +673,7 @@ fn tc_e2e_12d_hooks_to_hook_defs_all_events() {
 #[test]
 fn wb_1a_frontmatter_no_delimiter_returns_empty_frontmatter() {
     // Input without --- delimiter → content treated as body, frontmatter is default
-    use crate::skills::frontmatter::parse_frontmatter;
+    use crate::frontmatter::parse_frontmatter;
     let parsed = parse_frontmatter("Just plain text, no frontmatter.");
     assert_eq!(parsed.frontmatter.name, None);
     assert_eq!(parsed.content, "Just plain text, no frontmatter.");
@@ -681,7 +681,7 @@ fn wb_1a_frontmatter_no_delimiter_returns_empty_frontmatter() {
 
 #[test]
 fn wb_1b_frontmatter_empty_yaml_section_parses_ok() {
-    use crate::skills::frontmatter::parse_frontmatter;
+    use crate::frontmatter::parse_frontmatter;
     // Empty YAML block: just two --- lines
     let parsed = parse_frontmatter("---\n---\nbody here");
     assert_eq!(parsed.content, "body here");
@@ -690,8 +690,8 @@ fn wb_1b_frontmatter_empty_yaml_section_parses_ok() {
 #[test]
 fn wb_1c_frontmatter_inherit_model_normalized_to_none() {
     // "inherit" model → None in SkillMetadata (don't override caller)
-    use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
-    use crate::skills::types::{LoadedFrom, SkillSource};
+    use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
+    use crate::types::{LoadedFrom, SkillSource};
     let input = "---\nmodel: inherit\n---\nbody";
     let parsed = parse_frontmatter(input);
     let meta = parse_skill_fields(
@@ -707,8 +707,8 @@ fn wb_1c_frontmatter_inherit_model_normalized_to_none() {
 
 #[test]
 fn wb_1d_frontmatter_fork_context_parsed() {
-    use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillSource};
+    use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
+    use crate::types::{ExecutionContext, LoadedFrom, SkillSource};
     let input = "---\ncontext: fork\n---\nbody";
     let parsed = parse_frontmatter(input);
     let meta = parse_skill_fields(
@@ -725,8 +725,8 @@ fn wb_1d_frontmatter_fork_context_parsed() {
 #[test]
 fn wb_1e_frontmatter_description_from_content_fallback() {
     // No description in frontmatter → first line of content used
-    use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
-    use crate::skills::types::{LoadedFrom, SkillSource};
+    use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
+    use crate::types::{LoadedFrom, SkillSource};
     let input = "---\nname: my-skill\n---\nThis is the first line.\nMore content here.";
     let parsed = parse_frontmatter(input);
     let meta = parse_skill_fields(
@@ -746,8 +746,8 @@ fn wb_1e_frontmatter_description_from_content_fallback() {
 
 #[test]
 fn wb_1f_frontmatter_user_specified_description_flag() {
-    use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
-    use crate::skills::types::{LoadedFrom, SkillSource};
+    use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
+    use crate::types::{LoadedFrom, SkillSource};
     let input = "---\ndescription: My explicit description\n---\nbody";
     let parsed = parse_frontmatter(input);
     let meta = parse_skill_fields(
@@ -793,7 +793,7 @@ fn wb_2b_auto_approve_does_not_bypass_deny() {
 #[test]
 fn wb_2c_permission_prefix_rule_matches_namespace() {
     // "db:*" prefix rule should match "db:migrate" and "db:seed"
-    use crate::skills::permissions::PermissionRule;
+    use crate::permissions::PermissionRule;
     let rule = PermissionRule::parse("db:*");
     assert!(rule.matches("db:migrate"));
     assert!(rule.matches("db:seed"));
@@ -802,7 +802,7 @@ fn wb_2c_permission_prefix_rule_matches_namespace() {
 
 #[test]
 fn wb_2d_permission_exact_rule_no_partial_match() {
-    use crate::skills::permissions::PermissionRule;
+    use crate::permissions::PermissionRule;
     let rule = PermissionRule::parse("commit");
     assert!(rule.matches("commit"));
     assert!(!rule.matches("commit-amend"));
@@ -872,7 +872,7 @@ fn wb_3c_dormant_count_reflects_state() {
 
 #[test]
 fn wb_4a_substitution_fallback_appended_when_no_placeholder_matched() {
-    use crate::skills::substitution::substitute_arguments;
+    use crate::substitution::substitute_arguments;
     // Content has no $ARGUMENTS placeholder → fallback append
     let result = substitute_arguments("Fixed content.", Some("extra_arg"), &[], None, None);
     assert!(
@@ -883,7 +883,7 @@ fn wb_4a_substitution_fallback_appended_when_no_placeholder_matched() {
 
 #[test]
 fn wb_4b_named_arg_numeric_name_skipped() {
-    use crate::skills::substitution::substitute_arguments;
+    use crate::substitution::substitute_arguments;
     // Numeric argument_names are skipped to avoid conflicting with $0 shorthand
     let names = vec!["0".to_string()];
     let result = substitute_arguments("Val: $0", Some("hello"), &names, None, None);
@@ -893,7 +893,7 @@ fn wb_4b_named_arg_numeric_name_skipped() {
 
 #[test]
 fn wb_4c_parse_arguments_tab_as_separator() {
-    use crate::skills::substitution::parse_arguments;
+    use crate::substitution::parse_arguments;
     // Tabs should split arguments same as spaces
     let result = parse_arguments("foo\tbar\tbaz");
     assert_eq!(result, vec!["foo", "bar", "baz"]);
@@ -901,7 +901,7 @@ fn wb_4c_parse_arguments_tab_as_separator() {
 
 #[test]
 fn wb_4d_multiple_spaces_between_args_ignored() {
-    use crate::skills::substitution::parse_arguments;
+    use crate::substitution::parse_arguments;
     // Multiple spaces should not produce empty tokens
     let result = parse_arguments("foo   bar");
     assert_eq!(result, vec!["foo", "bar"]);
@@ -913,7 +913,7 @@ fn wb_4d_multiple_spaces_between_args_ignored() {
 
 #[tokio::test]
 async fn wb_5a_shell_empty_command_replaced_with_empty() {
-    use crate::skills::shell::execute_shell_commands;
+    use crate::shell::execute_shell_commands;
     // `true` exits 0 with no output
     let content = "before !`true` after";
     let result = execute_shell_commands(content, LoadedFrom::Skills, "/tmp")
@@ -925,7 +925,7 @@ async fn wb_5a_shell_empty_command_replaced_with_empty() {
 
 #[tokio::test]
 async fn wb_5b_shell_block_multiline_command() {
-    use crate::skills::shell::execute_shell_commands;
+    use crate::shell::execute_shell_commands;
     let content = "```!\necho line1\necho line2\n```";
     let result = execute_shell_commands(content, LoadedFrom::Skills, "/tmp")
         .await
@@ -941,7 +941,7 @@ async fn wb_5b_shell_block_multiline_command() {
 
 #[test]
 fn wb_6a_build_namespace_two_levels() {
-    use crate::skills::loader::build_namespace;
+    use crate::loader::build_namespace;
     use std::path::Path;
     let base = Path::new("/skills");
     let target = Path::new("/skills/db/migrate");
@@ -950,7 +950,7 @@ fn wb_6a_build_namespace_two_levels() {
 
 #[test]
 fn wb_6b_build_namespace_single_level() {
-    use crate::skills::loader::build_namespace;
+    use crate::loader::build_namespace;
     use std::path::Path;
     assert_eq!(
         build_namespace(Path::new("/skills"), Path::new("/skills/my-skill")),
@@ -960,7 +960,7 @@ fn wb_6b_build_namespace_single_level() {
 
 #[test]
 fn wb_6c_build_namespace_same_dir_empty() {
-    use crate::skills::loader::build_namespace;
+    use crate::loader::build_namespace;
     use std::path::Path;
     let base = Path::new("/skills");
     assert_eq!(build_namespace(base, base), "");
@@ -973,7 +973,7 @@ fn wb_6c_build_namespace_same_dir_empty() {
 #[test]
 fn wb_7a_context_modifier_none_when_no_overrides() {
     let skill = make_skill("plain", "body");
-    let result = crate::skills::context_modifier::from_skill(&skill);
+    let result = crate::context_modifier::from_skill(&skill);
     assert!(result.is_none(), "no overrides should produce None");
 }
 
@@ -987,7 +987,7 @@ fn wb_7b_context_modifier_is_empty_default() {
 fn wb_7c_context_modifier_allowed_tools_only() {
     let mut skill = make_skill("tools", "body");
     skill.allowed_tools = vec!["Write".to_string()];
-    let m = crate::skills::context_modifier::from_skill(&skill).expect("should have modifier");
+    let m = crate::context_modifier::from_skill(&skill).expect("should have modifier");
     assert!(m.model.is_none());
     assert!(m.effort.is_none());
     assert_eq!(m.allowed_tools, vec!["Write"]);

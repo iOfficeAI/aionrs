@@ -19,6 +19,7 @@ aion-providers.workspace = true
 aion-tools.workspace    = true
 aion-mcp.workspace      = true
 aion-protocol.workspace = true
+aion-skills.workspace   = true
 
 tokio.workspace  = true
 anyhow.workspace = true

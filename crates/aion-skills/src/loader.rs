@@ -4,14 +4,14 @@ use std::path::{Path, PathBuf};
 use futures::future::join_all;
 
 use aion_mcp::manager::McpManager;
-use crate::skills::bundled;
-use crate::skills::frontmatter::{parse_frontmatter, parse_skill_fields};
-use crate::skills::mcp::load_mcp_skills;
-use crate::skills::paths::{
+use crate::bundled;
+use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
+use crate::mcp::load_mcp_skills;
+use crate::paths::{
     additional_skills_dirs, project_commands_dirs, project_skills_dirs, user_commands_dir,
     user_skills_dir,
 };
-use crate::skills::types::{LoadedFrom, SkillMetadata, SkillSource};
+use crate::types::{LoadedFrom, SkillMetadata, SkillSource};
 
 // ---------------------------------------------------------------------------
 // Public types

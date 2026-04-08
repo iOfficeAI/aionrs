@@ -19,30 +19,25 @@ dependencies = [
  "aion-mcp",
  "aion-protocol",
  "aion-providers",
+ "aion-skills",
  "aion-tools",
  "aion-types",
  "anyhow",
  "async-trait",
  "chrono",
  "crossterm",
- "dirs",
  "futures",
  "glob",
  "is-terminal",
- "libc",
  "mockall",
- "notify",
- "regex",
  "rstest",
  "serde",
  "serde_json",
- "serde_yaml",
  "serial_test",
  "tempfile",
  "thiserror",
  "tokio",
  "tokio-test",
- "unicode-width",
  "wiremock",
  "workspace-hack",
 ]
@@ -56,6 +51,7 @@ dependencies = [
  "aion-mcp",
  "aion-protocol",
  "aion-providers",
+ "aion-skills",
  "aion-tools",
  "anyhow",
  "clap",
@@ -144,6 +140,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "aion-skills"
+version = "0.1.2"
+dependencies = [
+ "aion-config",
+ "aion-mcp",
+ "aion-types",
+ "anyhow",
+ "async-trait",
+ "dirs",
+ "futures",
+ "glob",
+ "libc",
+ "notify",
+ "regex",
+ "rstest",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "serial_test",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "unicode-width",
+ "workspace-hack",
+]
+
+[[package]]
 name = "aion-tools"
 version = "0.1.2"
 dependencies = [
@@ -165,6 +188,7 @@ dependencies = [
 name = "aion-types"
 version = "0.1.2"
 dependencies = [
+ "async-trait",
  "serde",
  "serde_json",
 ]

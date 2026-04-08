@@ -1,8 +1,8 @@
-use crate::spawner::{ForkOverrides, Spawner, SubAgentConfig};
-use crate::skills::context_modifier::effort_to_string;
-use crate::skills::shell::{ShellExecutionError, execute_shell_commands};
-use crate::skills::substitution::substitute_arguments;
-use crate::skills::types::{ExecutionContext, SkillMetadata};
+use aion_types::spawner::{ForkOverrides, Spawner, SubAgentConfig};
+use crate::context_modifier::effort_to_string;
+use crate::shell::{ShellExecutionError, execute_shell_commands};
+use crate::substitution::substitute_arguments;
+use crate::types::{ExecutionContext, SkillMetadata};
 
 /// Prepare skill content for inline execution.
 ///
@@ -113,7 +113,7 @@ pub async fn execute_fork(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::skills::types::{
+    use crate::types::{
         ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
     };
 
@@ -207,7 +207,7 @@ mod tests {
 #[cfg(test)]
 mod supplemental_tests {
     use super::*;
-    use crate::skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
+    use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
     fn make_skill_full(
         name: &str,
@@ -388,8 +388,8 @@ mod phase7_tests {
     use async_trait::async_trait;
 
     use super::execute_fork;
-    use crate::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
-    use crate::skills::types::{
+    use aion_types::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
+    use crate::types::{
         EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
     };
     use aion_types::message::TokenUsage;
@@ -647,7 +647,7 @@ mod phase7_tests {
     // All effort levels convert to their string representations
     #[test]
     fn tc_7_effort_all_variants_to_string() {
-        use crate::skills::context_modifier::effort_to_string;
+        use crate::context_modifier::effort_to_string;
         assert_eq!(effort_to_string(EffortLevel::Low), "low");
         assert_eq!(effort_to_string(EffortLevel::Medium), "medium");
         assert_eq!(effort_to_string(EffortLevel::High), "high");
