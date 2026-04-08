@@ -99,15 +99,17 @@ async fn tc_e2e_1_full_lifecycle_load_skill() {
 
 #[tokio::test]
 async fn tc_e2e_2_inline_variable_substitution() {
-    let skill_root = "/tmp/e2e2-skill";
+    let tmp = std::env::temp_dir();
+    let skill_root = tmp.join("e2e2-skill");
     let mut skill = make_skill(
         "var-skill",
         "Arguments: $ARGUMENTS\nFirst arg: $0\nSkill dir: ${AIONRS_SKILL_DIR}",
     );
-    skill.skill_root = Some(skill_root.to_string());
+    let skill_root_str = skill_root.to_str().unwrap();
+    skill.skill_root = Some(skill_root_str.to_string());
     skill.argument_names = vec!["query".to_string()];
 
-    let result = prepare_inline_content(&skill, Some("hello world"), None, "/tmp")
+    let result = prepare_inline_content(&skill, Some("hello world"), None, tmp.to_str().unwrap())
         .await
         .unwrap();
 
@@ -117,7 +119,7 @@ async fn tc_e2e_2_inline_variable_substitution() {
         "$ARGUMENTS should be replaced, got: {result}"
     );
     assert!(
-        result.contains(skill_root),
+        result.contains(skill_root_str),
         "${{AIONRS_SKILL_DIR}} should be replaced with skill root, got: {result}"
     );
     // $0 (first positional arg) substitution — first token of args
@@ -146,7 +148,8 @@ async fn tc_e2e_3_shell_command_execution() {
     let mut skill = make_skill("shell-skill", "Output: !`echo hello`");
     skill.loaded_from = LoadedFrom::Skills; // non-MCP so shell is allowed
 
-    let result = prepare_inline_content(&skill, None, None, "/tmp")
+    let tmp = std::env::temp_dir();
+    let result = prepare_inline_content(&skill, None, None, tmp.to_str().unwrap())
         .await
         .unwrap();
 
@@ -395,7 +398,8 @@ async fn tc_e2e_8_mcp_skill_shell_rejected() {
     skill.source = SkillSource::Mcp;
     skill.loaded_from = LoadedFrom::Mcp;
 
-    let result = prepare_inline_content(&skill, None, None, "/tmp")
+    let tmp = std::env::temp_dir();
+    let result = prepare_inline_content(&skill, None, None, tmp.to_str().unwrap())
         .await
         .unwrap();
 
@@ -404,9 +408,9 @@ async fn tc_e2e_8_mcp_skill_shell_rejected() {
         result.contains("!`ls /tmp`"),
         "MCP skill shell syntax should be preserved (not executed), got: {result}"
     );
-    // The output should not be a directory listing
+    // The output should not be a directory listing — verify no typical ls output tokens
     assert!(
-        !result.contains("bin") && !result.contains("usr"),
+        !result.contains("total ") && !result.contains(".log"),
         "MCP skill should not execute shell and return ls output, got: {result}"
     );
 }
@@ -983,20 +987,23 @@ fn wb_4d_multiple_spaces_between_args_ignored() {
 #[tokio::test]
 async fn wb_5a_shell_empty_command_replaced_with_empty() {
     use crate::shell::execute_shell_commands;
-    // `true` exits 0 with no output
-    let content = "before !`true` after";
-    let result = execute_shell_commands(content, LoadedFrom::Skills, "/tmp")
+    // `cd .` exits 0 with no output on all platforms
+    let content = "before !`cd .` after";
+    let tmp = std::env::temp_dir();
+    let result = execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap())
         .await
         .unwrap();
-    // The !`true` replacement is empty string, so "before  after" (double space)
+    // The !`cd .` replacement is empty string, so "before  after" (double space)
     assert_eq!(result, "before  after");
 }
 
 #[tokio::test]
+#[cfg(not(windows))] // Windows cmd does not support newline-separated commands in blocks
 async fn wb_5b_shell_block_multiline_command() {
     use crate::shell::execute_shell_commands;
     let content = "```!\necho line1\necho line2\n```";
-    let result = execute_shell_commands(content, LoadedFrom::Skills, "/tmp")
+    let tmp = std::env::temp_dir();
+    let result = execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap())
         .await
         .unwrap();
     assert!(result.contains("line1"));

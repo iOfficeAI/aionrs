@@ -189,16 +189,25 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
 
 /// Execute a single shell command and return its combined stdout/stderr output.
 async fn execute_command(command: &str, cwd: &str) -> Result<String, ShellExecutionError> {
-    let output = tokio::process::Command::new("bash")
-        .arg("-c")
-        .arg(command)
-        .current_dir(cwd)
-        .output()
-        .await
-        .map_err(|e| ShellExecutionError::CommandFailed {
-            pattern: command.to_owned(),
-            output: e.to_string(),
-        })?;
+    let output = if cfg!(windows) {
+        tokio::process::Command::new("cmd")
+            .arg("/C")
+            .arg(command)
+            .current_dir(cwd)
+            .output()
+            .await
+    } else {
+        tokio::process::Command::new("bash")
+            .arg("-c")
+            .arg(command)
+            .current_dir(cwd)
+            .output()
+            .await
+    }
+    .map_err(|e| ShellExecutionError::CommandFailed {
+        pattern: command.to_owned(),
+        output: e.to_string(),
+    })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -235,7 +244,8 @@ mod tests {
 
     // Helper: run execute_shell_commands with LoadedFrom::Skills
     async fn run(content: &str) -> Result<String, ShellExecutionError> {
-        execute_shell_commands(content, LoadedFrom::Skills, "/tmp").await
+        let tmp = std::env::temp_dir();
+        execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap()).await
     }
 
     // -----------------------------------------------------------------------
@@ -314,7 +324,8 @@ mod tests {
     #[tokio::test]
     async fn test_mcp_skill_returns_unchanged() {
         let content = "!`pwd`";
-        let result = execute_shell_commands(content, LoadedFrom::Mcp, "/tmp").await;
+        let tmp = std::env::temp_dir();
+        let result = execute_shell_commands(content, LoadedFrom::Mcp, tmp.to_str().unwrap()).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), content);
     }
@@ -356,8 +367,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_empty_output_replaced_with_empty_string() {
-        // `true` exits 0 with no output
-        let content = "before !`true` after";
+        // `cd .` exits 0 with no output on all platforms
+        let content = "before !`cd .` after";
         let result = run(content).await.unwrap();
         assert_eq!(result, "before  after");
     }
@@ -372,8 +383,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_stderr_formatted() {
-        // Write to stderr only
-        let content = "!`echo err >&2`";
+        // Write to stderr only — cross-platform redirection
+        let content = if cfg!(windows) {
+            "!`echo err 1>&2`"
+        } else {
+            "!`echo err >&2`"
+        };
         let result = run(content).await.unwrap();
         assert!(result.contains("[stderr]"));
         assert!(result.contains("err"));
