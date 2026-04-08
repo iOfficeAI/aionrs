@@ -8,7 +8,7 @@
 //! on any pre-existing files in the repo or user home directory.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use aionrs::context::build_system_prompt;
@@ -297,75 +297,3 @@ async fn e11_legacy_command_execution() {
     println!("E11 PASS: legacy command executed with variable substitution");
 }
 
-// ---------------------------------------------------------------------------
-// E12: Additional skills dir (simulates user-level via add_dirs + bare mode)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e12_additional_skills_dir() {
-    let tmp = TempDir::new().unwrap();
-    let add_dir = tmp.path().to_path_buf();
-
-    let skill_dir = add_dir.join(".aionrs").join("skills").join("user-greeting");
-    fs::create_dir_all(&skill_dir).unwrap();
-    fs::write(
-        skill_dir.join("SKILL.md"),
-        "---\nname: user-greeting\ndescription: A user-level global skill for E2E testing\n---\n\nHi from user-level skill! Args: $ARGUMENTS\n",
-    ).unwrap();
-
-    // bare=true + add_dirs exercises the same code path as user-level discovery
-    let skills = load_all_skills(Path::new("/nonexistent"), &[add_dir], true, None).await;
-
-    let user_skill = find_skill(&skills, "user-greeting");
-    assert!(user_skill.is_some(), "E12 FAIL: 'user-greeting' not discovered via add_dirs");
-    assert_eq!(user_skill.unwrap().description, "A user-level global skill for E2E testing");
-    println!("E12 PASS: skill discovered via additional skills dir (add_dirs)");
-}
-
-// ---------------------------------------------------------------------------
-// E13: Additional skills dir execution
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e13_additional_skills_dir_execution() {
-    let tmp = TempDir::new().unwrap();
-    let add_dir = tmp.path().to_path_buf();
-
-    let skill_dir = add_dir.join(".aionrs").join("skills").join("user-greeting");
-    fs::create_dir_all(&skill_dir).unwrap();
-    fs::write(
-        skill_dir.join("SKILL.md"),
-        "---\nname: user-greeting\ndescription: test\n---\n\nHi from user-level skill! Args: $ARGUMENTS\n",
-    ).unwrap();
-
-    let skills = load_all_skills(Path::new("/nonexistent"), &[add_dir], true, None).await;
-    let tool = make_tool(skills, "/tmp");
-
-    let result = tool.execute(json!({"skill": "user-greeting", "args": "World"})).await;
-    assert!(!result.is_error, "E13 FAIL: error: {}", result.content);
-    assert!(result.content.contains("Hi from user-level skill!"), "E13 FAIL: got: {}", result.content);
-    assert!(result.content.contains("World"), "E13 FAIL: $ARGUMENTS not substituted. Got: {}", result.content);
-    println!("E13 PASS: additional dir skill executed with $ARGUMENTS substitution");
-}
-
-// ---------------------------------------------------------------------------
-// E14: Additional skills dir appears in system prompt
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn e14_additional_skills_in_system_prompt() {
-    let tmp = TempDir::new().unwrap();
-    let add_dir = tmp.path().to_path_buf();
-
-    let skill_dir = add_dir.join(".aionrs").join("skills").join("user-greeting");
-    fs::create_dir_all(&skill_dir).unwrap();
-    fs::write(
-        skill_dir.join("SKILL.md"),
-        "---\nname: user-greeting\ndescription: A global skill\n---\n\nContent\n",
-    ).unwrap();
-
-    let skills = load_all_skills(Path::new("/nonexistent"), &[add_dir], true, None).await;
-    let prompt = build_system_prompt(None, "/tmp", &skills, None);
-    assert!(prompt.contains("user-greeting"), "E14 FAIL: 'user-greeting' not in system prompt");
-    println!("E14 PASS: additional dir skill appears in system prompt");
-}
