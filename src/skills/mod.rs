@@ -19,6 +19,10 @@ pub mod watcher;
 mod permissions_supplemental_tests;
 
 #[cfg(test)]
+#[path = "integration_tests.rs"]
+mod integration_tests;
+
+#[cfg(test)]
 mod bundled_supplemental_tests;
 
 #[cfg(test)]
