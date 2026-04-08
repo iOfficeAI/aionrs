@@ -283,10 +283,7 @@ mod discovery_supplemental_tests {
 
         let mut mgr = RuntimeDiscovery::new();
         let found = mgr
-            .discover_dirs_for_paths(
-                &[fx.to_str().unwrap(), fy.to_str().unwrap()],
-                &cwd,
-            )
+            .discover_dirs_for_paths(&[fx.to_str().unwrap(), fy.to_str().unwrap()], &cwd)
             .await;
 
         assert_eq!(found.len(), 2);
@@ -347,8 +344,7 @@ mod discovery_supplemental_tests {
 
         // Both dirs have a skill named "shared" with different content.
         // Use directory format (<name>/SKILL.md) — required by load_skills_from_dir.
-        let shallow_content =
-            "---\ndescription: shallow version\n---\n\nShallow skill.";
+        let shallow_content = "---\ndescription: shallow version\n---\n\nShallow skill.";
         let deep_content = "---\ndescription: deep version\n---\n\nDeep skill.";
         let shallow_skill_dir = shallow_skills.join("shared");
         let deep_skill_dir = deep_skills.join("shared");
@@ -359,7 +355,8 @@ mod discovery_supplemental_tests {
 
         let mut mgr = RuntimeDiscovery::new();
         // Pass deepest first (as discover_dirs_for_paths would return)
-        mgr.add_skill_directories(&[deep_skills, shallow_skills]).await;
+        mgr.add_skill_directories(&[deep_skills, shallow_skills])
+            .await;
 
         let skills = mgr.get_dynamic_skills();
         assert_eq!(skills.len(), 1);

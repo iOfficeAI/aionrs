@@ -252,10 +252,7 @@ mod tests {
 
     #[test]
     fn compile_patterns_valid_returns_all() {
-        let patterns = compile_patterns("skill", &[
-            "src/**/*.rs".to_string(),
-            "*.ts".to_string(),
-        ]);
+        let patterns = compile_patterns("skill", &["src/**/*.rs".to_string(), "*.ts".to_string()]);
         assert_eq!(patterns.len(), 2);
     }
 
@@ -272,10 +269,7 @@ mod tests {
 
     #[test]
     fn compile_patterns_mixed_keeps_valid_drops_syntactically_invalid() {
-        let patterns = compile_patterns("skill", &[
-            "[bad".to_string(),
-            "src/**/*.rs".to_string(),
-        ]);
+        let patterns = compile_patterns("skill", &["[bad".to_string(), "src/**/*.rs".to_string()]);
         assert_eq!(patterns.len(), 1);
         assert!(patterns[0].matches("src/lib.rs"));
     }

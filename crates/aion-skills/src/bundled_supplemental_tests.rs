@@ -8,7 +8,7 @@
 #[cfg(test)]
 mod bundled_supplemental_tests {
     use crate::bundled::{
-        clear_bundled_skills, get_bundled_skills, register_bundled_skill, BundledSkillDefinition,
+        BundledSkillDefinition, clear_bundled_skills, get_bundled_skills, register_bundled_skill,
     };
     use crate::loader::load_all_skills;
     use crate::types::SkillSource;
@@ -72,8 +72,7 @@ mod bundled_supplemental_tests {
         let tmp = TempDir::new().unwrap();
         write_skill_dir(tmp.path(), "shared-name");
 
-        let result =
-            load_all_skills(tmp.path(), &[tmp.path().to_path_buf()], false, None).await;
+        let result = load_all_skills(tmp.path(), &[tmp.path().to_path_buf()], false, None).await;
 
         let matches: Vec<_> = result.iter().filter(|s| s.name == "shared-name").collect();
         assert_eq!(
@@ -93,8 +92,7 @@ mod bundled_supplemental_tests {
     // TC-10.22: bundled skill virtual path format
     #[test]
     fn tc_10_22_virtual_path_format() {
-        let virtual_path =
-            std::path::PathBuf::from(format!("<bundled:{}>", "path-test"));
+        let virtual_path = std::path::PathBuf::from(format!("<bundled:{}>", "path-test"));
         assert_eq!(virtual_path.to_str().unwrap(), "<bundled:path-test>");
     }
 

@@ -102,7 +102,10 @@ fn tc_1_10_hooks_field_preserved() {
 fn tc_2_3_square_bracket_in_value() {
     let input = "---\nargument-hint: [optional]\n---\nbody";
     let parsed = parse_frontmatter(input);
-    assert_eq!(parsed.frontmatter.argument_hint.as_deref(), Some("[optional]"));
+    assert_eq!(
+        parsed.frontmatter.argument_hint.as_deref(),
+        Some("[optional]")
+    );
 }
 
 #[test]
@@ -124,10 +127,7 @@ fn tc_2_5_hash_in_value() {
     // Known limitation: values containing " #" are not rescued by quote_problematic_values.
     let input = "---\ndescription: See issue #123\n---\nbody";
     let parsed = parse_frontmatter(input);
-    assert_eq!(
-        parsed.frontmatter.description.as_deref(),
-        Some("See issue")
-    );
+    assert_eq!(parsed.frontmatter.description.as_deref(), Some("See issue"));
 }
 
 #[test]
@@ -287,8 +287,14 @@ fn tc_4_8_has_user_specified_description_true_when_frontmatter_has_it() {
         description: Some("User provided".into()),
         ..Default::default()
     };
-    let meta =
-        parse_skill_fields(&fm, "# Title", "x", SkillSource::User, LoadedFrom::Skills, None);
+    let meta = parse_skill_fields(
+        &fm,
+        "# Title",
+        "x",
+        SkillSource::User,
+        LoadedFrom::Skills,
+        None,
+    );
     assert!(meta.has_user_specified_description);
     assert_eq!(meta.description, "User provided");
 }
@@ -363,7 +369,10 @@ fn tc_4_18_skill_root_passed_through() {
         LoadedFrom::Skills,
         Some("/home/user/.claude/skills"),
     );
-    assert_eq!(meta.skill_root.as_deref(), Some("/home/user/.claude/skills"));
+    assert_eq!(
+        meta.skill_root.as_deref(),
+        Some("/home/user/.claude/skills")
+    );
 }
 
 #[test]
@@ -649,5 +658,8 @@ fn tc_12_3_legacy_commands_loaded_from() {
     );
     assert_eq!(meta.loaded_from, LoadedFrom::CommandsDeprecated);
     assert_eq!(meta.source, SkillSource::Legacy);
-    assert_eq!(meta.skill_root.as_deref(), Some("/project/.claude/commands"));
+    assert_eq!(
+        meta.skill_root.as_deref(),
+        Some("/project/.claude/commands")
+    );
 }

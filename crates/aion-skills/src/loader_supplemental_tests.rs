@@ -78,8 +78,7 @@ async fn tc_8_7_source_and_loaded_from_passed_through() {
     let tmp = TempDir::new().unwrap();
     write_skill(tmp.path(), "test-skill/SKILL.md", "---\n---\n");
 
-    let skills =
-        load_skills_from_dir(tmp.path(), SkillSource::Project, LoadedFrom::Skills).await;
+    let skills = load_skills_from_dir(tmp.path(), SkillSource::Project, LoadedFrom::Skills).await;
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].metadata.source, SkillSource::Project);
     assert_eq!(skills[0].metadata.loaded_from, LoadedFrom::Skills);
@@ -197,7 +196,10 @@ async fn tc_9_1_commands_directory_format_loaded_from_deprecated() {
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::Project).await;
     assert_eq!(skills.len(), 1);
-    assert_eq!(skills[0].metadata.loaded_from, LoadedFrom::CommandsDeprecated);
+    assert_eq!(
+        skills[0].metadata.loaded_from,
+        LoadedFrom::CommandsDeprecated
+    );
     assert_eq!(skills[0].metadata.source, SkillSource::Project);
 }
 
@@ -235,15 +237,31 @@ fn tc_10_2_deduplicate_first_occurrence_wins() {
     // Two LoadedSkill with the same path but different names (first should win)
     let fm = FrontmatterData::default();
     let meta_first = crate::frontmatter::parse_skill_fields(
-        &fm, "", "first-name", SkillSource::User, LoadedFrom::Skills, None,
+        &fm,
+        "",
+        "first-name",
+        SkillSource::User,
+        LoadedFrom::Skills,
+        None,
     );
     let meta_second = crate::frontmatter::parse_skill_fields(
-        &fm, "", "second-name", SkillSource::User, LoadedFrom::Skills, None,
+        &fm,
+        "",
+        "second-name",
+        SkillSource::User,
+        LoadedFrom::Skills,
+        None,
     );
 
     let skills = vec![
-        LoadedSkill { metadata: meta_first, resolved_path: canonical.clone() },
-        LoadedSkill { metadata: meta_second, resolved_path: canonical },
+        LoadedSkill {
+            metadata: meta_first,
+            resolved_path: canonical.clone(),
+        },
+        LoadedSkill {
+            metadata: meta_second,
+            resolved_path: canonical,
+        },
     ];
 
     let result = deduplicate(skills);
@@ -274,9 +292,9 @@ fn tc_10_4_deduplicate_mixed_unique_and_duplicate() {
     // f1 appears twice, f2 appears twice, f3 appears once → 3 unique
     let skills = vec![
         make_loaded_skill(c1.clone(), "a1"),
-        make_loaded_skill(c1, "a2"),        // duplicate of a1
+        make_loaded_skill(c1, "a2"), // duplicate of a1
         make_loaded_skill(c2.clone(), "b1"),
-        make_loaded_skill(c2, "b2"),        // duplicate of b1
+        make_loaded_skill(c2, "b2"), // duplicate of b1
         make_loaded_skill(c3, "c1"),
     ];
 
@@ -400,13 +418,11 @@ fn tc_wb_deduplicate_by_name_first_wins() {
     // Decision 6: HashMap<String, ()> with .insert().is_none() check
     let fm = FrontmatterData::default();
     let make_meta = |name: &str, source: SkillSource| {
-        crate::frontmatter::parse_skill_fields(
-            &fm, "", name, source, LoadedFrom::Skills, None,
-        )
+        crate::frontmatter::parse_skill_fields(&fm, "", name, source, LoadedFrom::Skills, None)
     };
 
     let skills = vec![
-        make_meta("my-skill", SkillSource::User),    // first — should win
+        make_meta("my-skill", SkillSource::User), // first — should win
         make_meta("my-skill", SkillSource::Project), // second — should be removed
         make_meta("other-skill", SkillSource::User),
     ];
@@ -414,7 +430,11 @@ fn tc_wb_deduplicate_by_name_first_wins() {
     let result = deduplicate_by_name(skills);
     assert_eq!(result.len(), 2);
     assert_eq!(result[0].name, "my-skill");
-    assert_eq!(result[0].source, SkillSource::User, "first occurrence (User) should win over Project");
+    assert_eq!(
+        result[0].source,
+        SkillSource::User,
+        "first occurrence (User) should win over Project"
+    );
     assert_eq!(result[1].name, "other-skill");
 }
 
@@ -431,7 +451,12 @@ fn tc_wb_deduplicate_by_name_all_unique() {
     let fm = FrontmatterData::default();
     let make_meta = |name: &str| {
         crate::frontmatter::parse_skill_fields(
-            &fm, "", name, SkillSource::User, LoadedFrom::Skills, None,
+            &fm,
+            "",
+            name,
+            SkillSource::User,
+            LoadedFrom::Skills,
+            None,
         )
     };
 
@@ -449,13 +474,22 @@ fn tc_wb_deduplicate_by_name_case_sensitive() {
     let fm = FrontmatterData::default();
     let make_meta = |name: &str| {
         crate::frontmatter::parse_skill_fields(
-            &fm, "", name, SkillSource::User, LoadedFrom::Skills, None,
+            &fm,
+            "",
+            name,
+            SkillSource::User,
+            LoadedFrom::Skills,
+            None,
         )
     };
 
     let skills = vec![make_meta("Skill"), make_meta("skill")];
     let result = deduplicate_by_name(skills);
-    assert_eq!(result.len(), 2, "case-sensitive: 'Skill' and 'skill' are distinct");
+    assert_eq!(
+        result.len(),
+        2,
+        "case-sensitive: 'Skill' and 'skill' are distinct"
+    );
 }
 
 // -----------------------------------------------------------------------
@@ -470,7 +504,11 @@ async fn tc_4_5_mcp_manager_none_returns_no_mcp_skills() {
     fs::create_dir(root.join(".git")).unwrap();
     let skills_dir = root.join(".aionrs").join("skills");
     fs::create_dir_all(&skills_dir).unwrap();
-    write_skill(&skills_dir, "local-skill/SKILL.md", "---\ndescription: local\n---\n");
+    write_skill(
+        &skills_dir,
+        "local-skill/SKILL.md",
+        "---\ndescription: local\n---\n",
+    );
 
     let result = load_all_skills(root, &[], false, None).await;
     let names: Vec<_> = result.iter().map(|s| s.name.as_str()).collect();

@@ -1,4 +1,4 @@
-use super::{register_bundled_skill, BundledSkillDefinition};
+use super::{BundledSkillDefinition, register_bundled_skill};
 
 /// Register the built-in "hello" skill used to validate the bundled skill framework.
 pub fn register_hello_skill() {
@@ -35,9 +35,14 @@ mod tests {
         clear_bundled_skills();
         register_hello_skill();
         let skills = get_bundled_skills();
-        let hello = skills.iter().find(|s| s.name == "hello")
+        let hello = skills
+            .iter()
+            .find(|s| s.name == "hello")
             .expect("hello skill should be registered");
         assert!(hello.user_invocable, "hello should be user_invocable");
-        assert!(!hello.description.is_empty(), "hello should have a non-empty description");
+        assert!(
+            !hello.description.is_empty(),
+            "hello should have a non-empty description"
+        );
     }
 }

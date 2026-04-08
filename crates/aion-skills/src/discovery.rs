@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::loader::{load_skills_from_dir, LoadedSkill};
+use crate::loader::{LoadedSkill, load_skills_from_dir};
 use crate::types::{LoadedFrom, SkillMetadata, SkillSource};
 
 // ---------------------------------------------------------------------------

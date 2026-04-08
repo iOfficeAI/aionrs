@@ -53,10 +53,8 @@ impl AgentEngine {
         output: Arc<dyn OutputSink>,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
-        let confirmer = ToolConfirmer::new(
-            config.tools.auto_approve,
-            config.tools.allow_list.clone(),
-        );
+        let confirmer =
+            ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
         let session_manager = if config.session.enabled {
             Some(SessionManager::new(
@@ -95,7 +93,12 @@ impl AgentEngine {
     }
 
     /// Create from a resumed session
-    pub fn resume(config: Config, tools: ToolRegistry, output: Arc<dyn OutputSink>, session: Session) -> Self {
+    pub fn resume(
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        session: Session,
+    ) -> Self {
         let provider = create_provider(&config);
         Self::resume_with_provider(provider, config, tools, output, session)
     }
@@ -109,10 +112,8 @@ impl AgentEngine {
         session: Session,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
-        let confirmer = ToolConfirmer::new(
-            config.tools.auto_approve,
-            config.tools.allow_list.clone(),
-        );
+        let confirmer =
+            ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
         let session_manager = if config.session.enabled {
             Some(SessionManager::new(
@@ -154,7 +155,12 @@ impl AgentEngine {
     }
 
     /// Initialize a new session for this engine run
-    pub fn init_session(&mut self, provider_name: &str, cwd: &str, session_id: Option<&str>) -> anyhow::Result<()> {
+    pub fn init_session(
+        &mut self,
+        provider_name: &str,
+        cwd: &str,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<()> {
         if let Some(mgr) = &self.session_manager {
             let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
             self.current_session = Some(session);
@@ -270,7 +276,10 @@ impl AgentEngine {
 
             let outcome = if let Some(ref approval_mgr) = self.approval_manager {
                 // JSON stream mode: use protocol-based approval
-                let writer = self.protocol_writer.as_ref().expect("protocol writer required for approval");
+                let writer = self
+                    .protocol_writer
+                    .as_ref()
+                    .expect("protocol writer required for approval");
                 let auto_approve = self.confirmer.lock().unwrap().is_auto_approve();
                 match execute_tool_calls_with_approval(
                     &self.tools,
@@ -281,7 +290,9 @@ impl AgentEngine {
                     auto_approve,
                     &self.allow_list,
                     self.hooks.as_mut(),
-                ).await {
+                )
+                .await
+                {
                     Ok(o) => o,
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
@@ -290,7 +301,14 @@ impl AgentEngine {
                 }
             } else {
                 // Terminal mode: use interactive confirmation
-                match execute_tool_calls(&self.tools, &tool_calls, &self.confirmer, self.hooks.as_mut()).await {
+                match execute_tool_calls(
+                    &self.tools,
+                    &tool_calls,
+                    &self.confirmer,
+                    self.hooks.as_mut(),
+                )
+                .await
+                {
                     Ok(o) => o,
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
@@ -372,10 +390,12 @@ impl AgentEngine {
             session.total_usage = self.total_usage.clone();
             session.updated_at = chrono::Utc::now();
             if let Err(e) = mgr.save(session) {
-                self.output.emit_error(&format!("Failed to save session: {}", e));
+                self.output
+                    .emit_error(&format!("Failed to save session: {}", e));
             }
             if let Err(e) = mgr.update_index_for(session) {
-                self.output.emit_error(&format!("Failed to update session index: {}", e));
+                self.output
+                    .emit_error(&format!("Failed to update session index: {}", e));
             }
         }
     }
@@ -500,7 +520,11 @@ mod phase6_tests {
             allowed_tools: vec!["Bash".to_string(), "Read".to_string()],
         })];
         engine.apply_context_modifiers(&modifiers);
-        let bash_count = engine.allow_list.iter().filter(|t| t.as_str() == "Bash").count();
+        let bash_count = engine
+            .allow_list
+            .iter()
+            .filter(|t| t.as_str() == "Bash")
+            .count();
         assert_eq!(bash_count, 1, "Bash should appear exactly once");
         assert!(engine.allow_list.contains(&"Read".to_string()));
     }

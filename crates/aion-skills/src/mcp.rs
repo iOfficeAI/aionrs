@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 
-use aion_mcp::manager::McpManager;
 use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
 use crate::loader::LoadedSkill;
 use crate::types::{LoadedFrom, SkillSource};
+use aion_mcp::manager::McpManager;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -31,7 +31,10 @@ pub async fn load_mcp_skills(manager: &McpManager) -> Vec<LoadedSkill> {
         let resources = match manager.list_resources(&server_name).await {
             Ok(r) => r,
             Err(e) => {
-                eprintln!("[skills/mcp] Failed to list resources from '{}': {}", server_name, e);
+                eprintln!(
+                    "[skills/mcp] Failed to list resources from '{}': {}",
+                    server_name, e
+                );
                 continue;
             }
         };
@@ -101,7 +104,7 @@ fn uri_to_skill_name(server_name: &str, uri: &str) -> String {
 mod tests {
     use super::*;
     use aion_mcp::manager::McpManager;
-    use aion_mcp::protocol::{JsonRpcResponse, JsonRpcRequest};
+    use aion_mcp::protocol::{JsonRpcRequest, JsonRpcResponse};
     use aion_mcp::transport::{McpError, McpTransport};
     use async_trait::async_trait;
     use std::sync::Mutex;
@@ -186,13 +189,19 @@ mod tests {
     #[test]
     fn tc_wb_uri_simple() {
         // [白盒] skill://my-skill → server:my-skill
-        assert_eq!(uri_to_skill_name("my-server", "skill://my-skill"), "my-server:my-skill");
+        assert_eq!(
+            uri_to_skill_name("my-server", "skill://my-skill"),
+            "my-server:my-skill"
+        );
     }
 
     #[test]
     fn tc_wb_uri_nested_one_slash() {
         // [白盒] TC-3.4: skill://db/migrate → server:db:migrate
-        assert_eq!(uri_to_skill_name("demo", "skill://db/migrate"), "demo:db:migrate");
+        assert_eq!(
+            uri_to_skill_name("demo", "skill://db/migrate"),
+            "demo:db:migrate"
+        );
     }
 
     #[test]
@@ -206,7 +215,10 @@ mod tests {
         // [白盒] strip_prefix returns uri unchanged when prefix not present;
         // then replace('/', ':') is applied to the entire uri including "://"
         // so "tool://something" → "tool:::something" after replace
-        assert_eq!(uri_to_skill_name("srv", "tool://something"), "srv:tool:::something");
+        assert_eq!(
+            uri_to_skill_name("srv", "tool://something"),
+            "srv:tool:::something"
+        );
     }
 
     #[test]
@@ -223,8 +235,7 @@ mod tests {
     async fn tc_3_1_load_mcp_skills_normal() {
         // [黑盒] TC-3.1: normal discovery — skill:// resource parsed to SkillMetadata
         let list_resp = make_list_response(vec!["skill://my-skill"]);
-        let read_resp =
-            make_read_response("---\ndescription: My MCP skill\n---\n# My MCP Skill\n");
+        let read_resp = make_read_response("---\ndescription: My MCP skill\n---\n# My MCP Skill\n");
 
         let manager = McpManager::new_for_test(vec![(
             "my-server",
@@ -244,11 +255,8 @@ mod tests {
     #[tokio::test]
     async fn tc_3_2_uri_filter_skips_non_skill_uris() {
         // [黑盒] TC-3.2: only skill:// URIs processed — tool:// and file:// are skipped
-        let list_resp = make_list_response(vec![
-            "skill://valid-skill",
-            "tool://other",
-            "file://doc.md",
-        ]);
+        let list_resp =
+            make_list_response(vec!["skill://valid-skill", "tool://other", "file://doc.md"]);
         let read_resp = make_read_response("---\ndescription: Valid\n---\n");
 
         let manager = McpManager::new_for_test(vec![(
@@ -367,8 +375,12 @@ mod tests {
                     _ => Err(McpError::Transport("bad resource".into())),
                 }
             }
-            async fn notify(&self, _req: &JsonRpcRequest) -> Result<(), McpError> { Ok(()) }
-            async fn close(&self) -> Result<(), McpError> { Ok(()) }
+            async fn notify(&self, _req: &JsonRpcRequest) -> Result<(), McpError> {
+                Ok(())
+            }
+            async fn close(&self) -> Result<(), McpError> {
+                Ok(())
+            }
         }
 
         let manager = McpManager::new_for_test(vec![(
@@ -397,16 +409,16 @@ mod tests {
                 true,
                 Box::new(MockTransport::new(vec![list_resp, read_resp])),
             ),
-            (
-                "server-fail",
-                true,
-                Box::new(ErrorTransport),
-            ),
+            ("server-fail", true, Box::new(ErrorTransport)),
         ]);
 
         let results = load_mcp_skills(&manager).await;
         // At least one skill from server-ok; server-fail's error is ignored
-        assert!(results.iter().any(|r| r.metadata.name == "server-ok:ok-skill"));
+        assert!(
+            results
+                .iter()
+                .any(|r| r.metadata.name == "server-ok:ok-skill")
+        );
     }
 
     #[tokio::test]
@@ -414,7 +426,7 @@ mod tests {
         // [黑盒] TC-3.12: server without resources capability is not queried
         let manager = McpManager::new_for_test(vec![(
             "no-resources-server",
-            false, // does not support resources
+            false,                    // does not support resources
             Box::new(ErrorTransport), // would fail if called
         )]);
 

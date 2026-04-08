@@ -92,7 +92,10 @@ async fn diag_basic_event_received() {
     eprintln!("[diag] file written, waiting up to 1s...");
 
     let result = timeout(Duration::from_millis(1000), rx.changed()).await;
-    eprintln!("[diag] timeout result (true=got event): {:?}", result.is_ok());
+    eprintln!(
+        "[diag] timeout result (true=got event): {:?}",
+        result.is_ok()
+    );
     let after = *rx.borrow();
     eprintln!("[diag] version after: {after}");
 
@@ -121,7 +124,10 @@ async fn diag_multi_thread_event_received() {
     eprintln!("[diag-mt] file written, waiting up to 2s...");
 
     let result = timeout(Duration::from_millis(2000), rx.changed()).await;
-    eprintln!("[diag-mt] timeout result (true=got event): {:?}", result.is_ok());
+    eprintln!(
+        "[diag-mt] timeout result (true=got event): {:?}",
+        result.is_ok()
+    );
     let after = *rx.borrow();
     eprintln!("[diag-mt] version after: {after}");
 
@@ -152,8 +158,7 @@ async fn tc02_new_with_existing_dirs_returns_ok() {
     let dir_a = TempDir::new().unwrap();
     let dir_b = TempDir::new().unwrap();
 
-    let (mut watcher, _rx) =
-        SkillWatcher::new().expect("new() should succeed with existing dirs");
+    let (mut watcher, _rx) = SkillWatcher::new().expect("new() should succeed with existing dirs");
     watcher
         .start(vec![dir_a.path().to_path_buf(), dir_b.path().to_path_buf()])
         .expect("start() should succeed");
@@ -209,11 +214,7 @@ async fn tc05_file_create_triggers_notification() {
     // Create a file to trigger an event.
     fs::write(dir.join("SKILL.md"), "# test skill").unwrap();
 
-    let result = timeout(
-        Duration::from_millis(DEBOUNCE_EXPECT_MS),
-        rx.changed(),
-    )
-    .await;
+    let result = timeout(Duration::from_millis(DEBOUNCE_EXPECT_MS), rx.changed()).await;
 
     assert!(
         result.is_ok(),
@@ -248,11 +249,7 @@ async fn tc06_file_modify_triggers_notification() {
     // Modify the file.
     fs::write(&skill_file, "# modified").unwrap();
 
-    let result = timeout(
-        Duration::from_millis(DEBOUNCE_EXPECT_MS),
-        rx.changed(),
-    )
-    .await;
+    let result = timeout(Duration::from_millis(DEBOUNCE_EXPECT_MS), rx.changed()).await;
 
     assert!(
         result.is_ok(),
@@ -287,11 +284,7 @@ async fn tc07_file_delete_triggers_notification() {
     // Delete the file.
     fs::remove_file(&skill_file).unwrap();
 
-    let result = timeout(
-        Duration::from_millis(DEBOUNCE_EXPECT_MS),
-        rx.changed(),
-    )
-    .await;
+    let result = timeout(Duration::from_millis(DEBOUNCE_EXPECT_MS), rx.changed()).await;
 
     assert!(
         result.is_ok(),
@@ -326,11 +319,7 @@ async fn tc08_file_rename_triggers_notification() {
     // Rename the file.
     fs::rename(&old_file, dir.join("SKILL.md")).unwrap();
 
-    let result = timeout(
-        Duration::from_millis(DEBOUNCE_EXPECT_MS),
-        rx.changed(),
-    )
-    .await;
+    let result = timeout(Duration::from_millis(DEBOUNCE_EXPECT_MS), rx.changed()).await;
 
     assert!(
         result.is_ok(),
@@ -408,11 +397,7 @@ async fn tc10_watch_directory_dynamic_add() {
     // Create file in newly added dir.
     fs::write(dir_b.join("SKILL.md"), "# dynamic").unwrap();
 
-    let result = timeout(
-        Duration::from_millis(DEBOUNCE_EXPECT_MS),
-        rx.changed(),
-    )
-    .await;
+    let result = timeout(Duration::from_millis(DEBOUNCE_EXPECT_MS), rx.changed()).await;
 
     assert!(
         result.is_ok(),
@@ -600,11 +585,7 @@ async fn tc20_version_monotonically_increasing() {
         )
         .unwrap();
 
-        let result = timeout(
-            Duration::from_millis(DEBOUNCE_EXPECT_MS),
-            rx.changed(),
-        )
-        .await;
+        let result = timeout(Duration::from_millis(DEBOUNCE_EXPECT_MS), rx.changed()).await;
 
         assert!(
             result.is_ok(),

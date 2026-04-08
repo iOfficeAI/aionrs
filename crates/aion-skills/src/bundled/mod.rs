@@ -3,9 +3,7 @@ mod hello;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-use crate::types::{
-    ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
-};
+use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -296,10 +294,7 @@ async fn open_secure(path: &std::path::Path) -> std::io::Result<std::fs::File> {
 
 /// Validate and resolve a skill-relative path.
 /// Rejects absolute paths and any path containing `..` components.
-fn resolve_skill_file_path(
-    base_dir: &std::path::Path,
-    rel_path: &str,
-) -> std::io::Result<PathBuf> {
+fn resolve_skill_file_path(base_dir: &std::path::Path, rel_path: &str) -> std::io::Result<PathBuf> {
     let normalized = std::path::Path::new(rel_path);
 
     if normalized.is_absolute() {

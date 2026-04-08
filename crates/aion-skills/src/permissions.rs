@@ -182,11 +182,7 @@ mod tests {
     // P5-3: deny rule blocks skill
     #[test]
     fn p5_3_deny_blocks_skill() {
-        let checker = SkillPermissionChecker::new(
-            vec!["dangerous".to_string()],
-            vec![],
-            false,
-        );
+        let checker = SkillPermissionChecker::new(vec!["dangerous".to_string()], vec![], false);
         let skill = make_skill("dangerous");
         assert_eq!(checker.check(&skill), SkillPermission::Deny);
     }
@@ -197,11 +193,7 @@ mod tests {
         let mut skill = make_skill("commit");
         // Give it hooks so safe-properties wouldn't fire
         skill.hooks_raw = Some(serde_json::json!({}));
-        let checker = SkillPermissionChecker::new(
-            vec![],
-            vec!["commit".to_string()],
-            false,
-        );
+        let checker = SkillPermissionChecker::new(vec![], vec!["commit".to_string()], false);
         assert_eq!(checker.check(&skill), SkillPermission::Allow);
     }
 
@@ -300,7 +292,10 @@ mod tests {
         // Unsafe skill (has hooks) → Ask
         let mut unsafe_skill = make_skill("unsafe");
         unsafe_skill.hooks_raw = Some(serde_json::json!({}));
-        assert!(matches!(checker.check(&unsafe_skill), SkillPermission::Ask { .. }));
+        assert!(matches!(
+            checker.check(&unsafe_skill),
+            SkillPermission::Ask { .. }
+        ));
     }
 
     // Reason string mentions hooks
@@ -310,7 +305,10 @@ mod tests {
         skill.hooks_raw = Some(serde_json::json!({}));
         let checker = SkillPermissionChecker::new(vec![], vec![], false);
         if let SkillPermission::Ask { reason } = checker.check(&skill) {
-            assert!(reason.contains("hooks"), "reason should mention hooks: {reason}");
+            assert!(
+                reason.contains("hooks"),
+                "reason should mention hooks: {reason}"
+            );
         } else {
             panic!("expected Ask");
         }

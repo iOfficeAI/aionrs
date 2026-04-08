@@ -136,8 +136,7 @@ async fn test_load_skills_from_dir_basic() {
         "---\nname: my-skill\ndescription: A test skill\n---\n# Body\n",
     );
 
-    let skills =
-        load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
+    let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].metadata.name, "my-skill");
 }
@@ -151,8 +150,7 @@ async fn test_load_skills_from_dir_nested_namespace() {
         "---\ndescription: Migrate DB\n---\n",
     );
 
-    let skills =
-        load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
+    let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].metadata.name, "db:migrate");
 }
@@ -163,16 +161,17 @@ async fn test_load_skills_from_dir_case_sensitive_skill_md() {
     // Only lowercase "skill.md" — should NOT be loaded
     write_skill(tmp.path(), "my-skill/skill.md", "---\n---\n# Body\n");
 
-    let skills =
-        load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
-    assert!(skills.is_empty(), "skill.md (lowercase) should not be loaded");
+    let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
+    assert!(
+        skills.is_empty(),
+        "skill.md (lowercase) should not be loaded"
+    );
 }
 
 #[tokio::test]
 async fn test_load_skills_from_dir_empty_dir() {
     let tmp = TempDir::new().unwrap();
-    let skills =
-        load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
+    let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
     assert!(skills.is_empty());
 }
 
@@ -200,7 +199,10 @@ async fn test_load_commands_directory_format() {
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::User).await;
     assert_eq!(skills.len(), 1);
-    assert_eq!(skills[0].metadata.loaded_from, LoadedFrom::CommandsDeprecated);
+    assert_eq!(
+        skills[0].metadata.loaded_from,
+        LoadedFrom::CommandsDeprecated
+    );
 }
 
 #[tokio::test]
@@ -210,7 +212,10 @@ async fn test_load_commands_flat_format() {
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::User).await;
     assert_eq!(skills.len(), 1);
-    assert_eq!(skills[0].metadata.loaded_from, LoadedFrom::CommandsDeprecated);
+    assert_eq!(
+        skills[0].metadata.loaded_from,
+        LoadedFrom::CommandsDeprecated
+    );
 }
 
 #[tokio::test]
@@ -267,8 +272,13 @@ async fn test_load_all_skills_bare_mode() {
     fs::create_dir_all(&skills_dir).unwrap();
     write_skill(&skills_dir, "my-skill/SKILL.md", "---\n---\n");
 
-    let result =
-        load_all_skills(Path::new("/nonexistent"), &[tmp.path().to_owned()], true, None).await;
+    let result = load_all_skills(
+        Path::new("/nonexistent"),
+        &[tmp.path().to_owned()],
+        true,
+        None,
+    )
+    .await;
     assert_eq!(result.len(), 1);
 }
 

@@ -12,10 +12,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use aion_agent::context::build_system_prompt;
+use aion_agent::skill_tool::SkillTool;
 use aion_agent::skills::loader::load_all_skills;
 use aion_agent::skills::permissions::SkillPermissionChecker;
 use aion_agent::skills::types::SkillMetadata;
-use aion_agent::skill_tool::SkillTool;
 use aion_tools::Tool;
 use serde_json::json;
 use tempfile::TempDir;
@@ -148,7 +148,9 @@ async fn e4_variable_substitution() {
     let skills = load_all_skills(&root, &[], false, None).await;
     let tool = make_tool(skills, &cwd);
 
-    let result = tool.execute(json!({"skill": "greet", "args": "Alice"})).await;
+    let result = tool
+        .execute(json!({"skill": "greet", "args": "Alice"}))
+        .await;
     assert!(!result.is_error, "E4 FAIL: error: {}", result.content);
     assert!(
         result.content.contains("Hello, Alice!"),
@@ -191,13 +193,19 @@ async fn e6_conditional_activation() {
     let skills = load_all_skills(&root, &[], false, None).await;
 
     let rust_review = find_skill(&skills, "rust-review").expect("E6 FAIL: 'rust-review' not found");
-    assert!(!rust_review.paths.is_empty(), "E6 FAIL: paths should not be empty");
+    assert!(
+        !rust_review.paths.is_empty(),
+        "E6 FAIL: paths should not be empty"
+    );
     assert!(
         rust_review.paths.iter().any(|p| p.contains("*.rs")),
         "E6 FAIL: paths should contain '*.rs'. Got: {:?}",
         rust_review.paths
     );
-    println!("E6 PASS: 'rust-review' has conditional paths: {:?}", rust_review.paths);
+    println!(
+        "E6 PASS: 'rust-review' has conditional paths: {:?}",
+        rust_review.paths
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -211,9 +219,18 @@ async fn e7_system_prompt_injection() {
     let skills = load_all_skills(&root, &[], false, None).await;
 
     let prompt = build_system_prompt(None, &cwd, &skills, None);
-    assert!(prompt.contains("greet"), "E7 FAIL: 'greet' not in system prompt");
-    assert!(prompt.contains("db:migrate"), "E7 FAIL: 'db:migrate' not in system prompt");
-    assert!(prompt.contains("system-reminder"), "E7 FAIL: missing <system-reminder> wrapper");
+    assert!(
+        prompt.contains("greet"),
+        "E7 FAIL: 'greet' not in system prompt"
+    );
+    assert!(
+        prompt.contains("db:migrate"),
+        "E7 FAIL: 'db:migrate' not in system prompt"
+    );
+    assert!(
+        prompt.contains("system-reminder"),
+        "E7 FAIL: missing <system-reminder> wrapper"
+    );
     println!("E7 PASS: skills injected into system prompt");
 }
 
@@ -228,10 +245,14 @@ async fn e8_full_execution() {
     let skills = load_all_skills(&root, &[], false, None).await;
     let tool = make_tool(skills, &cwd);
 
-    let result = tool.execute(json!({"skill": "db:migrate", "args": "production"})).await;
+    let result = tool
+        .execute(json!({"skill": "db:migrate", "args": "production"}))
+        .await;
     assert!(!result.is_error, "E8 FAIL: error: {}", result.content);
     assert!(
-        result.content.contains("Running migrations for: production"),
+        result
+            .content
+            .contains("Running migrations for: production"),
         "E8 FAIL: $ARGUMENTS not substituted. Got: {}",
         result.content
     );
@@ -275,7 +296,11 @@ async fn e10_skill_not_found() {
 
     let result = tool.execute(json!({"skill": "nonexistent-skill"})).await;
     assert!(result.is_error, "E10 FAIL: should return error");
-    assert!(result.content.contains("not found"), "E10 FAIL: got: {}", result.content);
+    assert!(
+        result.content.contains("not found"),
+        "E10 FAIL: got: {}",
+        result.content
+    );
     println!("E10 PASS: nonexistent skill returns clear error message");
 }
 
@@ -290,10 +315,19 @@ async fn e11_legacy_command_execution() {
     let skills = load_all_skills(&root, &[], false, None).await;
     let tool = make_tool(skills, &cwd);
 
-    let result = tool.execute(json!({"skill": "legacy-cmd", "args": "test-arg"})).await;
+    let result = tool
+        .execute(json!({"skill": "legacy-cmd", "args": "test-arg"}))
+        .await;
     assert!(!result.is_error, "E11 FAIL: error: {}", result.content);
-    assert!(result.content.contains("legacy command"), "E11 FAIL: got: {}", result.content);
-    assert!(result.content.contains("test-arg"), "E11 FAIL: $ARGUMENTS not substituted. Got: {}", result.content);
+    assert!(
+        result.content.contains("legacy command"),
+        "E11 FAIL: got: {}",
+        result.content
+    );
+    assert!(
+        result.content.contains("test-arg"),
+        "E11 FAIL: $ARGUMENTS not substituted. Got: {}",
+        result.content
+    );
     println!("E11 PASS: legacy command executed with variable substitution");
 }
-

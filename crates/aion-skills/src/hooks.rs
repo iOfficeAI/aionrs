@@ -1,5 +1,5 @@
-use aion_config::hooks::{HookDef, HooksConfig};
 use crate::types::SkillSource;
+use aion_config::hooks::{HookDef, HooksConfig};
 
 /// A single hook command extracted from skill frontmatter.
 /// Only command-type hooks are supported; prompt/http/agent are silently skipped.
@@ -87,9 +87,7 @@ pub fn parse_skill_hooks(
                 match hook["type"].as_str() {
                     Some("command") => {}
                     Some(other) => {
-                        eprintln!(
-                            "[skill:{skill_name}] unsupported hook type '{other}', skipping"
-                        );
+                        eprintln!("[skill:{skill_name}] unsupported hook type '{other}', skipping");
                         continue;
                     }
                     None => {
@@ -120,10 +118,7 @@ pub fn parse_skill_hooks(
     }
 
     // D-5: return None when all vecs are empty after parsing.
-    if config.pre_tool_use.is_empty()
-        && config.post_tool_use.is_empty()
-        && config.stop.is_empty()
-    {
+    if config.pre_tool_use.is_empty() && config.post_tool_use.is_empty() && config.stop.is_empty() {
         return None;
     }
 
@@ -181,7 +176,11 @@ mod tests {
     // Helpers
     // -----------------------------------------------------------------------
 
-    fn make_cmd(command: &str, matcher: Option<&str>, timeout_secs: Option<u64>) -> SkillHookCommand {
+    fn make_cmd(
+        command: &str,
+        matcher: Option<&str>,
+        timeout_secs: Option<u64>,
+    ) -> SkillHookCommand {
         SkillHookCommand {
             command: command.to_string(),
             matcher: matcher.map(|s| s.to_string()),
@@ -318,7 +317,10 @@ mod tests {
         let raw = json!({"PreToolUse": [{"hooks": [{"type": "command", "command": "echo x"}]}]});
         let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
             .expect("TC-11.12: should return Some");
-        assert!(config.pre_tool_use[0].matcher.is_none(), "TC-11.12: absent matcher should be None");
+        assert!(
+            config.pre_tool_use[0].matcher.is_none(),
+            "TC-11.12: absent matcher should be None"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -367,7 +369,11 @@ mod tests {
             SkillSource::Legacy,
         ] {
             let result = parse_skill_hooks(Some(&raw), "skill", source);
-            assert!(result.is_some(), "TC-11.16: source {:?} should return Some", source);
+            assert!(
+                result.is_some(),
+                "TC-11.16: source {:?} should return Some",
+                source
+            );
         }
     }
 
@@ -426,7 +432,10 @@ mod tests {
         let result = to_hook_defs(&config, "my-skill");
         assert_eq!(result.pre_tool_use.len(), 1);
         let def = &result.pre_tool_use[0];
-        assert!(def.name.contains("my-skill"), "TC-11.20: name must contain skill name");
+        assert!(
+            def.name.contains("my-skill"),
+            "TC-11.20: name must contain skill name"
+        );
         assert_eq!(def.command, "echo x");
         assert_eq!(def.tool_match, vec!["Bash"]);
         assert_eq!(def.timeout_ms, 5_000);
@@ -444,8 +453,14 @@ mod tests {
         };
         let result = to_hook_defs(&config, "my-skill");
         let def = &result.post_tool_use[0];
-        assert!(def.tool_match.is_empty(), "TC-11.21: None matcher → empty tool_match");
-        assert_eq!(def.timeout_ms, 30_000, "TC-11.21: absent timeout → 30s default");
+        assert!(
+            def.tool_match.is_empty(),
+            "TC-11.21: None matcher → empty tool_match"
+        );
+        assert_eq!(
+            def.timeout_ms, 30_000,
+            "TC-11.21: absent timeout → 30s default"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -584,7 +599,11 @@ mod tests {
             stop: vec![],
         };
         let result = to_hook_defs(&config, "");
-        assert_eq!(result.pre_tool_use.len(), 1, "TC-11.51: should produce 1 HookDef without panic");
+        assert_eq!(
+            result.pre_tool_use.len(),
+            1,
+            "TC-11.51: should produce 1 HookDef without panic"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -611,7 +630,10 @@ mod tests {
         };
         // saturating_mul: (u64::MAX / 1000) * 1000 should not overflow
         let result = to_hook_defs(&config, "skill");
-        assert!(result.pre_tool_use[0].timeout_ms > 0, "TC-11.53: large timeout must not overflow to 0");
+        assert!(
+            result.pre_tool_use[0].timeout_ms > 0,
+            "TC-11.53: large timeout must not overflow to 0"
+        );
     }
 
     // -----------------------------------------------------------------------

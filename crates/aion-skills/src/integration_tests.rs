@@ -16,9 +16,7 @@ use crate::hooks::{parse_skill_hooks, to_hook_defs};
 use crate::loader::load_skills_from_dir;
 use crate::permissions::{SkillPermission, SkillPermissionChecker};
 use crate::prompt::format_skills_within_budget;
-use crate::types::{
-    EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
-};
+use crate::types::{EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -80,9 +78,15 @@ async fn tc_e2e_1_full_lifecycle_load_skill() {
 
     // AC-4 assertions
     assert_eq!(skill.metadata.name, "test-skill");
-    assert_eq!(skill.metadata.description, "A test skill for integration testing");
+    assert_eq!(
+        skill.metadata.description,
+        "A test skill for integration testing"
+    );
     assert!(
-        skill.metadata.content.contains("This is the skill body content."),
+        skill
+            .metadata
+            .content
+            .contains("This is the skill body content."),
         "body should contain expected content, got: {}",
         skill.metadata.content
     );
@@ -171,7 +175,11 @@ fn tc_e2e_4a_permission_deny_priority() {
     );
     let skill = make_skill("dangerous-skill", "body");
     let result = checker.check(&skill);
-    assert_eq!(result, SkillPermission::Deny, "deny should take priority over allow");
+    assert_eq!(
+        result,
+        SkillPermission::Deny,
+        "deny should take priority over allow"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -181,17 +189,17 @@ fn tc_e2e_4a_permission_deny_priority() {
 
 #[test]
 fn tc_e2e_4b_permission_allow_grants_access() {
-    let checker = SkillPermissionChecker::new(
-        vec![],
-        vec!["safe-skill".to_string()],
-        false,
-    );
+    let checker = SkillPermissionChecker::new(vec![], vec!["safe-skill".to_string()], false);
     let mut skill = make_skill("safe-skill", "body");
     // Give it hooks so it would otherwise need Ask
     skill.hooks_raw = Some(serde_json::json!({"PreToolUse": []}));
 
     let result = checker.check(&skill);
-    assert_eq!(result, SkillPermission::Allow, "allow rule should grant access");
+    assert_eq!(
+        result,
+        SkillPermission::Allow,
+        "allow rule should grant access"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -225,7 +233,9 @@ fn tc_e2e_4d_permission_ask_fallback() {
     let checker = SkillPermissionChecker::new(vec![], vec![], false);
     let mut skill = make_skill("ask-skill", "body");
     // Add hooks so safe-properties check fails
-    skill.hooks_raw = Some(serde_json::json!({"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo hi"}]}]}));
+    skill.hooks_raw = Some(
+        serde_json::json!({"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "echo hi"}]}]}),
+    );
 
     let result = checker.check(&skill);
     assert!(
@@ -256,7 +266,10 @@ fn tc_e2e_5a_conditional_dormant_on_mismatch() {
 
     // Activate with a Python file — should NOT match
     let activated = manager.activate_for_paths(&["/project/main.py"], "/project");
-    assert!(activated.is_empty(), "*.rs skill should not activate for .py file");
+    assert!(
+        activated.is_empty(),
+        "*.rs skill should not activate for .py file"
+    );
     assert!(
         manager.get_activated("rs-skill").is_none(),
         "skill should remain dormant"
@@ -426,12 +439,13 @@ fn tc_e2e_9_prompt_budget_truncation() {
     let output = format_skills_within_budget(&skills, Some(50));
 
     // AC-12 assertions
-    assert!(output.contains("my-bundled"), "bundled skill must be preserved");
+    assert!(
+        output.contains("my-bundled"),
+        "bundled skill must be preserved"
+    );
 
     let full_reg_count = (0..n)
-        .filter(|i| {
-            output.contains(&format!("Regular skill {i}: {}", "x".repeat(300)))
-        })
+        .filter(|i| output.contains(&format!("Regular skill {i}: {}", "x".repeat(300))))
         .count();
     assert!(
         full_reg_count < n,
@@ -466,8 +480,7 @@ async fn tc_e2e_10_multi_dir_dedup_first_wins() {
     );
 
     // Load from dir A then dir B, deduplicate by name (first wins)
-    let loaded_a =
-        load_skills_from_dir(tmp_a.path(), SkillSource::User, LoadedFrom::Skills).await;
+    let loaded_a = load_skills_from_dir(tmp_a.path(), SkillSource::User, LoadedFrom::Skills).await;
     let loaded_b =
         load_skills_from_dir(tmp_b.path(), SkillSource::Project, LoadedFrom::Skills).await;
 
@@ -483,8 +496,15 @@ async fn tc_e2e_10_multi_dir_dedup_first_wins() {
     all_metadata.retain(|s| seen.insert(s.name.clone()));
 
     // AC-13 assertions
-    let matches: Vec<_> = all_metadata.iter().filter(|s| s.name == "my-skill").collect();
-    assert_eq!(matches.len(), 1, "duplicate skill should be deduplicated to one entry");
+    let matches: Vec<_> = all_metadata
+        .iter()
+        .filter(|s| s.name == "my-skill")
+        .collect();
+    assert_eq!(
+        matches.len(),
+        1,
+        "duplicate skill should be deduplicated to one entry"
+    );
     assert_eq!(
         matches[0].description, "from dir A",
         "first discovered (dir A) should win dedup, got: {}",
@@ -556,12 +576,19 @@ fn tc_e2e_12a_hooks_pre_tool_use_parsed() {
         .expect("hooks should parse successfully");
 
     // AC-15 assertions
-    assert_eq!(config.pre_tool_use.len(), 1, "should have one PreToolUse hook");
+    assert_eq!(
+        config.pre_tool_use.len(),
+        1,
+        "should have one PreToolUse hook"
+    );
     assert_eq!(
         config.pre_tool_use[0].command, "echo pre-tool",
         "command should match"
     );
-    assert!(config.post_tool_use.is_empty(), "PostToolUse should be empty");
+    assert!(
+        config.post_tool_use.is_empty(),
+        "PostToolUse should be empty"
+    );
     assert!(config.stop.is_empty(), "Stop should be empty");
 }
 
@@ -584,7 +611,11 @@ fn tc_e2e_12b_hooks_post_tool_use_parsed() {
         .expect("hooks should parse successfully");
 
     // AC-15 assertions
-    assert_eq!(config.post_tool_use.len(), 1, "should have one PostToolUse hook");
+    assert_eq!(
+        config.post_tool_use.len(),
+        1,
+        "should have one PostToolUse hook"
+    );
     assert_eq!(
         config.post_tool_use[0].command, "echo post-tool",
         "command should match"
@@ -615,7 +646,10 @@ fn tc_e2e_12c_hooks_stop_parsed() {
     assert_eq!(config.stop.len(), 1, "should have one Stop hook");
     assert_eq!(config.stop[0].command, "echo stop", "command should match");
     assert!(config.pre_tool_use.is_empty(), "PreToolUse should be empty");
-    assert!(config.post_tool_use.is_empty(), "PostToolUse should be empty");
+    assert!(
+        config.post_tool_use.is_empty(),
+        "PostToolUse should be empty"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -647,14 +681,22 @@ fn tc_e2e_12d_hooks_to_hook_defs_all_events() {
     assert_eq!(hook_defs.stop.len(), 1);
 
     // Verify naming convention: skill:{name}:{event}:{index}
-    assert_eq!(hook_defs.pre_tool_use[0].name, "skill:multi-hook-skill:pre_tool_use:0");
-    assert_eq!(hook_defs.post_tool_use[0].name, "skill:multi-hook-skill:post_tool_use:0");
+    assert_eq!(
+        hook_defs.pre_tool_use[0].name,
+        "skill:multi-hook-skill:pre_tool_use:0"
+    );
+    assert_eq!(
+        hook_defs.post_tool_use[0].name,
+        "skill:multi-hook-skill:post_tool_use:0"
+    );
     assert_eq!(hook_defs.stop[0].name, "skill:multi-hook-skill:stop:0");
 
     // Verify MCP skills cannot register hooks (security boundary)
-    let mcp_result =
-        parse_skill_hooks(Some(&hooks_json), "mcp-skill", SkillSource::Mcp);
-    assert!(mcp_result.is_none(), "MCP skills should not be able to register hooks");
+    let mcp_result = parse_skill_hooks(Some(&hooks_json), "mcp-skill", SkillSource::Mcp);
+    assert!(
+        mcp_result.is_none(),
+        "MCP skills should not be able to register hooks"
+    );
 }
 
 // ===========================================================================
@@ -702,7 +744,10 @@ fn wb_1c_frontmatter_inherit_model_normalized_to_none() {
         LoadedFrom::Skills,
         None,
     );
-    assert!(meta.model.is_none(), "model 'inherit' should normalize to None");
+    assert!(
+        meta.model.is_none(),
+        "model 'inherit' should normalize to None"
+    );
 }
 
 #[test]
@@ -772,9 +817,15 @@ fn wb_2a_auto_approve_converts_ask_to_allow() {
     let checker = SkillPermissionChecker::new(vec![], vec![], true);
     let mut skill = make_skill("auto-skill", "body");
     // Attach hooks to prevent safe-properties path
-    skill.hooks_raw = Some(serde_json::json!({"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "x"}]}]}));
+    skill.hooks_raw = Some(
+        serde_json::json!({"PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": "x"}]}]}),
+    );
     let result = checker.check(&skill);
-    assert_eq!(result, SkillPermission::Allow, "auto_approve should convert Ask to Allow");
+    assert_eq!(
+        result,
+        SkillPermission::Allow,
+        "auto_approve should convert Ask to Allow"
+    );
 }
 
 #[test]
@@ -787,7 +838,11 @@ fn wb_2b_auto_approve_does_not_bypass_deny() {
     );
     let skill = make_skill("blocked", "body");
     let result = checker.check(&skill);
-    assert_eq!(result, SkillPermission::Deny, "Deny should not be overridden by auto_approve");
+    assert_eq!(
+        result,
+        SkillPermission::Deny,
+        "Deny should not be overridden by auto_approve"
+    );
 }
 
 #[test]
@@ -797,7 +852,10 @@ fn wb_2c_permission_prefix_rule_matches_namespace() {
     let rule = PermissionRule::parse("db:*");
     assert!(rule.matches("db:migrate"));
     assert!(rule.matches("db:seed"));
-    assert!(!rule.matches("database"), "should not match without the colon separator");
+    assert!(
+        !rule.matches("database"),
+        "should not match without the colon separator"
+    );
 }
 
 #[test]
@@ -828,7 +886,11 @@ fn wb_3a_activated_names_persist_after_clear_dormant() {
 
     // Re-partition with same skill — it should go to unconditional since it was activated
     let unconditional = manager.partition_skills(vec![skill]);
-    assert_eq!(unconditional.len(), 1, "previously activated skill should be unconditional after reload");
+    assert_eq!(
+        unconditional.len(),
+        1,
+        "previously activated skill should be unconditional after reload"
+    );
 }
 
 #[test]
@@ -846,7 +908,10 @@ fn wb_3b_reset_all_clears_everything() {
 
     // After reset, same skill should be dormant again
     let unconditional = manager.partition_skills(vec![skill]);
-    assert!(unconditional.is_empty(), "after reset, skill should be dormant again");
+    assert!(
+        unconditional.is_empty(),
+        "after reset, skill should be dormant again"
+    );
 }
 
 #[test]
@@ -863,7 +928,11 @@ fn wb_3c_dormant_count_reflects_state() {
     assert_eq!(manager.dormant_count(), 2);
 
     manager.activate_for_paths(&["/p/f.rs"], "/p");
-    assert_eq!(manager.dormant_count(), 1, "one skill activated, one still dormant");
+    assert_eq!(
+        manager.dormant_count(),
+        1,
+        "one skill activated, one still dormant"
+    );
 }
 
 // ---------------------------------------------------------------------------

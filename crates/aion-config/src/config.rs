@@ -41,7 +41,9 @@ pub enum TransportType {
 }
 
 impl Default for TransportType {
-    fn default() -> Self { Self::Stdio }
+    fn default() -> Self {
+        Self::Stdio
+    }
 }
 
 /// A single MCP server configuration
@@ -66,10 +68,6 @@ pub struct McpConfig {
     #[serde(default)]
     pub servers: HashMap<String, McpServerConfig>,
 }
-
-
-
-
 
 /// Top-level config file structure
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -298,10 +296,7 @@ impl Config {
         }
 
         // 5. Apply CLI overrides and resolve final config
-        let provider_str = cli
-            .provider
-            .as_deref()
-            .unwrap_or(&merged.default.provider);
+        let provider_str = cli.provider.as_deref().unwrap_or(&merged.default.provider);
 
         let resolved_provider = resolve_provider_alias(&merged.providers, provider_str)?;
         let provider_label = resolved_provider.requested_name.clone();
@@ -353,8 +348,9 @@ impl Config {
         }
 
         // Resolve prompt_caching: default true for Anthropic
-        let prompt_caching =
-            provider_config.prompt_caching.unwrap_or(matches!(provider, ProviderType::Anthropic));
+        let prompt_caching = provider_config
+            .prompt_caching
+            .unwrap_or(matches!(provider, ProviderType::Anthropic));
 
         // Resolve compat: provider-type defaults + user overrides
         let compat_defaults = match provider {
@@ -531,11 +527,7 @@ fn project_config_path() -> PathBuf {
 fn load_config_file(path: &Path) -> ConfigFile {
     match std::fs::read_to_string(path) {
         Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
-            eprintln!(
-                "Warning: failed to parse {}: {}",
-                path.display(),
-                e
-            );
+            eprintln!("Warning: failed to parse {}: {}", path.display(), e);
             ConfigFile::default()
         }),
         Err(_) => ConfigFile::default(),
@@ -561,7 +553,10 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         } else {
             global.default.max_turns
         },
-        system_prompt: project.default.system_prompt.or(global.default.system_prompt),
+        system_prompt: project
+            .default
+            .system_prompt
+            .or(global.default.system_prompt),
     };
 
     // Merge providers: global as base, project overrides
@@ -727,7 +722,10 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
 
     // Filter MCP servers by profile's mcp_servers list
     if let Some(server_names) = profile.mcp_servers {
-        config.mcp.servers.retain(|name, _| server_names.contains(name));
+        config
+            .mcp
+            .servers
+            .retain(|name, _| server_names.contains(name));
     }
 
     Ok(config)
@@ -804,8 +802,14 @@ mod tests {
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
         assert_eq!(resolved.requested_name, "my-service");
         assert_eq!(resolved.provider_type, ProviderType::OpenAI);
-        assert_eq!(resolved.effective_config.model.as_deref(), Some("custom-model-v1"));
-        assert_eq!(resolved.effective_config.api_key.as_deref(), Some("alias-key"));
+        assert_eq!(
+            resolved.effective_config.model.as_deref(),
+            Some("custom-model-v1")
+        );
+        assert_eq!(
+            resolved.effective_config.api_key.as_deref(),
+            Some("alias-key")
+        );
         assert_eq!(
             resolved.effective_config.base_url.as_deref(),
             Some("https://my-service.example.com/v1")
@@ -834,7 +838,10 @@ mod tests {
 
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
         assert_eq!(resolved.provider_type, ProviderType::OpenAI);
-        assert_eq!(resolved.effective_config.api_key.as_deref(), Some("builtin-key"));
+        assert_eq!(
+            resolved.effective_config.api_key.as_deref(),
+            Some("builtin-key")
+        );
         assert_eq!(resolved.effective_config.model.as_deref(), Some("gpt-4o"));
         assert_eq!(
             resolved.effective_config.base_url.as_deref(),
@@ -889,7 +896,10 @@ mod tests {
         assert_eq!(merged.default.model, Some("project-model".to_string()));
         assert_eq!(merged.default.max_tokens, 2048);
         assert_eq!(merged.default.max_turns, 5);
-        assert_eq!(merged.default.system_prompt, Some("project prompt".to_string()));
+        assert_eq!(
+            merged.default.system_prompt,
+            Some("project prompt".to_string())
+        );
     }
 
     #[test]
@@ -915,7 +925,10 @@ mod tests {
         assert_eq!(merged.default.model, Some("global-model".to_string()));
         assert_eq!(merged.default.max_tokens, 1024);
         assert_eq!(merged.default.max_turns, 5);
-        assert_eq!(merged.default.system_prompt, Some("global prompt".to_string()));
+        assert_eq!(
+            merged.default.system_prompt,
+            Some("global prompt".to_string())
+        );
     }
 
     #[test]
@@ -1016,16 +1029,14 @@ mod tests {
     fn test_api_key_from_cli_arg() {
         // CLI key takes highest priority regardless of other sources.
         let result =
-            resolve_api_key(Some("cli-key"), Some("config-key"), ProviderType::Anthropic)
-                .unwrap();
+            resolve_api_key(Some("cli-key"), Some("config-key"), ProviderType::Anthropic).unwrap();
         assert_eq!(result, "cli-key");
     }
 
     #[test]
     fn test_api_key_from_config() {
         // When CLI key is absent, config file key should be used.
-        let result =
-            resolve_api_key(None, Some("config-key"), ProviderType::Anthropic).unwrap();
+        let result = resolve_api_key(None, Some("config-key"), ProviderType::Anthropic).unwrap();
         assert_eq!(result, "config-key");
     }
 
@@ -1090,7 +1101,10 @@ mod tests {
             ..Default::default()
         };
         let merged = merge_config_files(global, project);
-        assert!(merged.tools.auto_approve, "global auto_approve=true should be preserved");
+        assert!(
+            merged.tools.auto_approve,
+            "global auto_approve=true should be preserved"
+        );
     }
 
     #[test]
@@ -1111,7 +1125,11 @@ allow = ["commit", "review-pr", "db:*"]
         );
         assert_eq!(
             config.tools.skills.allow,
-            vec!["commit".to_string(), "review-pr".to_string(), "db:*".to_string()]
+            vec![
+                "commit".to_string(),
+                "review-pr".to_string(),
+                "db:*".to_string()
+            ]
         );
     }
 
@@ -1335,7 +1353,10 @@ base_url = "https://my-service.example.com/api/openai"
         let resolved = resolve_provider_alias(&providers, "openai").unwrap();
         assert_eq!(resolved.requested_name, "openai");
         assert_eq!(resolved.provider_type, ProviderType::OpenAI);
-        assert_eq!(resolved.effective_config.api_key.as_deref(), Some("openai-key"));
+        assert_eq!(
+            resolved.effective_config.api_key.as_deref(),
+            Some("openai-key")
+        );
         assert_eq!(
             resolved.effective_config.base_url.as_deref(),
             Some("https://custom-openai.example.com")
@@ -1447,7 +1468,10 @@ base_url = "https://my-service.example.com/api/openai"
         );
 
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
-        assert_eq!(resolved.effective_config.model.as_deref(), Some("alias-model-v1"));
+        assert_eq!(
+            resolved.effective_config.model.as_deref(),
+            Some("alias-model-v1")
+        );
     }
 
     #[test]
@@ -1498,7 +1522,10 @@ base_url = "https://my-service.example.com/api/openai"
         );
 
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
-        assert_eq!(resolved.effective_config.model.as_deref(), Some("custom-model-v2"));
+        assert_eq!(
+            resolved.effective_config.model.as_deref(),
+            Some("custom-model-v2")
+        );
     }
 }
 

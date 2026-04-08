@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 
 use futures::future::join_all;
 
-use aion_mcp::manager::McpManager;
 use crate::bundled;
 use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
 use crate::mcp::load_mcp_skills;
@@ -12,6 +11,7 @@ use crate::paths::{
     user_skills_dir,
 };
 use crate::types::{LoadedFrom, SkillMetadata, SkillSource};
+use aion_mcp::manager::McpManager;
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -212,10 +212,7 @@ fn collect_skill_md<'a>(
 /// Supports two formats:
 /// - Directory format: `<name>/SKILL.md` (takes precedence over flat `.md`)
 /// - Flat format: `<name>.md` or `<subdir>/<name>.md`
-async fn load_skills_from_commands_dir(
-    base_dir: &Path,
-    source: SkillSource,
-) -> Vec<LoadedSkill> {
+async fn load_skills_from_commands_dir(base_dir: &Path, source: SkillSource) -> Vec<LoadedSkill> {
     let mut results = Vec::new();
     collect_commands(base_dir, base_dir, source, &mut results).await;
     results
@@ -286,9 +283,7 @@ fn collect_commands<'a>(
                 Err(_) => continue,
             };
 
-            if file_type.is_file()
-                && path.extension().and_then(|e| e.to_str()) == Some("md")
-            {
+            if file_type.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
                 let stem = path
                     .file_stem()
                     .map(|s| s.to_string_lossy().into_owned())

@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use notify::{recommended_watcher, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher, recommended_watcher};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
@@ -209,8 +209,7 @@ fn should_ignore(event: &Event) -> bool {
     // Filter access-only and pure metadata events.
     if matches!(
         event.kind,
-        EventKind::Access(_)
-            | EventKind::Modify(notify::event::ModifyKind::Metadata(_))
+        EventKind::Access(_) | EventKind::Modify(notify::event::ModifyKind::Metadata(_))
     ) {
         return true;
     }
@@ -219,7 +218,10 @@ fn should_ignore(event: &Event) -> bool {
     // on the watched directory itself upon watcher registration, and also when
     // a hidden file is written (the parent directory appears "created" again).
     // Directory creation is never a skill-relevant change — skills are files.
-    if matches!(event.kind, EventKind::Create(notify::event::CreateKind::Folder)) {
+    if matches!(
+        event.kind,
+        EventKind::Create(notify::event::CreateKind::Folder)
+    ) {
         return true;
     }
 
@@ -242,8 +244,8 @@ fn should_ignore(event: &Event) -> bool {
 mod tests {
     use super::*;
     use notify::{
-        event::{AccessKind, CreateKind, ModifyKind, RemoveKind, RenameMode},
         EventKind,
+        event::{AccessKind, CreateKind, ModifyKind, RemoveKind, RenameMode},
     };
 
     // Helper: build a minimal Event with the given kind and paths.
@@ -287,7 +289,10 @@ mod tests {
             EventKind::Create(CreateKind::File),
             vec![PathBuf::from("/skills/SKILL.md")],
         );
-        assert!(!should_ignore(&ev), "Create on visible file should NOT be ignored");
+        assert!(
+            !should_ignore(&ev),
+            "Create on visible file should NOT be ignored"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -300,7 +305,10 @@ mod tests {
             EventKind::Modify(ModifyKind::Any),
             vec![PathBuf::from("/home/user/skills/SKILL.md")],
         );
-        assert!(!should_ignore(&ev), "Modify(Any) on visible file should NOT be ignored");
+        assert!(
+            !should_ignore(&ev),
+            "Modify(Any) on visible file should NOT be ignored"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -347,7 +355,10 @@ mod tests {
             EventKind::Remove(RemoveKind::File),
             vec![PathBuf::from("/skills/SKILL.md")],
         );
-        assert!(!should_ignore(&ev), "Remove on visible file should NOT be ignored");
+        assert!(
+            !should_ignore(&ev),
+            "Remove on visible file should NOT be ignored"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -400,7 +411,7 @@ mod tests {
             EventKind::Modify(ModifyKind::Any),
             vec![
                 PathBuf::from("/skills/SKILL.md"), // visible filename
-                PathBuf::from("/skills/.swp"),      // hidden filename
+                PathBuf::from("/skills/.swp"),     // hidden filename
             ],
         );
         assert!(
@@ -500,7 +511,10 @@ mod tests {
 
             // dir exists but watcher is None → skip silently → Ok
             let result = watcher.watch_directory(dir.path());
-            assert!(result.is_ok(), "watch_directory after stop() should return Ok");
+            assert!(
+                result.is_ok(),
+                "watch_directory after stop() should return Ok"
+            );
         });
     }
 
@@ -549,7 +563,11 @@ mod tests {
 
         assert_eq!(watcher.watched_dirs().len(), 1);
         watcher.stop();
-        assert_eq!(watcher.watched_dirs().len(), 0, "should be empty after stop()");
+        assert_eq!(
+            watcher.watched_dirs().len(),
+            0,
+            "should be empty after stop()"
+        );
     }
 
     // -----------------------------------------------------------------------

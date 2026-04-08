@@ -71,7 +71,10 @@ pub fn format_skills_within_budget(
     let full_entries: Vec<String> = skills.iter().map(format_skill_entry).collect();
 
     // join('\n') produces N-1 newlines for N entries
-    let full_total: usize = full_entries.iter().map(|e| UnicodeWidthStr::width(e.as_str())).sum::<usize>()
+    let full_total: usize = full_entries
+        .iter()
+        .map(|e| UnicodeWidthStr::width(e.as_str()))
+        .sum::<usize>()
         + full_entries.len().saturating_sub(1);
 
     // Level 1: full mode
@@ -266,7 +269,10 @@ mod tests {
             result.chars().count() <= MAX_LISTING_DESC_CHARS,
             "result should be truncated to MAX_LISTING_DESC_CHARS chars"
         );
-        assert!(result.ends_with('\u{2026}'), "truncated result should end with ellipsis");
+        assert!(
+            result.ends_with('\u{2026}'),
+            "truncated result should end with ellipsis"
+        );
     }
 
     #[test]
@@ -276,7 +282,10 @@ mod tests {
         let wtu = "b".repeat(100);
         let skill = make_skill("s", &desc, Some(&wtu), false, false);
         let result = format_skill_description(&skill);
-        assert!(result.ends_with('\u{2026}'), "should be truncated with ellipsis");
+        assert!(
+            result.ends_with('\u{2026}'),
+            "should be truncated with ellipsis"
+        );
     }
 
     #[test]
@@ -324,8 +333,14 @@ mod tests {
         let desc = "a".repeat(300);
         let skill = make_skill("x", &desc, None, false, false);
         let result = format_skill_entry(&skill);
-        assert!(result.starts_with("- x: "), "entry should start with '- x: '");
-        assert!(result.contains('\u{2026}'), "long description should be truncated");
+        assert!(
+            result.starts_with("- x: "),
+            "entry should start with '- x: '"
+        );
+        assert!(
+            result.contains('\u{2026}'),
+            "long description should be truncated"
+        );
     }
 
     #[test]
@@ -354,7 +369,10 @@ mod tests {
         assert!(result.contains("- skill-a: Desc A"));
         assert!(result.contains("- skill-b: Desc B"));
         assert!(result.contains("- skill-c: Desc C"));
-        assert!(!result.contains('\u{2026}'), "full mode should not truncate");
+        assert!(
+            !result.contains('\u{2026}'),
+            "full mode should not truncate"
+        );
     }
 
     #[test]
@@ -459,7 +477,15 @@ mod tests {
     fn test_format_skills_within_budget_only_bundled_skills() {
         // All bundled: even if over budget, all are shown full (no non-bundled to degrade)
         let skills: Vec<SkillMetadata> = (0..3)
-            .map(|i| make_skill(&format!("bundled-{i}"), &format!("Desc {i}"), None, true, false))
+            .map(|i| {
+                make_skill(
+                    &format!("bundled-{i}"),
+                    &format!("Desc {i}"),
+                    None,
+                    true,
+                    false,
+                )
+            })
             .collect();
         let result = format_skills_within_budget(&skills, Some(1)); // tiny budget
         for i in 0..3 {
@@ -491,7 +517,10 @@ mod tests {
             "CJK description should be truncated to <= {} chars",
             MAX_LISTING_DESC_CHARS
         );
-        assert!(result.ends_with('…'), "truncated CJK result should end with ellipsis");
+        assert!(
+            result.ends_with('…'),
+            "truncated CJK result should end with ellipsis"
+        );
     }
 
     #[test]
@@ -505,7 +534,10 @@ mod tests {
             "mixed CJK/ASCII description should be truncated to <= {} chars",
             MAX_LISTING_DESC_CHARS
         );
-        assert!(result.ends_with('…'), "truncated mixed result should end with ellipsis");
+        assert!(
+            result.ends_with('…'),
+            "truncated mixed result should end with ellipsis"
+        );
     }
 
     #[test]
@@ -514,7 +546,15 @@ mod tests {
         // budget = 10_000 * 4 * 0.01 = 400 chars; each CJK desc is 200 chars → triggers truncation
         let bundled = make_skill("bundled", "Bundled desc", None, true, false);
         let non_bundled: Vec<SkillMetadata> = (0..3)
-            .map(|i| make_skill(&format!("nb-{i}"), &"中文描述".repeat(50), None, false, false))
+            .map(|i| {
+                make_skill(
+                    &format!("nb-{i}"),
+                    &"中文描述".repeat(50),
+                    None,
+                    false,
+                    false,
+                )
+            })
             .collect();
 
         let mut skills = vec![bundled];
@@ -526,7 +566,9 @@ mod tests {
             result.contains('…') || !result.is_empty(),
             "result should be non-empty and handle CJK without panic"
         );
-        assert!(result.contains("bundled"), "bundled skill must appear in result");
+        assert!(
+            result.contains("bundled"),
+            "bundled skill must appear in result"
+        );
     }
-
 }

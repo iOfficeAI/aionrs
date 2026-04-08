@@ -45,8 +45,7 @@ pub fn parse_skill_fields(
         .unwrap_or_default();
 
     let user_invocable = parse_bool(&frontmatter.user_invocable, true);
-    let disable_model_invocation =
-        parse_bool(&frontmatter.hide_from_model_invocation, false);
+    let disable_model_invocation = parse_bool(&frontmatter.hide_from_model_invocation, false);
 
     let execution_context = match frontmatter.context.as_deref() {
         Some("fork") => ExecutionContext::Fork,
@@ -65,10 +64,7 @@ pub fn parse_skill_fields(
     let paths = split_paths(&frontmatter.paths);
     let effort = parse_effort(&frontmatter.effort);
 
-    let hooks_raw = frontmatter
-        .hooks
-        .as_ref()
-        .and_then(yaml_value_to_json);
+    let hooks_raw = frontmatter.hooks.as_ref().and_then(yaml_value_to_json);
 
     let content_length = content.len();
 
@@ -170,7 +166,9 @@ fn parse_yaml_with_fallback(yaml_text: &str) -> FrontmatterData {
     match serde_yaml::from_str::<FrontmatterData>(&fixed) {
         Ok(data) => data,
         Err(e) => {
-            eprintln!("skills: frontmatter second-pass parse failed: {e}; returning empty frontmatter");
+            eprintln!(
+                "skills: frontmatter second-pass parse failed: {e}; returning empty frontmatter"
+            );
             FrontmatterData::default()
         }
     }
@@ -208,10 +206,7 @@ fn quote_problematic_values(yaml_text: &str) -> String {
             let value = &line[colon_pos + 2..];
 
             // Skip if already quoted or value is empty
-            if value.is_empty()
-                || value.starts_with('"')
-                || value.starts_with('\'')
-            {
+            if value.is_empty() || value.starts_with('"') || value.starts_with('\'') {
                 result.push_str(line);
                 result.push('\n');
                 continue;
@@ -273,9 +268,7 @@ fn parse_string_or_vec(value: &Option<StringOrVec>) -> Vec<String> {
 fn split_paths(value: &Option<StringOrVec>) -> Vec<String> {
     match value {
         None => vec![],
-        Some(StringOrVec::Multiple(v)) => {
-            v.iter().flat_map(|p| expand_braces(p)).collect()
-        }
+        Some(StringOrVec::Multiple(v)) => v.iter().flat_map(|p| expand_braces(p)).collect(),
         Some(StringOrVec::Single(s)) => {
             // Split on commas that are NOT inside {} braces, then brace-expand each part
             split_respecting_braces(s)
@@ -683,14 +676,7 @@ Do the thing.
             model: Some("inherit".into()),
             ..Default::default()
         };
-        let meta = parse_skill_fields(
-            &fm,
-            "",
-            "x",
-            SkillSource::Project,
-            LoadedFrom::Skills,
-            None,
-        );
+        let meta = parse_skill_fields(&fm, "", "x", SkillSource::Project, LoadedFrom::Skills, None);
         assert!(meta.model.is_none());
     }
 
@@ -700,14 +686,7 @@ Do the thing.
             context: Some("fork".into()),
             ..Default::default()
         };
-        let meta = parse_skill_fields(
-            &fm,
-            "",
-            "x",
-            SkillSource::User,
-            LoadedFrom::Skills,
-            None,
-        );
+        let meta = parse_skill_fields(&fm, "", "x", SkillSource::User, LoadedFrom::Skills, None);
         assert_eq!(meta.execution_context, ExecutionContext::Fork);
     }
 
@@ -717,14 +696,7 @@ Do the thing.
             paths: Some(StringOrVec::Single("src/*.{ts,tsx}".into())),
             ..Default::default()
         };
-        let meta = parse_skill_fields(
-            &fm,
-            "",
-            "x",
-            SkillSource::User,
-            LoadedFrom::Skills,
-            None,
-        );
+        let meta = parse_skill_fields(&fm, "", "x", SkillSource::User, LoadedFrom::Skills, None);
         let mut paths = meta.paths.clone();
         paths.sort();
         assert_eq!(paths, vec!["src/*.ts", "src/*.tsx"]);
@@ -734,14 +706,7 @@ Do the thing.
     fn test_parse_skill_fields_content_length() {
         let fm = FrontmatterData::default();
         let body = "Hello world";
-        let meta = parse_skill_fields(
-            &fm,
-            body,
-            "x",
-            SkillSource::User,
-            LoadedFrom::Skills,
-            None,
-        );
+        let meta = parse_skill_fields(&fm, body, "x", SkillSource::User, LoadedFrom::Skills, None);
         assert_eq!(meta.content_length, body.len());
     }
 }

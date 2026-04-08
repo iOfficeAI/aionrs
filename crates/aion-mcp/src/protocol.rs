@@ -203,7 +203,8 @@ mod tests {
     #[test]
     fn test_jsonrpc_response_deserialization_error() {
         // Deserialize an error JSON-RPC response and check error fields
-        let json_str = r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#;
+        let json_str =
+            r#"{"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"Method not found"}}"#;
         let resp: JsonRpcResponse = serde_json::from_str(json_str).unwrap();
 
         assert_eq!(resp.id, Some(2));
@@ -359,7 +360,13 @@ mod tests {
         let content = &result.contents[0];
         assert_eq!(content.uri, "skill://my-skill");
         assert_eq!(content.mime_type.as_deref(), Some("text/plain"));
-        assert!(content.text.as_deref().unwrap().contains("description: My skill"));
+        assert!(
+            content
+                .text
+                .as_deref()
+                .unwrap()
+                .contains("description: My skill")
+        );
     }
 
     #[test]
@@ -369,7 +376,10 @@ mod tests {
         let content: ResourceContent = serde_json::from_str(json_str).unwrap();
 
         assert_eq!(content.uri, "skill://binary");
-        assert_eq!(content.mime_type.as_deref(), Some("application/octet-stream"));
+        assert_eq!(
+            content.mime_type.as_deref(),
+            Some("application/octet-stream")
+        );
         assert!(content.text.is_none());
     }
 

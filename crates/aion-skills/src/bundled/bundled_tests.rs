@@ -212,7 +212,10 @@ async fn tc_10_11_files_skill_root_set_by_prepare() {
     });
     let skills = prepare_bundled_skills().await;
     let m = skills.iter().find(|s| s.name == "file-skill").unwrap();
-    assert!(m.skill_root.is_some(), "skill_root should be set by prepare_bundled_skills");
+    assert!(
+        m.skill_root.is_some(),
+        "skill_root should be set by prepare_bundled_skills"
+    );
     assert!(m.skill_root.as_ref().unwrap().contains("file-skill"));
 }
 
@@ -286,8 +289,7 @@ async fn tc_10_14_file_permission_0600() {
 
 #[tokio::test]
 async fn tc_10_15_path_traversal_rejected_integration() {
-    let result =
-        extract_bundled_skill_files("tc-15-evil", &[("../escape.txt", "pwned")]).await;
+    let result = extract_bundled_skill_files("tc-15-evil", &[("../escape.txt", "pwned")]).await;
     // Either extraction fails entirely, or the traversal entry is skipped
     if let Some(dir) = result {
         assert!(
@@ -321,7 +323,10 @@ async fn tc_10_16_extraction_failure_returns_none() {
 fn tc_10_17_extract_dir_path_format() {
     let path = get_bundled_skill_extract_dir("my-skill");
     let s = path.to_string_lossy();
-    assert!(s.contains("aionrs-bundled-skills"), "path should contain aionrs-bundled-skills");
+    assert!(
+        s.contains("aionrs-bundled-skills"),
+        "path should contain aionrs-bundled-skills"
+    );
     assert!(s.contains("my-skill"), "path should contain skill name");
 }
 
@@ -368,9 +373,8 @@ fn tc_10_24_concurrent_registration_no_panic() {
             std::thread::spawn(move || {
                 // SAFETY: each thread registers a unique name literal via a
                 // fixed array; we pick from the set of 10 pre-defined literals.
-                let names: [&'static str; 10] = [
-                    "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9",
-                ];
+                let names: [&'static str; 10] =
+                    ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"];
                 register_bundled_skill(minimal_def(names[i as usize]));
             })
         })
@@ -379,7 +383,11 @@ fn tc_10_24_concurrent_registration_no_panic() {
         h.join().expect("thread should not panic");
     }
     let skills = get_bundled_skills();
-    assert_eq!(skills.len(), 10, "all 10 concurrent registrations should be present");
+    assert_eq!(
+        skills.len(),
+        10,
+        "all 10 concurrent registrations should be present"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +435,10 @@ fn tc_10_27c_resolve_absolute_path_rejected() {
 #[test]
 fn tc_10_27d_resolve_disguised_traversal_rejected() {
     let result = resolve_skill_file_path(Path::new("/base"), "sub/../escape");
-    assert!(result.is_err(), "disguised traversal 'sub/../escape' must be rejected");
+    assert!(
+        result.is_err(),
+        "disguised traversal 'sub/../escape' must be rejected"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -443,8 +454,7 @@ fn tc_10_28_init_idempotent() {
     let skills = get_bundled_skills();
     let hello_count = skills.iter().filter(|s| s.name == "hello").count();
     assert_eq!(
-        hello_count,
-        1,
+        hello_count, 1,
         "init_bundled_skills must be idempotent — hello should appear exactly once"
     );
 }

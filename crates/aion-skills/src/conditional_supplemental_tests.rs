@@ -169,8 +169,7 @@ mod conditional_supplemental_tests {
         let mut mgr = ConditionalSkillManager::new();
         mgr.partition_skills(vec![make_conditional_skill("s", vec!["**/*.rs"])]);
 
-        let activated =
-            mgr.activate_for_paths(&["/completely/different/file.rs"], "/project");
+        let activated = mgr.activate_for_paths(&["/completely/different/file.rs"], "/project");
         assert!(activated.is_empty());
     }
 
@@ -293,8 +292,7 @@ mod conditional_supplemental_tests {
             vec!["src/**/*.ts"],
         )]);
 
-        let activated =
-            mgr.activate_for_paths(&["/app/src/components/Button.ts"], "/app");
+        let activated = mgr.activate_for_paths(&["/app/src/components/Button.ts"], "/app");
         assert_eq!(activated, vec!["ts-skill"]);
     }
 
@@ -401,9 +399,11 @@ mod conditional_supplemental_tests {
         mgr.reset_all();
 
         // Re-partition: "foo" should now enter dormant (not unconditional)
-        let result =
-            mgr.partition_skills(vec![make_conditional_skill("foo", vec!["**/*.rs"])]);
-        assert!(result.is_empty(), "foo should be dormant, not returned as unconditional");
+        let result = mgr.partition_skills(vec![make_conditional_skill("foo", vec!["**/*.rs"])]);
+        assert!(
+            result.is_empty(),
+            "foo should be dormant, not returned as unconditional"
+        );
         assert_eq!(mgr.dormant_count(), 1);
     }
 }

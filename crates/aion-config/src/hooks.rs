@@ -149,10 +149,7 @@ fn merge_vec(existing: &mut Vec<HookDef>, incoming: Vec<HookDef>) {
 }
 
 /// Environment variables available to hook commands
-fn build_env_vars(
-    tool_name: &str,
-    tool_input: &serde_json::Value,
-) -> HashMap<String, String> {
+fn build_env_vars(tool_name: &str, tool_input: &serde_json::Value) -> HashMap<String, String> {
     let mut env = HashMap::new();
     env.insert("TOOL_NAME".to_string(), tool_name.to_string());
     env.insert("TOOL_INPUT".to_string(), tool_input.to_string());
@@ -468,9 +465,15 @@ mod phase11_tests {
     #[test]
     fn tc_11_34_has_hooks_true_after_merge() {
         let mut engine = HookEngine::new(HooksConfig::default());
-        assert!(!engine.has_hooks(), "precondition: engine starts with no hooks");
+        assert!(
+            !engine.has_hooks(),
+            "precondition: engine starts with no hooks"
+        );
         engine.merge_hooks(make_config_pre(&["pre-a"]));
-        assert!(engine.has_hooks(), "TC-11.34: has_hooks must be true after merge");
+        assert!(
+            engine.has_hooks(),
+            "TC-11.34: has_hooks must be true after merge"
+        );
     }
 
     // TC-11.35: multiple successive merges accumulate correctly (different names)
@@ -493,7 +496,11 @@ mod phase11_tests {
             stop: vec![make_hook("stop-x")],
         };
         engine.merge_hooks(additional);
-        assert_eq!(engine.config.pre_tool_use.len(), 1, "TC-11.36: pre unchanged");
+        assert_eq!(
+            engine.config.pre_tool_use.len(),
+            1,
+            "TC-11.36: pre unchanged"
+        );
         assert_eq!(engine.config.stop.len(), 1, "TC-11.36: stop added");
     }
 

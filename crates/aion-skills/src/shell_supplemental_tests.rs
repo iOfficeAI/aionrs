@@ -172,7 +172,10 @@ async fn tc_4_3_stderr_captured_and_formatted() {
     // stderr-only output
     let content = "!`echo stderr_msg >&2`";
     let result = run(content).await.unwrap();
-    assert!(result.contains("[stderr]"), "stderr prefix missing: {result}");
+    assert!(
+        result.contains("[stderr]"),
+        "stderr prefix missing: {result}"
+    );
     assert!(result.contains("stderr_msg"));
 }
 
@@ -206,7 +209,9 @@ async fn tc_4_4b_command_fail_with_output_returns_ok() {
 #[tokio::test]
 async fn tc_4_5_cwd_used() {
     let content = "!`pwd`";
-    let result = execute_shell_commands(content, LoadedFrom::Skills, "/tmp").await.unwrap();
+    let result = execute_shell_commands(content, LoadedFrom::Skills, "/tmp")
+        .await
+        .unwrap();
     // /tmp or its realpath equivalent on macOS (/private/tmp)
     assert!(
         result.contains("tmp"),
@@ -267,8 +272,13 @@ fn tc_5_5_stdout_trailing_newline_trimmed() {
 #[tokio::test]
 async fn tc_6_1_mcp_skill_unchanged() {
     let content = "run: !`pwd` and ```!\nls\n```";
-    let result = execute_shell_commands(content, LoadedFrom::Mcp, "/tmp").await.unwrap();
-    assert_eq!(result, content, "MCP skill content should be returned unchanged");
+    let result = execute_shell_commands(content, LoadedFrom::Mcp, "/tmp")
+        .await
+        .unwrap();
+    assert_eq!(
+        result, content,
+        "MCP skill content should be returned unchanged"
+    );
 }
 
 // TC-6.2: 无 shell 命令 → 原文不变
@@ -296,7 +306,10 @@ async fn tc_6_4_inline_replaced_leading_space_preserved() {
     let content = "Dir: !`echo /mydir`";
     let result = run(content).await.unwrap();
     // Leading "Dir: " space must be preserved
-    assert!(result.starts_with("Dir: "), "leading space must be preserved, got: {result}");
+    assert!(
+        result.starts_with("Dir: "),
+        "leading space must be preserved, got: {result}"
+    );
     assert!(result.contains("/mydir"));
 }
 
@@ -347,7 +360,10 @@ fn tc_7_1_command_failed_message_contains_pattern() {
         output: "exit code 1".to_string(),
     };
     let msg = err.to_string();
-    assert!(msg.contains("my-cmd"), "error message should contain pattern: {msg}");
+    assert!(
+        msg.contains("my-cmd"),
+        "error message should contain pattern: {msg}"
+    );
 }
 
 // TC-7.2: McpBlocked 消息
@@ -406,7 +422,10 @@ async fn tc_15_6_same_command_repeated() {
     let content = "!`echo x` and !`echo x`";
     let result = run(content).await.unwrap();
     // Both occurrences of !`echo x` should be replaced
-    assert!(!result.contains("!`"), "both occurrences should be replaced: {result}");
+    assert!(
+        !result.contains("!`"),
+        "both occurrences should be replaced: {result}"
+    );
     // Should contain "x" at least twice (from both replacements)
     let count = result.matches('x').count();
     assert!(count >= 2, "expected 'x' at least twice, got: {result}");

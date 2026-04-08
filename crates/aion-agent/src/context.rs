@@ -69,9 +69,7 @@ pub fn compact_messages(messages: &mut Vec<Message>, keep_tail: usize) {
 
     let summary_msg = Message {
         role: Role::User,
-        content: vec![ContentBlock::Text {
-            text: summary_text,
-        }],
+        content: vec![ContentBlock::Text { text: summary_text }],
     };
 
     let tail: Vec<Message> = messages.drain(tail_start..).collect();
@@ -108,7 +106,11 @@ mod tests {
     fn test_compact_messages() {
         let mut messages: Vec<Message> = (0..10)
             .map(|i| Message {
-                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: vec![ContentBlock::Text {
                     text: format!("msg {}", i),
                 }],
@@ -149,7 +151,11 @@ mod tests {
         // Build 8 messages (indices 0–7); keep_tail = 3
         let mut messages: Vec<Message> = (0..8)
             .map(|i| Message {
-                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: vec![ContentBlock::Text {
                     text: format!("msg {}", i),
                 }],
@@ -181,7 +187,11 @@ mod tests {
         let min_messages = keep_tail + 2; // = 6
         let mut messages: Vec<Message> = (0..min_messages)
             .map(|i| Message {
-                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: vec![ContentBlock::Text {
                     text: format!("msg {}", i),
                 }],
@@ -308,8 +318,7 @@ mod tests {
     #[test]
     fn test_build_system_prompt_custom_prompt_and_skills() {
         let skills = vec![make_test_skill("my-skill", "My desc", false, false)];
-        let result =
-            build_system_prompt(Some("Custom instructions here"), "/tmp", &skills, None);
+        let result = build_system_prompt(Some("Custom instructions here"), "/tmp", &skills, None);
         assert!(
             result.contains("Custom instructions here"),
             "custom prompt should appear"
@@ -323,8 +332,7 @@ mod tests {
     #[test]
     fn test_build_system_prompt_skills_reminder_after_custom_prompt() {
         let skills = vec![make_test_skill("my-skill", "My desc", false, false)];
-        let result =
-            build_system_prompt(Some("Custom text"), "/tmp", &skills, None);
+        let result = build_system_prompt(Some("Custom text"), "/tmp", &skills, None);
         let custom_pos = result.find("Custom text").unwrap();
         let reminder_pos = result.rfind("<system-reminder>").unwrap();
         assert!(

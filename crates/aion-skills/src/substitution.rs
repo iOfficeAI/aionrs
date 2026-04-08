@@ -218,8 +218,13 @@ mod tests {
     #[test]
     fn test_named_arguments() {
         let names = vec!["filename".to_string(), "target".to_string()];
-        let result =
-            substitute_arguments("file=$filename dest=$target", Some("foo.rs /tmp"), &names, None, None);
+        let result = substitute_arguments(
+            "file=$filename dest=$target",
+            Some("foo.rs /tmp"),
+            &names,
+            None,
+            None,
+        );
         assert_eq!(result, "file=foo.rs dest=/tmp");
     }
 
@@ -278,8 +283,13 @@ mod tests {
     #[test]
     fn test_substitution_order_indexed_before_full() {
         // $ARGUMENTS[0] must be replaced before $ARGUMENTS to avoid partial corruption
-        let result =
-            substitute_arguments("$ARGUMENTS[0] and $ARGUMENTS", Some("hello world"), &[], None, None);
+        let result = substitute_arguments(
+            "$ARGUMENTS[0] and $ARGUMENTS",
+            Some("hello world"),
+            &[],
+            None,
+            None,
+        );
         assert_eq!(result, "hello and hello world");
     }
 }
@@ -435,14 +445,26 @@ mod supplemental_tests {
         // $query is replaced with the first parsed argument "rust".
         // "programming" is the second argument but has no placeholder in content.
         let names = vec!["query".to_string()];
-        let r = substitute_arguments("Search for $query", Some("rust programming"), &names, None, None);
+        let r = substitute_arguments(
+            "Search for $query",
+            Some("rust programming"),
+            &names,
+            None,
+            None,
+        );
         assert_eq!(r, "Search for rust");
     }
 
     #[test]
     fn tc_5_2_multiple_named_args() {
         let names = vec!["src".to_string(), "dst".to_string()];
-        let r = substitute_arguments("From $src to $dst", Some("source.txt dest.txt"), &names, None, None);
+        let r = substitute_arguments(
+            "From $src to $dst",
+            Some("source.txt dest.txt"),
+            &names,
+            None,
+            None,
+        );
         assert_eq!(r, "From source.txt to dest.txt");
     }
 
@@ -495,7 +517,13 @@ mod supplemental_tests {
 
     #[test]
     fn tc_7_1_session_id_replaced() {
-        let r = substitute_arguments("Session: ${AIONRS_SESSION_ID}", None, &[], None, Some("abc-123"));
+        let r = substitute_arguments(
+            "Session: ${AIONRS_SESSION_ID}",
+            None,
+            &[],
+            None,
+            Some("abc-123"),
+        );
         assert_eq!(r, "Session: abc-123");
     }
 

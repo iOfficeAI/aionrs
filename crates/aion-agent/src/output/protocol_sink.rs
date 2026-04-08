@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use aion_protocol::events::{
-    Capabilities, ErrorInfo, ProtocolEvent, Usage,
-};
+use aion_protocol::events::{Capabilities, ErrorInfo, ProtocolEvent, Usage};
 use aion_protocol::writer::ProtocolWriter;
 
 use super::OutputSink;

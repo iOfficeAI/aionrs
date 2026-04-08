@@ -95,9 +95,7 @@ struct ShellMatch {
 /// Block regex: ```!\n<body>\n```
 fn block_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?s)```!\s*\n([\s\S]*?)\n?```").expect("invalid block regex")
-    })
+    RE.get_or_init(|| Regex::new(r"(?s)```!\s*\n([\s\S]*?)\n?```").expect("invalid block regex"))
 }
 
 /// Inline regex — two patterns needed because `regex` crate has no lookbehind:
@@ -105,16 +103,12 @@ fn block_regex() -> &'static Regex {
 ///   2. Preceded by whitespace: ([ \t])!`...`
 fn inline_line_start_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"(?m)^(!`([^`]+)`)").expect("invalid inline line-start regex")
-    })
+    RE.get_or_init(|| Regex::new(r"(?m)^(!`([^`]+)`)").expect("invalid inline line-start regex"))
 }
 
 fn inline_whitespace_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| {
-        Regex::new(r"([ \t])(!`([^`]+)`)").expect("invalid inline whitespace regex")
-    })
+    RE.get_or_init(|| Regex::new(r"([ \t])(!`([^`]+)`)").expect("invalid inline whitespace regex"))
 }
 
 // ---------------------------------------------------------------------------
@@ -140,9 +134,8 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
     // Track byte ranges already covered by block matches to avoid overlap
     let block_ranges: Vec<(usize, usize)> = matches.iter().map(|m| (m.start, m.end)).collect();
 
-    let overlaps_block = |s: usize, e: usize| -> bool {
-        block_ranges.iter().any(|(bs, be)| s < *be && e > *bs)
-    };
+    let overlaps_block =
+        |s: usize, e: usize| -> bool { block_ranges.iter().any(|(bs, be)| s < *be && e > *bs) };
 
     // Inline line-start: group(1) = full !`cmd`, group(2) = cmd
     for cap in inline_line_start_regex().captures_iter(content) {
@@ -394,4 +387,3 @@ mod tests {
 #[cfg(test)]
 #[path = "shell_supplemental_tests.rs"]
 mod supplemental_tests;
-

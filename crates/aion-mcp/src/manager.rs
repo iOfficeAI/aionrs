@@ -9,8 +9,8 @@ use super::protocol::{
     McpResource, McpToolDef, McpToolResult, ResourcesListResult, ResourcesReadResult,
     ToolsListResult,
 };
-use super::transport::stdio::StdioTransport;
 use super::transport::sse::SseTransport;
+use super::transport::stdio::StdioTransport;
 use super::transport::streamable_http::StreamableHttpTransport;
 use super::transport::{McpError, McpTransport};
 
@@ -33,9 +33,7 @@ pub struct McpManager {
 
 impl McpManager {
     /// Connect to all configured MCP servers
-    pub async fn connect_all(
-        configs: &HashMap<String, McpServerConfig>,
-    ) -> Result<Self, McpError> {
+    pub async fn connect_all(configs: &HashMap<String, McpServerConfig>) -> Result<Self, McpError> {
         let mut servers = HashMap::new();
 
         for (name, config) in configs {
@@ -63,19 +61,15 @@ impl McpManager {
     }
 
     /// Connect to a single MCP server: create transport, initialize, discover tools
-    async fn connect_server(
-        name: &str,
-        config: &McpServerConfig,
-    ) -> Result<McpServer, McpError> {
+    async fn connect_server(name: &str, config: &McpServerConfig) -> Result<McpServer, McpError> {
         let empty_map = HashMap::new();
 
         // 1. Create transport
         let transport: Box<dyn McpTransport> = match config.transport {
             TransportType::Stdio => {
-                let command = config
-                    .command
-                    .as_deref()
-                    .ok_or_else(|| McpError::InitFailed("stdio transport requires 'command'".into()))?;
+                let command = config.command.as_deref().ok_or_else(|| {
+                    McpError::InitFailed("stdio transport requires 'command'".into())
+                })?;
                 let args = config.args.as_deref().unwrap_or(&[]);
                 let env = config.env.as_ref().unwrap_or(&empty_map);
                 Box::new(StdioTransport::spawn(command, args, env).await?)
@@ -89,10 +83,9 @@ impl McpManager {
                 Box::new(SseTransport::connect(url, headers).await?)
             }
             TransportType::StreamableHttp => {
-                let url = config
-                    .url
-                    .as_deref()
-                    .ok_or_else(|| McpError::InitFailed("streamable-http transport requires 'url'".into()))?;
+                let url = config.url.as_deref().ok_or_else(|| {
+                    McpError::InitFailed("streamable-http transport requires 'url'".into())
+                })?;
                 let headers = config.headers.as_ref().unwrap_or(&empty_map);
                 Box::new(StreamableHttpTransport::connect(url, headers).await?)
             }
@@ -264,22 +257,14 @@ impl McpManager {
     }
 
     /// Read a single resource by URI from a server. Returns the text content.
-    pub async fn read_resource(
-        &self,
-        server_name: &str,
-        uri: &str,
-    ) -> Result<String, McpError> {
+    pub async fn read_resource(&self, server_name: &str, uri: &str) -> Result<String, McpError> {
         let server = self
             .servers
             .get(server_name)
             .ok_or_else(|| McpError::ServerNotFound(server_name.to_string()))?;
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-        let request = JsonRpcRequest::new(
-            id,
-            "resources/read",
-            Some(json!({ "uri": uri })),
-        );
+        let request = JsonRpcRequest::new(id, "resources/read", Some(json!({ "uri": uri })));
         let response = server.transport.request(&request).await?;
 
         let result_value = response
@@ -305,7 +290,6 @@ impl McpManager {
             }
         }
     }
-
 
     /// Test-only constructor: build a manager from pre-configured servers.
     #[cfg(any(test, feature = "test-utils"))]
@@ -407,9 +391,7 @@ mod tests {
     // Test helpers: build McpManager with pre-configured servers
     // -----------------------------------------------------------------------
 
-    fn make_manager_with_servers(
-        entries: Vec<(&str, bool, Box<dyn McpTransport>)>,
-    ) -> McpManager {
+    fn make_manager_with_servers(entries: Vec<(&str, bool, Box<dyn McpTransport>)>) -> McpManager {
         McpManager::new_for_test(entries)
     }
 
@@ -571,20 +553,22 @@ mod tests {
             Box::new(MockTransport::new(vec![read_response])),
         )]);
 
-        let result = manager.read_resource("test-server", "skill://my-skill").await.unwrap();
+        let result = manager
+            .read_resource("test-server", "skill://my-skill")
+            .await
+            .unwrap();
         assert!(result.contains("description: A skill"));
     }
 
     #[tokio::test]
     async fn tc_2_8_read_resource_transport_error() {
         // [黑盒] TC-2.8: read_resource returns error when server returns transport error
-        let manager = make_manager_with_servers(vec![(
-            "test-server",
-            true,
-            Box::new(ErrorTransport),
-        )]);
+        let manager =
+            make_manager_with_servers(vec![("test-server", true, Box::new(ErrorTransport))]);
 
-        let result = manager.read_resource("test-server", "skill://nonexistent").await;
+        let result = manager
+            .read_resource("test-server", "skill://nonexistent")
+            .await;
         assert!(result.is_err());
     }
 
@@ -593,7 +577,9 @@ mod tests {
         // [黑盒] TC-2.9: read_resource returns error when server does not exist
         let manager = make_manager_with_servers(vec![]);
 
-        let result = manager.read_resource("nonexistent", "skill://my-skill").await;
+        let result = manager
+            .read_resource("nonexistent", "skill://my-skill")
+            .await;
         assert!(result.is_err());
         match result.unwrap_err() {
             McpError::ServerNotFound(name) => assert_eq!(name, "nonexistent"),
@@ -634,7 +620,10 @@ mod tests {
             Box::new(MockTransport::new(vec![read_response])),
         )]);
 
-        let result = manager.read_resource("test-server", "skill://x").await.unwrap();
+        let result = manager
+            .read_resource("test-server", "skill://x")
+            .await
+            .unwrap();
         assert_eq!(result, "actual content");
     }
 
@@ -643,8 +632,12 @@ mod tests {
         // [白盒] Decision 4: AtomicU64 counter starts at 10 to avoid conflict with connect_server IDs 1/2
         let manager = make_manager_with_servers(vec![]);
         // next_id is private — we verify by doing two fetch_adds and checking values are 10 and 11
-        let id1 = manager.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let id2 = manager.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id1 = manager
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id2 = manager
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(id1, 10, "first ID should be 10");
         assert_eq!(id2, 11, "second ID should be 11");
     }

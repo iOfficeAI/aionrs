@@ -113,7 +113,10 @@ fn confirm_call(
     };
 
     let input_display = serde_json::to_string(input).unwrap_or_default();
-    let result = confirmer.lock().unwrap().check(name, &truncate_display(&input_display, 200));
+    let result = confirmer
+        .lock()
+        .unwrap()
+        .check(name, &truncate_display(&input_display, 200));
 
     match result {
         ConfirmResult::Approved => Ok(None),
@@ -276,8 +279,15 @@ pub async fn execute_tool_calls_with_approval(
         }
 
         // Emit tool_result event
-        if let ContentBlock::ToolResult { content, is_error, .. } = &result {
-            let status = if *is_error { ToolStatus::Error } else { ToolStatus::Success };
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = &result
+        {
+            let status = if *is_error {
+                ToolStatus::Error
+            } else {
+                ToolStatus::Success
+            };
             writer.emit(&ProtocolEvent::ToolResult {
                 msg_id: msg_id.to_string(),
                 call_id: id.clone(),
@@ -305,9 +315,15 @@ pub async fn execute_tool_calls_with_approval(
 /// its declared hooks into the active HookEngine.
 /// If `call` is a Skill tool call that returned successfully, merge skill hooks into the engine.
 fn merge_skill_hooks_into(engine: &mut HookEngine, registry: &ToolRegistry, call: &ContentBlock) {
-    let ContentBlock::ToolUse { name, input, .. } = call else { return };
-    if name != "Skill" { return; }
-    let Some(tool) = registry.get(name) else { return };
+    let ContentBlock::ToolUse { name, input, .. } = call else {
+        return;
+    };
+    if name != "Skill" {
+        return;
+    }
+    let Some(tool) = registry.get(name) else {
+        return;
+    };
     if let Some(skill_hooks) = tool.skill_hooks_for(input) {
         engine.merge_hooks(skill_hooks);
     }

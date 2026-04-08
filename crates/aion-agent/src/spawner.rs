@@ -28,7 +28,10 @@ pub struct AgentSpawner {
 
 impl AgentSpawner {
     pub fn new(provider: Arc<dyn LlmProvider>, config: Config) -> Self {
-        Self { provider, base_config: config }
+        Self {
+            provider,
+            base_config: config,
+        }
     }
 
     /// Spawn a single sub-agent and wait for result.
@@ -92,13 +95,20 @@ impl AgentSpawner {
     }
 
     fn clone_for_spawn(&self) -> Self {
-        Self { provider: self.provider.clone(), base_config: self.base_config.clone() }
+        Self {
+            provider: self.provider.clone(),
+            base_config: self.base_config.clone(),
+        }
     }
 }
 
 #[async_trait]
 impl Spawner for AgentSpawner {
-    async fn spawn_fork(&self, sub_config: SubAgentConfig, overrides: ForkOverrides) -> SubAgentResult {
+    async fn spawn_fork(
+        &self,
+        sub_config: SubAgentConfig,
+        overrides: ForkOverrides,
+    ) -> SubAgentResult {
         let mut config = self.base_config.clone();
         config.max_turns = sub_config.max_turns;
         config.max_tokens = sub_config.max_tokens;
@@ -173,7 +183,10 @@ mod phase7_tests {
     fn tc_7_40_build_tool_registry_empty_allowed_registers_all() {
         let registry = build_tool_registry(&[]);
         for name in &["Read", "Write", "Edit", "Bash", "Grep", "Glob"] {
-            assert!(registry.get(name).is_some(), "tool '{name}' should be registered");
+            assert!(
+                registry.get(name).is_some(),
+                "tool '{name}' should be registered"
+            );
         }
     }
 
