@@ -162,7 +162,7 @@ fn default_max_sessions() -> usize {
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub provider_name: String,
+    pub provider_label: String,
     pub provider: ProviderType,
     pub api_key: String,
     pub base_url: String,
@@ -233,7 +233,7 @@ impl Config {
             .unwrap_or(&merged.default.provider);
 
         let resolved_provider = resolve_provider_alias(&merged.providers, provider_str)?;
-        let provider_name = resolved_provider.requested_name.clone();
+        let provider_label = resolved_provider.requested_name.clone();
         let provider = resolved_provider.provider_type;
         let provider_config = resolved_provider.effective_config;
 
@@ -298,7 +298,7 @@ impl Config {
         let compat = ProviderCompat::merge(compat_defaults, user_compat);
 
         Ok(Config {
-            provider_name,
+            provider_label,
             provider,
             api_key,
             base_url,
@@ -359,14 +359,17 @@ fn resolve_provider_alias(
 
     let alias_config = providers.get(requested).cloned().ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: '{}'. Use 'anthropic', 'openai', 'bedrock', or 'vertex'.",
+            "Unknown provider: '{}'. Expected a built-in provider (anthropic, openai, bedrock, vertex) \
+             or a custom alias defined in [providers.{}].",
+            requested,
             requested
         )
     })?;
 
     let underlying = alias_config.provider.clone().ok_or_else(|| {
         anyhow::anyhow!(
-            "Custom provider '{}' is missing 'providers.{}.provider'. Set it to one of: anthropic, openai, bedrock, vertex.",
+            "Provider alias '{}' requires a 'provider' field in [providers.{}] \
+             that maps to a built-in type (anthropic, openai, bedrock, vertex).",
             requested,
             requested
         )
@@ -374,7 +377,8 @@ fn resolve_provider_alias(
 
     let provider_type = parse_builtin_provider(&underlying).ok_or_else(|| {
         anyhow::anyhow!(
-            "Custom provider '{}' maps to unknown provider '{}'. Use 'anthropic', 'openai', 'bedrock', or 'vertex'.",
+            "Provider alias '{}' maps to '{}', which is not a built-in provider. \
+             Use one of: anthropic, openai, bedrock, vertex.",
             requested,
             underlying
         )
@@ -492,25 +496,8 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
     // Merge providers: global as base, project overrides
     let mut providers = global.providers;
     for (k, v) in project.providers {
-        let entry = providers.entry(k).or_default();
-        if v.provider.is_some() {
-            entry.provider = v.provider;
-        }
-        if v.model.is_some() {
-            entry.model = v.model;
-        }
-        if v.api_key.is_some() {
-            entry.api_key = v.api_key;
-        }
-        if v.base_url.is_some() {
-            entry.base_url = v.base_url;
-        }
-        if v.prompt_caching.is_some() {
-            entry.prompt_caching = v.prompt_caching;
-        }
-        if v.compat.is_some() {
-            entry.compat = v.compat;
-        }
+        let base = providers.remove(&k).unwrap_or_default();
+        providers.insert(k, merge_provider_configs(base, v));
     }
 
     // Merge profiles: global as base, project overrides
@@ -785,7 +772,8 @@ mod tests {
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("my-service"));
-        assert!(msg.contains("providers.my-service.provider"));
+        assert!(msg.contains("provider"));
+        assert!(msg.contains("built-in type"));
     }
 
     // -------------------------------------------------------------------------
