@@ -60,8 +60,8 @@ jobs:
 
   # ── Cross-platform build check (compile only, no run) ─────────────────
   # Verifies that the workspace compiles for every release target.
-  # These targets cannot execute their binaries on the host runner, so we
-  # only do a `cargo build --release` (no tests).
+  # Mirrors the matrix in release.yml so CI catches compile regressions
+  # before they reach the release workflow.
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -74,12 +74,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            use_cross: true
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            use_cross: true
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-musl
             use_cross: true
           # ── macOS ──────────────────────────────────────────────────────
           - os: macos-latest
