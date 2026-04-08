@@ -165,6 +165,7 @@ async fn e4_variable_substitution() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+#[cfg(not(windows))] // Shell expansion uses Unix commands; skip on Windows
 async fn e5_shell_expansion() {
     let (_guard, root) = make_project();
     let cwd = root.to_string_lossy().to_string();
