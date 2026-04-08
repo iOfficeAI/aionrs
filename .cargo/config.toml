@@ -1,0 +1,6 @@
+[net]
+# Use the sparse protocol for faster registry index fetching
+git-fetch-with-cli = false
+
+[registries.crates-io]
+protocol = "sparse"
