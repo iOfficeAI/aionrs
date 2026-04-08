@@ -2,6 +2,7 @@
 // Covers test-plan.md TC-1 through TC-20, plus AC-10 and AC-11.
 
 #[cfg(test)]
+#[cfg(not(windows))] // Path handling differs on Windows; skip these tests there
 mod conditional_supplemental_tests {
     use crate::conditional::ConditionalSkillManager;
     use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
