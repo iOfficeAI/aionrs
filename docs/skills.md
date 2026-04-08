@@ -22,8 +22,15 @@ wins for duplicate names):
 | Priority | Path | Description |
 |----------|------|-------------|
 | 1 | `.aionrs/skills/` | Project-local skills (checked-in with the repo) |
-| 2 | `~/.config/aionrs/skills/` | User-global skills |
+| 2 | `<CONFIG_DIR>/aionrs/skills/` | User-global skills (see below) |
 | 3 | `.aionrs/commands/` | Legacy flat `.md` files (backward compatibility) |
+
+> **`<CONFIG_DIR>` by platform:**
+> - **macOS:** `~/Library/Application Support/`
+> - **Linux:** `~/.config/` (or `$XDG_CONFIG_HOME`)
+> - **Windows:** `C:\Users\<USER>\AppData\Roaming\`
+>
+> Run `aionrs --skills-path` to see the actual paths on your machine.
 
 Each skill is either a single `SKILL.md` file inside a named subdirectory, or
 a flat `.md` file in a `commands/` directory:
@@ -191,3 +198,15 @@ A small set of skills is compiled into the binary.  Bundled skills:
 When the total size of all skill descriptions exceeds the prompt budget, the
 agent truncates the non-bundled skill list.  Bundled skills are always
 preserved.  To stay within budget, keep skill descriptions concise.
+
+## Troubleshooting
+
+Use `--skills-path` to see which directories are being scanned and whether
+they exist on disk:
+
+```
+$ aionrs --skills-path
+User:    ~/Library/Application Support/aionrs/skills  (exists)
+Project: /path/to/repo/.aionrs/skills                 (exists)
+Legacy:  /path/to/repo/.aionrs/commands                (not found)
+```

@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Arc;
 
 use clap::Parser;
@@ -94,6 +95,10 @@ struct Cli {
     #[arg(long)]
     config_path: bool,
 
+    /// Print skill directory paths and exit
+    #[arg(long)]
+    skills_path: bool,
+
     /// Login with Claude.ai account (OAuth device flow)
     #[arg(long)]
     login: bool,
@@ -118,6 +123,12 @@ async fn main() -> anyhow::Result<()> {
     // Handle --config-path
     if cli.config_path {
         println!("{}", config::global_config_path().display());
+        return Ok(());
+    }
+
+    // Handle --skills-path
+    if cli.skills_path {
+        print_skills_paths();
         return Ok(());
     }
 
@@ -315,6 +326,49 @@ async fn repl_loop(
     }
 
     Ok(())
+}
+
+fn print_skills_paths() {
+    use aionrs::skills::paths::{
+        project_commands_dirs, project_skills_dirs, user_commands_dir, user_skills_dir,
+    };
+
+    fn status(p: &Path) -> &'static str {
+        if p.is_dir() { "exists" } else { "not found" }
+    }
+
+    // User-level
+    match user_skills_dir() {
+        Some(dir) => println!("User:    {}  ({})", dir.display(), status(&dir)),
+        None => println!("User:    <unable to determine config directory>"),
+    }
+
+    // Project-level
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let project_dirs = project_skills_dirs(&cwd);
+    if project_dirs.is_empty() {
+        println!("Project: <none found>");
+    } else {
+        for dir in &project_dirs {
+            println!("Project: {}  ({})", dir.display(), status(dir));
+        }
+    }
+
+    // Legacy commands
+    let mut has_legacy = false;
+    if let Some(dir) = user_commands_dir() {
+        if dir.is_dir() {
+            println!("Legacy:  {}  ({})", dir.display(), status(&dir));
+            has_legacy = true;
+        }
+    }
+    for dir in project_commands_dirs(&cwd) {
+        println!("Legacy:  {}  ({})", dir.display(), status(&dir));
+        has_legacy = true;
+    }
+    if !has_legacy {
+        println!("Legacy:  <none found>");
+    }
 }
 
 async fn run_json_stream_mode(
