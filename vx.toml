@@ -1,0 +1,30 @@
+[tools]
+just = "1.48.1"
+rust = "1.93.1"
+
+[settings]
+# Automatically install missing tools when entering dev environment
+auto_install = true
+# Cache duration for version checks
+cache_duration = "7d"
+
+[scripts]
+audit          = "just audit"
+build          = "just build"
+build-release  = "just build-release"
+check          = "cargo check --workspace"
+check-all      = "just check-all"
+clean          = "just clean"
+default        = "just default"
+doc            = "cargo doc --workspace"
+fmt            = "just fmt"
+fmt-check      = "just fmt-check"
+format         = "just fmt"
+hakari-generate = "just hakari-generate"
+hakari-verify  = "just hakari-verify"
+lint           = "just lint"
+nextest        = "cargo nextest"
+test           = "just test"
+test-ci        = "just test-ci"
+test-verbose   = "just test-verbose"
+version        = "just version"

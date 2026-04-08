@@ -1,0 +1,64 @@
+# Release Please workflow
+# Runs on push to main to create/update release PRs.
+# When a release PR is merged, creates a GitHub Release + tag,
+# then dispatches the Release workflow.
+#
+# Design: Two-job approach (mirrors loonghao/vx) to avoid duplicate-PR bug.
+#
+# Job 1 "release" — runs ONLY on release commits ("chore: release vX.Y.Z"):
+#   Creates the tag + GitHub Release. Uses skip-github-pull-request to
+#   prevent creating a new PR on the same run.
+#
+# Job 2 "update-pr" — runs on EVERY OTHER commit:
+#   Creates/updates the release PR. Skipped on release commits to avoid
+#   the duplicate PR problem (googleapis/release-please#713).
+
+name: Release Please
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  # ─── Job 1: Tag + GitHub Release (release commits only) ───────────────────
+  release:
+    runs-on: ubuntu-latest
+    if: startsWith(github.event.head_commit.message, 'chore: release')
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          skip-github-pull-request: true
+
+      - name: Trigger Release workflow
+        if: ${{ steps.release.outputs.releases_created == 'true' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Release created: ${{ steps.release.outputs.tag_name }}"
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --field "tag=${{ steps.release.outputs.tag_name }}"
+
+  # ─── Job 2: Create/update release PR (non-release commits) ────────────────
+  update-pr:
+    runs-on: ubuntu-latest
+    if: "!startsWith(github.event.head_commit.message, 'chore: release')"
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
