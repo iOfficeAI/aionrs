@@ -32,18 +32,13 @@ pub struct VertexConfig {
 }
 
 /// Transport type for MCP server connections
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransportType {
+    #[default]
     Stdio,
     Sse,
     StreamableHttp,
-}
-
-impl Default for TransportType {
-    fn default() -> Self {
-        Self::Stdio
-    }
 }
 
 /// A single MCP server configuration
@@ -747,6 +742,135 @@ pub fn init_config() -> anyhow::Result<()> {
     Ok(())
 }
 
+const DEFAULT_CONFIG_TEMPLATE: &str = r#"# aionrs configuration
+
+# Default provider settings
+[default]
+provider = "anthropic"            # built-in provider or custom alias from [providers.<name>]
+# model = "claude-sonnet-4-20250514"
+max_tokens = 8192
+max_turns = 30
+# system_prompt = "..."          # optional custom system prompt
+
+# Provider-specific API settings
+[providers.anthropic]
+# api_key = "sk-ant-xxx"         # can also use env: API_KEY or ANTHROPIC_API_KEY
+# base_url = "https://api.anthropic.com"
+
+[providers.openai]
+# api_key = "sk-xxx"             # can also use env: OPENAI_API_KEY
+# base_url = "https://api.openai.com"
+
+# Custom provider alias (maps to a built-in provider type)
+# [providers.my-service]
+# provider = "openai"
+# model = "custom-model-v1"
+# api_key = "sk-xxx"
+# base_url = "https://my-service.example.com/api/openai"
+
+# Provider compatibility overrides (usually not needed — defaults work)
+# [providers.openai.compat]
+# max_tokens_field = "max_completion_tokens"  # for OpenAI official models
+# merge_assistant_messages = true
+# clean_orphan_tool_calls = true
+# dedup_tool_results = true
+# strip_patterns = ["__OPENROUTER_REASONING_DETAILS__"]
+
+# AWS Bedrock configuration (uses AWS SigV4 auth, no API key needed)
+# [bedrock]
+# region = "us-east-1"
+# access_key_id = "AKIA..."
+# secret_access_key = "..."
+# session_token = "..."
+# profile = "my-profile"        # or use AWS profile
+
+# Google Vertex AI configuration (uses GCP OAuth2 auth, no API key needed)
+# [vertex]
+# project_id = "my-gcp-project"
+# region = "us-central1"
+# credentials_file = "/path/to/service-account.json"  # or use ADC
+
+# OAuth settings (for --login with Claude.ai account)
+# [auth]
+# auth_url = "https://claude.ai/oauth"
+# token_url = "https://claude.ai/oauth/token"
+# client_id = "aionrs"
+
+# Named profiles for quick switching (--profile <name>)
+# [profiles.deepseek]
+# provider = "openai"
+# model = "deepseek-chat"
+# api_key = "sk-xxx"
+# base_url = "https://api.deepseek.com"
+
+# [profiles.ollama]
+# provider = "openai"
+# model = "qwen2.5:32b"
+# api_key = "ollama"
+# base_url = "http://localhost:11434"
+
+# [profiles.my-service]
+# provider = "my-service"
+
+# [profiles.bedrock-claude]
+# provider = "bedrock"
+# model = "anthropic.claude-sonnet-4-20250514-v1:0"
+
+# [profiles.vertex-claude]
+# provider = "vertex"
+# model = "claude-sonnet-4@20250514"
+
+# Tool confirmation settings
+[tools]
+auto_approve = false             # --auto-approve overrides
+# Tools that skip confirmation even when auto_approve = false
+allow_list = ["Read", "Grep", "Glob"]
+
+# Session settings
+[session]
+enabled = true
+directory = ".aionrs/sessions"  # relative to project root
+max_sessions = 20                # auto-cleanup oldest
+
+# Hook system: run shell commands at tool lifecycle events
+# [[hooks.post_tool_use]]
+# name = "rustfmt"
+# tool_match = ["Write", "Edit"]
+# file_match = ["*.rs"]
+# command = "rustfmt ${TOOL_INPUT_FILE_PATH}"
+
+# [[hooks.post_tool_use]]
+# name = "prettier"
+# tool_match = ["Write", "Edit"]
+# file_match = ["*.ts", "*.tsx"]
+# command = "npx prettier --write ${TOOL_INPUT_FILE_PATH}"
+
+# [[hooks.stop]]
+# name = "final-lint"
+# command = "cargo clippy --quiet 2>&1 | tail -5"
+
+# MCP (Model Context Protocol) servers
+# [mcp.servers.filesystem]
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/project"]
+
+# [mcp.servers.github]
+# transport = "stdio"
+# command = "npx"
+# args = ["-y", "@modelcontextprotocol/server-github"]
+# env = { GITHUB_TOKEN = "ghp_xxx" }
+
+# [mcp.servers.remote]
+# transport = "sse"
+# url = "http://localhost:3001/sse"
+
+# [mcp.servers.api]
+# transport = "streamable-http"
+# url = "https://tools.example.com/mcp"
+# headers = { Authorization = "Bearer xxx" }
+"#;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1058,8 +1182,8 @@ mod tests {
 
         // The result is either an error (no OAuth file) or Ok (OAuth file found).
         // We can only assert the error path reliably when the OAuth file is absent.
-        if result.is_err() {
-            let msg = result.unwrap_err().to_string();
+        if let Err(e) = result {
+            let msg = e.to_string();
             assert!(msg.contains("No API key found"));
         }
         // If OAuth credentials exist on the test machine, the function returns Ok("").
@@ -1528,132 +1652,3 @@ base_url = "https://my-service.example.com/api/openai"
         );
     }
 }
-
-const DEFAULT_CONFIG_TEMPLATE: &str = r#"# aionrs configuration
-
-# Default provider settings
-[default]
-provider = "anthropic"            # built-in provider or custom alias from [providers.<name>]
-# model = "claude-sonnet-4-20250514"
-max_tokens = 8192
-max_turns = 30
-# system_prompt = "..."          # optional custom system prompt
-
-# Provider-specific API settings
-[providers.anthropic]
-# api_key = "sk-ant-xxx"         # can also use env: API_KEY or ANTHROPIC_API_KEY
-# base_url = "https://api.anthropic.com"
-
-[providers.openai]
-# api_key = "sk-xxx"             # can also use env: OPENAI_API_KEY
-# base_url = "https://api.openai.com"
-
-# Custom provider alias (maps to a built-in provider type)
-# [providers.my-service]
-# provider = "openai"
-# model = "custom-model-v1"
-# api_key = "sk-xxx"
-# base_url = "https://my-service.example.com/api/openai"
-
-# Provider compatibility overrides (usually not needed — defaults work)
-# [providers.openai.compat]
-# max_tokens_field = "max_completion_tokens"  # for OpenAI official models
-# merge_assistant_messages = true
-# clean_orphan_tool_calls = true
-# dedup_tool_results = true
-# strip_patterns = ["__OPENROUTER_REASONING_DETAILS__"]
-
-# AWS Bedrock configuration (uses AWS SigV4 auth, no API key needed)
-# [bedrock]
-# region = "us-east-1"
-# access_key_id = "AKIA..."
-# secret_access_key = "..."
-# session_token = "..."
-# profile = "my-profile"        # or use AWS profile
-
-# Google Vertex AI configuration (uses GCP OAuth2 auth, no API key needed)
-# [vertex]
-# project_id = "my-gcp-project"
-# region = "us-central1"
-# credentials_file = "/path/to/service-account.json"  # or use ADC
-
-# OAuth settings (for --login with Claude.ai account)
-# [auth]
-# auth_url = "https://claude.ai/oauth"
-# token_url = "https://claude.ai/oauth/token"
-# client_id = "aionrs"
-
-# Named profiles for quick switching (--profile <name>)
-# [profiles.deepseek]
-# provider = "openai"
-# model = "deepseek-chat"
-# api_key = "sk-xxx"
-# base_url = "https://api.deepseek.com"
-
-# [profiles.ollama]
-# provider = "openai"
-# model = "qwen2.5:32b"
-# api_key = "ollama"
-# base_url = "http://localhost:11434"
-
-# [profiles.my-service]
-# provider = "my-service"
-
-# [profiles.bedrock-claude]
-# provider = "bedrock"
-# model = "anthropic.claude-sonnet-4-20250514-v1:0"
-
-# [profiles.vertex-claude]
-# provider = "vertex"
-# model = "claude-sonnet-4@20250514"
-
-# Tool confirmation settings
-[tools]
-auto_approve = false             # --auto-approve overrides
-# Tools that skip confirmation even when auto_approve = false
-allow_list = ["Read", "Grep", "Glob"]
-
-# Session settings
-[session]
-enabled = true
-directory = ".aionrs/sessions"  # relative to project root
-max_sessions = 20                # auto-cleanup oldest
-
-# Hook system: run shell commands at tool lifecycle events
-# [[hooks.post_tool_use]]
-# name = "rustfmt"
-# tool_match = ["Write", "Edit"]
-# file_match = ["*.rs"]
-# command = "rustfmt ${TOOL_INPUT_FILE_PATH}"
-
-# [[hooks.post_tool_use]]
-# name = "prettier"
-# tool_match = ["Write", "Edit"]
-# file_match = ["*.ts", "*.tsx"]
-# command = "npx prettier --write ${TOOL_INPUT_FILE_PATH}"
-
-# [[hooks.stop]]
-# name = "final-lint"
-# command = "cargo clippy --quiet 2>&1 | tail -5"
-
-# MCP (Model Context Protocol) servers
-# [mcp.servers.filesystem]
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-filesystem", "/Users/me/project"]
-
-# [mcp.servers.github]
-# transport = "stdio"
-# command = "npx"
-# args = ["-y", "@modelcontextprotocol/server-github"]
-# env = { GITHUB_TOKEN = "ghp_xxx" }
-
-# [mcp.servers.remote]
-# transport = "sse"
-# url = "http://localhost:3001/sse"
-
-# [mcp.servers.api]
-# transport = "streamable-http"
-# url = "https://tools.example.com/mcp"
-# headers = { Authorization = "Bearer xxx" }
-"#;

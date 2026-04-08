@@ -101,6 +101,7 @@ impl VcrLayer {
     }
 
     /// Record an interaction (only in record mode)
+    #[allow(clippy::too_many_arguments)]
     pub fn record_interaction(
         &self,
         method: &str,

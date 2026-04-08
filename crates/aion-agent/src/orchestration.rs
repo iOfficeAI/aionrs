@@ -199,6 +199,7 @@ async fn execute_single(
 }
 
 /// Execute tool calls with JSON stream protocol approval flow
+#[allow(clippy::too_many_arguments)]
 pub async fn execute_tool_calls_with_approval(
     registry: &ToolRegistry,
     tool_calls: &[ContentBlock],
@@ -228,7 +229,7 @@ pub async fn execute_tool_calls_with_approval(
 
         if needs_approval {
             // Emit tool_request and wait for approval
-            writer.emit(&ProtocolEvent::ToolRequest {
+            let _ = writer.emit(&ProtocolEvent::ToolRequest {
                 msg_id: msg_id.to_string(),
                 call_id: id.clone(),
                 tool: ToolInfo {
@@ -243,7 +244,7 @@ pub async fn execute_tool_calls_with_approval(
             match rx.await {
                 Ok(ToolApprovalResult::Approved) => { /* continue to execute */ }
                 Ok(ToolApprovalResult::Denied { reason }) => {
-                    writer.emit(&ProtocolEvent::ToolCancelled {
+                    let _ = writer.emit(&ProtocolEvent::ToolCancelled {
                         msg_id: msg_id.to_string(),
                         call_id: id.clone(),
                         reason: reason.clone(),
@@ -264,7 +265,7 @@ pub async fn execute_tool_calls_with_approval(
         }
 
         // Emit tool_running
-        writer.emit(&ProtocolEvent::ToolRunning {
+        let _ = writer.emit(&ProtocolEvent::ToolRunning {
             msg_id: msg_id.to_string(),
             call_id: id.clone(),
             tool_name: name.clone(),
@@ -288,7 +289,7 @@ pub async fn execute_tool_calls_with_approval(
             } else {
                 ToolStatus::Success
             };
-            writer.emit(&ProtocolEvent::ToolResult {
+            let _ = writer.emit(&ProtocolEvent::ToolResult {
                 msg_id: msg_id.to_string(),
                 call_id: id.clone(),
                 tool_name: name.clone(),

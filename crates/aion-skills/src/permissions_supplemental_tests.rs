@@ -5,6 +5,7 @@
 //   TC-P5-23: PermissionRule::parse(":*") does not panic — Prefix with empty prefix
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod permissions_supplemental_tests {
     use crate::permissions::{PermissionRule, SkillPermission, SkillPermissionChecker};
     use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};

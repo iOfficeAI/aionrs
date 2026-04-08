@@ -24,10 +24,10 @@ pub fn build_system_prompt(
 
     // Read AGENTS.md if it exists
     let agents_md = std::path::Path::new(cwd).join("AGENTS.md");
-    if agents_md.exists() {
-        if let Ok(content) = std::fs::read_to_string(&agents_md) {
-            parts.push(format!("# Project Instructions (AGENTS.md)\n\n{content}"));
-        }
+    if agents_md.exists()
+        && let Ok(content) = std::fs::read_to_string(&agents_md)
+    {
+        parts.push(format!("# Project Instructions (AGENTS.md)\n\n{content}"));
     }
 
     // Inject visible skill listing (exclude skills hidden from model invocation)

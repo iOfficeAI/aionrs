@@ -6,6 +6,7 @@
 //   TC-10.26: bare mode also includes bundled skills (AC-14)
 
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod bundled_supplemental_tests {
     use crate::bundled::{
         BundledSkillDefinition, clear_bundled_skills, get_bundled_skills, register_bundled_skill,

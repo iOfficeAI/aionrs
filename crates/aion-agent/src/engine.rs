@@ -329,12 +329,11 @@ impl AgentEngine {
                     let tool_name = tool_calls
                         .iter()
                         .find_map(|c| {
-                            if let ContentBlock::ToolUse { id, name, .. } = c {
-                                if let ContentBlock::ToolResult { tool_use_id, .. } = result {
-                                    if id == tool_use_id {
-                                        return Some(name.as_str());
-                                    }
-                                }
+                            if let ContentBlock::ToolUse { id, name, .. } = c
+                                && let ContentBlock::ToolResult { tool_use_id, .. } = result
+                                && id == tool_use_id
+                            {
+                                return Some(name.as_str());
                             }
                             None
                         })

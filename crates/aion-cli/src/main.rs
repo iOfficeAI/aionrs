@@ -19,7 +19,6 @@ use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
 use aion_protocol::reader::spawn_stdin_reader;
 use aion_protocol::writer::ProtocolWriter;
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
-use aion_providers;
 use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
 use aion_tools::glob::GlobTool;
@@ -184,8 +183,8 @@ async fn main() -> anyhow::Result<()> {
             eprintln!("No saved sessions.");
         } else {
             eprintln!(
-                "{:<8} {:<12} {:<30} {:>5}  {}",
-                "ID", "Date", "Model", "Msgs", "Summary"
+                "{:<8} {:<12} {:<30} {:>5}  Summary",
+                "ID", "Date", "Model", "Msgs"
             );
             for s in &sessions {
                 eprintln!(
@@ -367,11 +366,11 @@ fn print_skills_paths() {
 
     // Legacy commands
     let mut has_legacy = false;
-    if let Some(dir) = user_commands_dir() {
-        if dir.is_dir() {
-            println!("Legacy:  {}  ({})", dir.display(), status(&dir));
-            has_legacy = true;
-        }
+    if let Some(dir) = user_commands_dir()
+        && dir.is_dir()
+    {
+        println!("Legacy:  {}  ({})", dir.display(), status(&dir));
+        has_legacy = true;
     }
     for dir in project_commands_dirs(&cwd) {
         println!("Legacy:  {}  ({})", dir.display(), status(&dir));

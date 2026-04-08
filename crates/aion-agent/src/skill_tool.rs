@@ -935,6 +935,7 @@ mod phase7_tests {
             })
         }
 
+        #[allow(dead_code)]
         fn take_config(&self) -> SubAgentConfig {
             self.captured_config
                 .lock()
@@ -943,6 +944,7 @@ mod phase7_tests {
                 .expect("spawn_fork was not called")
         }
 
+        #[allow(dead_code)]
         fn take_overrides(&self) -> ForkOverrides {
             self.captured_overrides
                 .lock()
