@@ -342,7 +342,8 @@ mod conditional_supplemental_tests {
         assert_eq!(mgr.dormant_count(), 1);
 
         // The valid pattern `src/**/*.rs` should still work even though `!negation` was skipped.
-        let activated = mgr.activate_for_paths(&["/project/src/main.rs"], "/project");
+        // Use a relative path to avoid platform-dependent absolute path issues
+        let activated = mgr.activate_for_paths(&["src/main.rs"], ".");
         assert_eq!(activated.len(), 1);
         assert_eq!(activated[0], "bad-pattern");
         assert!(mgr.get_activated("bad-pattern").is_some());
@@ -356,7 +357,7 @@ mod conditional_supplemental_tests {
         mgr.partition_skills(vec![skill]);
         assert_eq!(mgr.dormant_count(), 1);
 
-        let activated = mgr.activate_for_paths(&["/project/any/file.rs"], "/project");
+        let activated = mgr.activate_for_paths(&["any/file.rs"], ".");
         // No valid patterns → nothing activates
         assert!(activated.is_empty());
         assert_eq!(mgr.dormant_count(), 1);
