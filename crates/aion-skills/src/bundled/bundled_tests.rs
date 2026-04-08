@@ -428,7 +428,13 @@ fn tc_10_27b_resolve_traversal_rejected() {
 
 #[test]
 fn tc_10_27c_resolve_absolute_path_rejected() {
-    let result = resolve_skill_file_path(Path::new("/base"), "/etc/passwd");
+    // Use a platform-appropriate absolute path so `Path::is_absolute()` returns true
+    #[cfg(unix)]
+    let abs_path = "/etc/passwd";
+    #[cfg(windows)]
+    let abs_path = "C:\\Windows\\System32\\drivers\\etc\\hosts";
+
+    let result = resolve_skill_file_path(Path::new("/base"), abs_path);
     assert!(result.is_err(), "absolute path must be rejected");
 }
 
