@@ -217,6 +217,7 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[cfg(not(windows))] // Shell execution and path handling differ on Windows
 mod supplemental_tests {
     use super::*;
     use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
