@@ -48,26 +48,36 @@ jobs:
             secret_name: OPENAI_API_KEY
             filter: "test(openai)"
 
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      github.event.inputs.provider == 'all' ||
-      github.event.inputs.provider == matrix.provider
-
     steps:
+      - name: Check provider filter
+        id: filter
+        run: |
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]] || \
+             [[ "${{ github.event.inputs.provider }}" == "all" ]] || \
+             [[ "${{ github.event.inputs.provider }}" == "${{ matrix.provider }}" ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v6
+        if: steps.filter.outputs.run == 'true'
 
       - name: Setup vx (installs Rust from vx.toml)
+        if: steps.filter.outputs.run == 'true'
         uses: loonghao/vx@v0.8.23
         with:
           setup: 'true'
           cache: 'true'
 
       - name: Install cargo-nextest
+        if: steps.filter.outputs.run == 'true'
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
 
       - name: Check API key availability
+        if: steps.filter.outputs.run == 'true'
         id: check_key
         env:
           API_KEY: ${{ secrets[matrix.secret_name] }}
@@ -93,7 +103,7 @@ jobs:
             --no-fail-fast
 
       - name: Upload E2E JUnit report
-        if: always() && steps.check_key.outputs.available == 'true'
+        if: always() && steps.filter.outputs.run == 'true' && steps.check_key.outputs.available == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: e2e-junit-${{ matrix.provider }}
