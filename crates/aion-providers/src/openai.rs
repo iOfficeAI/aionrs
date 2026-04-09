@@ -800,13 +800,13 @@ mod tests {
         // event must carry the token counts from that chunk, not zeros.
         let mut state = StreamState::new();
 
-        // chunk 1: finish_reason present, usage absent
+        // chunk 1: finish_reason + text delta, no usage
         let chunk1 = r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#;
         let events = parse_sse_chunk(chunk1, &mut state);
-        // No Done emitted yet — it's deferred.
+        // TextDelta is emitted immediately; Done is deferred.
         assert!(
-            events.is_empty(),
-            "Done should be deferred, not emitted here"
+            events.iter().all(|e| !matches!(e, LlmEvent::Done { .. })),
+            "Done should be deferred, not emitted with finish_reason chunk"
         );
         assert!(state.pending_done.is_some());
 
@@ -835,9 +835,13 @@ mod tests {
         // Counts should still be correct after flush.
         let mut state = StreamState::new();
 
+        // No text delta here, only finish_reason + usage in the same chunk.
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}"#;
         let events = parse_sse_chunk(chunk, &mut state);
-        assert!(events.is_empty());
+        assert!(
+            events.iter().all(|e| !matches!(e, LlmEvent::Done { .. })),
+            "Done should be deferred even when usage is in the finish chunk"
+        );
         assert_eq!(state.output_tokens, 3);
 
         let done = state.flush_done().unwrap();
