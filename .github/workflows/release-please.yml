@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     if: "startsWith(github.event.head_commit.message, 'chore: release')"
     outputs:
-      releases_created: ${{ steps.release.outputs.releases_created }}
+      release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
@@ -44,7 +44,7 @@ jobs:
           skip-github-pull-request: true
 
       - name: Trigger Release build workflow
-        if: ${{ steps.release.outputs.releases_created == 'true' }}
+        if: ${{ steps.release.outputs.release_created == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
