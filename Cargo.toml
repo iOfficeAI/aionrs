@@ -86,7 +86,7 @@ aws-config           = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-sts          = "1"
 
 # JWT creation (for Vertex GCP service account auth)
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 
 # Base64 encoding
 base64 = "0.22"
