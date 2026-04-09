@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/iOfficeAI/aionrs/compare/v0.1.4...v0.1.5) (2026-04-09)
+
+
+### Bug Fixes
+
+* **ci:** fix release workflow to correctly build and upload GitHub Release assets ([#12](https://github.com/iOfficeAI/aionrs/issues/12)) ([997ec18](https://github.com/iOfficeAI/aionrs/commit/997ec18cbbd21ea2ef8eb19ff4cbf6280376a80c))
+
 ## [0.1.4](https://github.com/iOfficeAI/aionrs/compare/v0.1.3...v0.1.4) (2026-04-09)
 
 
