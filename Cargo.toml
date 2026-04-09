@@ -106,6 +106,6 @@ workspace-hack = { path = "workspace-hack" }
 wiremock    = "0.6"
 tokio-test  = "0.4"
 tempfile    = "3"
-mockall     = "0.13"
+mockall     = "0.14"
 rstest      = "0.23"
 serial_test = "3"
