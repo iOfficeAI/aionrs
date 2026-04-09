@@ -9,6 +9,7 @@ use aion_agent::output::OutputSink;
 use aion_agent::output::protocol_sink::ProtocolSink;
 use aion_agent::output::terminal::TerminalSink;
 use aion_agent::session;
+use aion_agent::skill_tool::SkillTool;
 use aion_agent::spawn_tool::SpawnTool;
 use aion_agent::spawner::AgentSpawner;
 use aion_config::auth;
@@ -19,6 +20,8 @@ use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
 use aion_protocol::reader::spawn_stdin_reader;
 use aion_protocol::writer::ProtocolWriter;
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
+use aion_skills::loader::load_all_skills;
+use aion_skills::permissions::SkillPermissionChecker;
 use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
 use aion_tools::glob::GlobTool;
@@ -232,6 +235,38 @@ async fn main() -> anyhow::Result<()> {
     } else {
         None
     };
+
+    // Load skills from all sources (bundled, MCP, user, project)
+    let cwd_path = std::path::Path::new(&cwd);
+    let skills = load_all_skills(
+        cwd_path,
+        &[],
+        false,
+        mcp_manager.as_deref(),
+    )
+    .await;
+
+    // Build system prompt with loaded skills
+    let system_prompt = context::build_system_prompt(
+        config.system_prompt.as_deref(),
+        &cwd,
+        &skills,
+        None,
+    );
+    config.system_prompt = Some(system_prompt);
+
+    // Register SkillTool so the LLM can invoke skills
+    let skills_arc = Arc::new(skills);
+    let skill_checker = SkillPermissionChecker::new(
+        config.tools.skills.deny.clone(),
+        config.tools.skills.allow.clone(),
+        config.tools.auto_approve,
+    );
+    registry.register(Box::new(SkillTool::new(
+        skills_arc,
+        cwd.clone(),
+        skill_checker,
+    )));
 
     // Create provider (shared via Arc for sub-agent reuse)
     let provider = aion_providers::create_provider(&config);

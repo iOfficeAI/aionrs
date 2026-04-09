@@ -179,12 +179,14 @@ fn collect_skill_md<'a>(
 
         while let Ok(Some(entry)) = read_dir.next_entry().await {
             let path = entry.path();
-            let file_type = match entry.file_type().await {
-                Ok(ft) => ft,
+            // Follow symlinks: entry.file_type() does NOT traverse symlinks,
+            // so use tokio::fs::metadata() which resolves the target type.
+            let is_dir = match tokio::fs::metadata(&path).await {
+                Ok(meta) => meta.is_dir(),
                 Err(_) => continue,
             };
 
-            if file_type.is_dir() {
+            if is_dir {
                 // Check for SKILL.md directly inside this subdirectory using an
                 // exact case-sensitive name comparison (important on case-insensitive
                 // filesystems like macOS APFS).
@@ -242,12 +244,13 @@ fn collect_commands<'a>(
         // First pass: handle directory format
         for entry in &entries {
             let path = entry.path();
-            let file_type = match entry.file_type().await {
-                Ok(ft) => ft,
+            // Follow symlinks: use metadata() which resolves symlink targets.
+            let is_dir = match tokio::fs::metadata(&path).await {
+                Ok(meta) => meta.is_dir(),
                 Err(_) => continue,
             };
 
-            if file_type.is_dir() {
+            if is_dir {
                 // Use exact case-sensitive lookup to avoid false positives on
                 // case-insensitive filesystems (e.g., macOS APFS).
                 if let Some(skill_file) = find_exact_file(&path, "SKILL.md").await {
@@ -278,12 +281,13 @@ fn collect_commands<'a>(
         // Second pass: handle flat .md files (skip if directory version exists)
         for entry in &entries {
             let path = entry.path();
-            let file_type = match entry.file_type().await {
-                Ok(ft) => ft,
+            // Follow symlinks: use metadata() to check if this is a file (not a dir symlink).
+            let is_file = match tokio::fs::metadata(&path).await {
+                Ok(meta) => meta.is_file(),
                 Err(_) => continue,
             };
 
-            if file_type.is_file() && path.extension().and_then(|e| e.to_str()) == Some("md") {
+            if is_file && path.extension().and_then(|e| e.to_str()) == Some("md") {
                 let stem = path
                     .file_stem()
                     .map(|s| s.to_string_lossy().into_owned())
