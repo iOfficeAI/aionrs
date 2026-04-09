@@ -804,7 +804,10 @@ mod tests {
         let chunk1 = r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#;
         let events = parse_sse_chunk(chunk1, &mut state);
         // No Done emitted yet — it's deferred.
-        assert!(events.is_empty(), "Done should be deferred, not emitted here");
+        assert!(
+            events.is_empty(),
+            "Done should be deferred, not emitted here"
+        );
         assert!(state.pending_done.is_some());
 
         // chunk 2: trailing usage-only chunk (choices:[])
