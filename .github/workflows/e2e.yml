@@ -137,7 +137,7 @@ jobs:
         continue-on-error: true
 
       - name: Publish E2E test report
-        uses: dorny/test-reporter@v2
+        uses: dorny/test-reporter@v3
         if: hashFiles('e2e-reports/**/*.xml') != ''
         with:
           name: E2E Tests

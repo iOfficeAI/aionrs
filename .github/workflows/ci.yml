@@ -136,7 +136,7 @@ jobs:
         continue-on-error: true
 
       - name: Publish test report
-        uses: dorny/test-reporter@v2
+        uses: dorny/test-reporter@v3
         if: hashFiles('junit-reports/**/*.xml') != ''
         with:
           name: Unit & Integration Tests
