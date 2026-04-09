@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.7](https://github.com/iOfficeAI/aionrs/compare/v0.1.6...v0.1.7) (2026-04-09)
+
+
+### Bug Fixes
+
+* **ci:** handle scoped release commit message in release-please workflow ([#22](https://github.com/iOfficeAI/aionrs/issues/22)) ([7222806](https://github.com/iOfficeAI/aionrs/commit/72228064a58d9a8ee410d37ad2380c8f84361cc9))
+
 ## [0.1.6](https://github.com/iOfficeAI/aionrs/compare/v0.1.5...v0.1.6) (2026-04-09)
 
 
