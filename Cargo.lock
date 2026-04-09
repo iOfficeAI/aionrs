@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "aion-agent"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-config",
  "aion-mcp",
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "aion-cli"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-agent",
  "aion-config",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "aion-config"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-types",
  "anyhow",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[package]]
 name = "aion-mcp"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-config",
  "aion-protocol",
@@ -101,7 +101,7 @@ dependencies = [
 
 [[package]]
 name = "aion-protocol"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-types",
  "rstest",
@@ -113,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "aion-providers"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-config",
  "aion-types",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "aion-skills"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-config",
  "aion-mcp",
@@ -168,7 +168,7 @@ dependencies = [
 
 [[package]]
 name = "aion-tools"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "aion-config",
  "aion-protocol",
@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "aion-types"
-version = "0.1.5"
+version = "0.1.7"
 dependencies = [
  "async-trait",
  "serde",
@@ -2294,21 +2294,20 @@ dependencies = [
 
 [[package]]
 name = "rstest"
-version = "0.23.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a2c585be59b6b5dd66a9d2084aa1d8bd52fbdb806eafdeffb52791147862035"
+checksum = "f5a3193c063baaa2a95a33f03035c8a72b83d97a54916055ba22d35ed3839d49"
 dependencies = [
- "futures",
  "futures-timer",
+ "futures-util",
  "rstest_macros",
- "rustc_version",
 ]
 
 [[package]]
 name = "rstest_macros"
-version = "0.23.0"
+version = "0.26.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "825ea780781b15345a146be27eaefb05085e337e869bff01b4306a4fd4a9ad5a"
+checksum = "9c845311f0ff7951c5506121a9ad75aec44d083c31583b2ea5a30bcb0b0abba0"
 dependencies = [
  "cfg-if",
  "glob",
