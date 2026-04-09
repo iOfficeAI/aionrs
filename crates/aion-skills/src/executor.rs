@@ -432,6 +432,7 @@ mod supplemental_tests {
 
     // TC-10.7: 变量替换 + shell 顺序 — 先变量替换再 shell 执行
     #[tokio::test]
+    #[cfg(not(windows))] // Uses Unix shell syntax and /tmp path
     async fn tc_10_7_variable_substitution_before_shell() {
         // $ARGUMENTS is substituted first, then the resulting content is shell-executed
         // We verify by having a non-shell placeholder that gets substituted
