@@ -1,13 +1,16 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
+    inputs:
+      tag_name:
+        description: "Release tag to build and publish (e.g., v0.2.0)"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Release tag (e.g., v0.2.0)"
+      tag_name:
+        description: "Release tag to build and publish (e.g., v0.2.0)"
         required: true
         type: string
 
@@ -16,37 +19,68 @@ permissions:
 
 env:
   BINARY_NAME: aionrs
+  CARGO_TERM_COLOR: always
+  CARGO_HTTP_TIMEOUT: "600"
+  CARGO_NET_RETRY: "10"
 
 jobs:
+  prepare-release:
+    name: Prepare Release Metadata
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
+
+      - name: Extract version from tag
+        id: metadata
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag_name }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
   build:
-    name: Build (${{ matrix.target }})
+    name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    needs: prepare-release
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            archive: tar.gz
+            binary_name: aionrs
+            archive_name: aionrs-x86_64-unknown-linux-gnu.tar.gz
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
-            archive: tar.gz
+            binary_name: aionrs
+            archive_name: aionrs-aarch64-unknown-linux-gnu.tar.gz
             use_cross: true
           - os: macos-latest
             target: x86_64-apple-darwin
-            archive: tar.gz
+            binary_name: aionrs
+            archive_name: aionrs-x86_64-apple-darwin.tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            archive: tar.gz
+            binary_name: aionrs
+            archive_name: aionrs-aarch64-apple-darwin.tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            archive: zip
+            binary_name: aionrs.exe
+            archive_name: aionrs-x86_64-pc-windows-msvc.zip
           - os: windows-latest
             target: aarch64-pc-windows-msvc
-            archive: zip
+            binary_name: aionrs.exe
+            archive_name: aionrs-aarch64-pc-windows-msvc.zip
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/${{ inputs.tag_name }}
 
       - name: Setup vx (installs Rust from vx.toml)
         uses: loonghao/vx@v0.8.23
@@ -56,6 +90,16 @@ jobs:
 
       - name: Add cross-compile target
         run: rustup target add ${{ matrix.target }}
+
+      - name: Fix MSVC linker (remove Git's link.exe)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Remove-Item 'C:\Program Files\Git\usr\bin\link.exe' -Force -ErrorAction SilentlyContinue
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
 
       - name: Install cross (Linux aarch64)
         if: matrix.use_cross == true
@@ -74,53 +118,74 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          BIN=target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}
-          ARCHIVE=${{ env.BINARY_NAME }}-${{ matrix.target }}.tar.gz
-          tar czf "$ARCHIVE" -C "$(dirname $BIN)" "$(basename $BIN)"
-          echo "ASSET=$ARCHIVE" >> $GITHUB_ENV
+          mkdir -p dist
+          tar -C target/${{ matrix.target }}/release -czf dist/${{ matrix.archive_name }} ${{ matrix.binary_name }}
 
       - name: Package binary (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $bin = "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe"
-          $archive = "${{ env.BINARY_NAME }}-${{ matrix.target }}.zip"
-          Compress-Archive -Path $bin -DestinationPath $archive
-          "ASSET=$archive" | Out-File -FilePath $env:GITHUB_ENV -Append
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Compress-Archive -Path "target/${{ matrix.target }}/release/${{ matrix.binary_name }}" -DestinationPath "dist/${{ matrix.archive_name }}" -Force
 
-      - name: Upload release asset
+      - name: Upload release artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
-          path: ${{ env.ASSET }}
+          name: ${{ matrix.target }}
+          path: dist/${{ matrix.archive_name }}
+          if-no-files-found: error
 
-  release:
-    name: Create GitHub Release
-    needs: build
+  github-release:
+    name: Upload GitHub Release assets
     runs-on: ubuntu-latest
-    environment: release
+    needs:
+      - prepare-release
+      - build
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Download all artifacts
+      - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: Determine tag
-        id: tag
+      - name: Create versioned copies of archives
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+        run: |
+          shopt -s nullglob
+          for file in artifacts/aionrs-*.tar.gz artifacts/aionrs-*.zip; do
+            base_name="$(basename "$file")"
+            if [[ "$base_name" == *.tar.gz ]]; then
+              extension="tar.gz"
+              stem="${base_name%.tar.gz}"
+            else
+              extension="${base_name##*.}"
+              stem="${base_name%.*}"
+            fi
+            cp "$file" "artifacts/${stem}-v${RELEASE_VERSION}.${extension}"
+          done
+
+      - name: Generate checksums
         shell: bash
         run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
+          cd artifacts
+          sha256sum aionrs-* > aionrs-checksums.txt
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          files: artifacts/*
-          generate_release_notes: true
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          release_url="https://github.com/${REPOSITORY}/releases/tag/${RELEASE_TAG}"
+          if gh release view "${RELEASE_TAG}" --repo "${REPOSITORY}" > /dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" artifacts/* --repo "${REPOSITORY}" --clobber
+          else
+            gh release create "${RELEASE_TAG}" artifacts/* \
+              --repo "${REPOSITORY}" \
+              --title "${RELEASE_TAG}" \
+              --generate-notes
+          fi
+          echo "Uploaded assets to ${release_url}"

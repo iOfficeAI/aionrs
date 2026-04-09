@@ -1,13 +1,14 @@
 # Release Please workflow
 # Runs on push to main to create/update release PRs.
 # When a release PR is merged, creates a GitHub Release + tag,
-# then dispatches the Release workflow.
+# then calls the Release workflow to build and upload assets.
 #
 # Design: Two-job approach (mirrors loonghao/vx) to avoid duplicate-PR bug.
 #
 # Job 1 "release" — runs ONLY on release commits ("chore: release vX.Y.Z"):
 #   Creates the tag + GitHub Release. Uses skip-github-pull-request to
 #   prevent creating a new PR on the same run.
+#   Then calls release.yml via workflow_call to build and upload binaries.
 #
 # Job 2 "update-pr" — runs on EVERY OTHER commit:
 #   Creates/updates the release PR. Skipped on release commits to avoid
@@ -42,7 +43,7 @@ jobs:
           manifest-file: .release-please-manifest.json
           skip-github-pull-request: true
 
-      - name: Trigger Release workflow
+      - name: Trigger Release build workflow
         if: ${{ steps.release.outputs.releases_created == 'true' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,7 +51,7 @@ jobs:
           echo "Release created: ${{ steps.release.outputs.tag_name }}"
           gh workflow run release.yml \
             --repo "${{ github.repository }}" \
-            --field "tag=${{ steps.release.outputs.tag_name }}"
+            --field "tag_name=${{ steps.release.outputs.tag_name }}"
 
   # ─── Job 2: Create/update release PR (non-release commits) ────────────────
   update-pr:
