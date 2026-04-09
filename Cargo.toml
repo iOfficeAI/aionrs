@@ -74,7 +74,7 @@ regex = "1"
 notify = "8"
 
 # Terminal color support
-crossterm = "0.28"
+crossterm = "0.29"
 
 # TTY detection
 is-terminal = "0.4"
