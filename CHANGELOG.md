@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/iOfficeAI/aionrs/compare/v0.1.5...v0.1.6) (2026-04-09)
+
+
+### Bug Fixes
+
+* **ci:** fix release_created typo and update Cargo.lock ([#18](https://github.com/iOfficeAI/aionrs/issues/18)) ([3964963](https://github.com/iOfficeAI/aionrs/commit/3964963f2d45849985c93e5f005cf59e6615573e))
+
 ## [0.1.5](https://github.com/iOfficeAI/aionrs/compare/v0.1.4...v0.1.5) (2026-04-09)
 
 
