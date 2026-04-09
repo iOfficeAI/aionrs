@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/iOfficeAI/aionrs/compare/v0.1.3...v0.1.4) (2026-04-09)
+
+
+### Bug Fixes
+
+* **ci:** fix action versions and install cargo-audit ([#10](https://github.com/iOfficeAI/aionrs/issues/10)) ([8512765](https://github.com/iOfficeAI/aionrs/commit/85127654ce7afc4ec04b7e6a325d8470e0770175))
+
 ## [0.1.3](https://github.com/iOfficeAI/aionrs/compare/v0.1.2...v0.1.3) (2026-04-09)
 
 
