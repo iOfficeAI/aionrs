@@ -46,7 +46,7 @@ jobs:
             archive: zip
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Setup vx (installs Rust from vx.toml)
         uses: loonghao/vx@v0.8.23
@@ -89,7 +89,7 @@ jobs:
           "ASSET=$archive" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       - name: Upload release asset
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v4
         with:
           name: ${{ env.BINARY_NAME }}-${{ matrix.target }}
           path: ${{ env.ASSET }}
@@ -100,10 +100,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
