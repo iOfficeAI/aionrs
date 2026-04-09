@@ -3,9 +3,8 @@ name: E2E Tests
 # E2E tests call real LLM APIs. They run:
 #   1. Manually via workflow_dispatch (any branch)
 #   2. Automatically on push to main (requires secrets to be configured)
-#
-# On forks / PRs the secrets are not available — tests gracefully skip
-# themselves when the API key env var is absent.
+#   3. On pull_request targeting main (secrets unavailable on forks — tests
+#      gracefully skip themselves when the API key env var is absent)
 
 on:
   workflow_dispatch:
@@ -17,6 +16,15 @@ on:
         type: choice
         options: [all, anthropic, openai]
   push:
+    branches: [main]
+    paths:
+      - "crates/aion-providers/**"
+      - "crates/aion-agent/**"
+      - "crates/aion-config/**"
+      - "crates/aion-types/**"
+      - "crates/aion-skills/**"
+      - ".github/workflows/e2e.yml"
+  pull_request:
     branches: [main]
     paths:
       - "crates/aion-providers/**"
