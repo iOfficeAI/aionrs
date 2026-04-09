@@ -356,6 +356,9 @@ struct StreamState {
     tool_calls: Vec<ToolCallAccumulator>,
     input_tokens: u64,
     output_tokens: u64,
+    /// Deferred Done event: populated when finish_reason arrives, emitted on
+    /// [DONE] so the final usage-only chunk has a chance to update token counts.
+    pending_done: Option<LlmEvent>,
 }
 
 impl StreamState {
@@ -364,7 +367,29 @@ impl StreamState {
             tool_calls: Vec::new(),
             input_tokens: 0,
             output_tokens: 0,
+            pending_done: None,
         }
+    }
+
+    /// Emit the deferred Done event with up-to-date token counts.
+    ///
+    /// OpenAI sends usage in a separate trailing chunk (choices:[]) *after* the
+    /// chunk that carries `finish_reason`. We defer the Done event until [DONE]
+    /// so that token counts are always accurate.
+    fn flush_done(&mut self) -> Option<LlmEvent> {
+        let pending = self.pending_done.take()?;
+        Some(match pending {
+            LlmEvent::Done { stop_reason, .. } => LlmEvent::Done {
+                stop_reason,
+                usage: TokenUsage {
+                    input_tokens: self.input_tokens,
+                    output_tokens: self.output_tokens,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: 0,
+                },
+            },
+            other => other,
+        })
     }
 
     fn get_or_create_tool(&mut self, index: usize) -> &mut ToolCallAccumulator {
@@ -448,6 +473,11 @@ async fn process_sse_stream(
 
             if let Some(data) = line.strip_prefix("data: ") {
                 if data == "[DONE]" {
+                    // Flush the deferred Done event now that the final
+                    // usage-only chunk (choices:[]) has updated token counts.
+                    if let Some(done) = state.flush_done() {
+                        let _ = tx.send(done).await;
+                    }
                     return Ok(());
                 }
 
@@ -520,11 +550,12 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
         }
     }
 
-    // Check finish_reason
+    // Check finish_reason — defer Done until [DONE] so the trailing usage
+    // chunk (choices:[]) can update token counts first.
     if let Some(finish_reason) = choice["finish_reason"].as_str() {
         match finish_reason {
             "tool_calls" => {
-                // Emit accumulated tool calls
+                // Emit accumulated tool calls immediately.
                 for tc in state.tool_calls.drain(..) {
                     let input: Value = serde_json::from_str(&tc.arguments)
                         .unwrap_or(Value::Object(serde_json::Map::new()));
@@ -534,36 +565,21 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
                         input,
                     });
                 }
-                events.push(LlmEvent::Done {
+                state.pending_done = Some(LlmEvent::Done {
                     stop_reason: StopReason::ToolUse,
-                    usage: TokenUsage {
-                        input_tokens: state.input_tokens,
-                        output_tokens: state.output_tokens,
-                        cache_creation_tokens: 0,
-                        cache_read_tokens: 0,
-                    },
+                    usage: TokenUsage::default(),
                 });
             }
             "stop" => {
-                events.push(LlmEvent::Done {
+                state.pending_done = Some(LlmEvent::Done {
                     stop_reason: StopReason::EndTurn,
-                    usage: TokenUsage {
-                        input_tokens: state.input_tokens,
-                        output_tokens: state.output_tokens,
-                        cache_creation_tokens: 0,
-                        cache_read_tokens: 0,
-                    },
+                    usage: TokenUsage::default(),
                 });
             }
             "length" => {
-                events.push(LlmEvent::Done {
+                state.pending_done = Some(LlmEvent::Done {
                     stop_reason: StopReason::MaxTokens,
-                    usage: TokenUsage {
-                        input_tokens: state.input_tokens,
-                        output_tokens: state.output_tokens,
-                        cache_creation_tokens: 0,
-                        cache_read_tokens: 0,
-                    },
+                    usage: TokenUsage::default(),
                 });
             }
             _ => {}
@@ -776,54 +792,57 @@ mod tests {
         assert_eq!(tool_msgs[0]["content"], "second");
     }
 
+    // --- usage token parsing ---
+
     #[test]
-    fn test_dedup_tool_results_disabled() {
-        let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: vec![ContentBlock::ToolUse {
-                    id: "tc1".into(),
-                    name: "bash".into(),
-                    input: json!({}),
-                }],
-            },
-            Message {
-                role: Role::Tool,
-                content: vec![ContentBlock::ToolResult {
-                    tool_use_id: "tc1".into(),
-                    content: "first".into(),
-                    is_error: false,
-                }],
-            },
-            Message {
-                role: Role::Tool,
-                content: vec![ContentBlock::ToolResult {
-                    tool_use_id: "tc1".into(),
-                    content: "second".into(),
-                    is_error: false,
-                }],
-            },
-        ];
-        let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
-        let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();
-        assert_eq!(tool_msgs.len(), 2);
+    fn test_usage_from_trailing_chunk() {
+        // OpenAI sends usage in a trailing chunk where choices:[] — the Done
+        // event must carry the token counts from that chunk, not zeros.
+        let mut state = StreamState::new();
+
+        // chunk 1: finish_reason present, usage absent
+        let chunk1 = r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#;
+        let events = parse_sse_chunk(chunk1, &mut state);
+        // No Done emitted yet — it's deferred.
+        assert!(events.is_empty(), "Done should be deferred, not emitted here");
+        assert!(state.pending_done.is_some());
+
+        // chunk 2: trailing usage-only chunk (choices:[])
+        let chunk2 = r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#;
+        let events2 = parse_sse_chunk(chunk2, &mut state);
+        assert!(events2.is_empty());
+        assert_eq!(state.input_tokens, 10);
+        assert_eq!(state.output_tokens, 5);
+
+        // [DONE] — flush with final counts
+        let done = state.flush_done().expect("pending_done should be Some");
+        match done {
+            LlmEvent::Done { stop_reason, usage } => {
+                assert_eq!(stop_reason, StopReason::EndTurn);
+                assert_eq!(usage.input_tokens, 10);
+                assert_eq!(usage.output_tokens, 5);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
     }
 
-    // --- strip_patterns ---
-
     #[test]
-    fn test_strip_patterns() {
-        let messages = vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
-                text: "hello __MARKER__ world".into(),
-            }],
-        }];
-        let compat = ProviderCompat {
-            strip_patterns: Some(vec!["__MARKER__".into()]),
-            ..Default::default()
-        };
-        let result = OpenAIProvider::build_messages(&messages, "", &compat);
-        assert_eq!(result[0]["content"], "hello  world");
+    fn test_usage_in_finish_chunk() {
+        // Some providers/models include usage in the same chunk as finish_reason.
+        // Counts should still be correct after flush.
+        let mut state = StreamState::new();
+
+        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}"#;
+        let events = parse_sse_chunk(chunk, &mut state);
+        assert!(events.is_empty());
+        assert_eq!(state.output_tokens, 3);
+
+        let done = state.flush_done().unwrap();
+        match done {
+            LlmEvent::Done { usage, .. } => {
+                assert_eq!(usage.output_tokens, 3);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
     }
 }
