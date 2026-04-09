@@ -29,7 +29,7 @@ jobs:
   # ─── Job 1: Tag + GitHub Release (release commits only) ───────────────────
   release:
     runs-on: ubuntu-latest
-    if: startsWith(github.event.head_commit.message, 'chore: release')
+    if: "startsWith(github.event.head_commit.message, 'chore: release')"
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
