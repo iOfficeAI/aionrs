@@ -114,7 +114,6 @@ pub async fn execute_fork(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[cfg(not(windows))] // Shell execution and path handling differ on Windows
 mod tests {
     use super::*;
     use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
@@ -217,7 +216,6 @@ mod tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[cfg(not(windows))] // Shell execution and path handling differ on Windows
 mod supplemental_tests {
     use super::*;
     use crate::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
@@ -365,6 +363,7 @@ mod supplemental_tests {
 
     // TC-10.4: Block shell 命令被执行替换
     #[tokio::test]
+    #[cfg(not(windows))] // Uses Unix shell syntax in ```! blocks
     async fn tc_10_4_block_shell_executed_in_prepare() {
         let skill = make_skill_full(
             "s",
@@ -388,6 +387,7 @@ mod supplemental_tests {
 
     // TC-10.5: Inline shell 命令被执行替换
     #[tokio::test]
+    #[cfg(not(windows))] // Uses Unix shell syntax (!` inline)
     async fn tc_10_5_inline_shell_executed_in_prepare() {
         let skill = make_skill_full(
             "s",
@@ -457,6 +457,7 @@ mod supplemental_tests {
 
     // TC-10.8: cwd 参数传递给 execute_shell_commands
     #[tokio::test]
+    #[cfg(not(windows))] // Uses pwd command (Unix only)
     async fn tc_10_8_cwd_passed_to_shell() {
         let skill = make_skill_full("s", "!`pwd`", None, vec![], ExecutionContext::Inline);
         let result = prepare_inline_content(&skill, None, None, "/tmp")

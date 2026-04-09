@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup vx (installs Rust + just from vx.toml)
-        uses: loonghao/vx@main
+        uses: loonghao/vx@v0.8.23
         with:
           setup: 'true'
           cache: 'true'
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Setup vx (installs Rust from vx.toml)
-        uses: loonghao/vx@main
+        uses: loonghao/vx@v0.8.23
         with:
           setup: 'true'
           cache: 'true'
