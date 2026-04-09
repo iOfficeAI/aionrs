@@ -30,7 +30,7 @@ jobs:
   # ─── Job 1: Tag + GitHub Release (release commits only) ───────────────────
   release:
     runs-on: ubuntu-latest
-    if: "startsWith(github.event.head_commit.message, 'chore: release')"
+    if: "startsWith(github.event.head_commit.message, 'chore: release') || startsWith(github.event.head_commit.message, 'chore(main): release')"
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
@@ -56,7 +56,7 @@ jobs:
   # ─── Job 2: Create/update release PR (non-release commits) ────────────────
   update-pr:
     runs-on: ubuntu-latest
-    if: "!startsWith(github.event.head_commit.message, 'chore: release')"
+    if: "!startsWith(github.event.head_commit.message, 'chore: release') && !startsWith(github.event.head_commit.message, 'chore(main): release')"
     steps:
       - uses: googleapis/release-please-action@v4
         with:
