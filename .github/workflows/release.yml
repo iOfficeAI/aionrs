@@ -77,7 +77,7 @@ jobs:
           ref: refs/tags/${{ inputs.tag_name }}
 
       - name: Setup vx (installs Rust from vx.toml)
-        uses: loonghao/vx@v0.8.23
+        uses: loonghao/vx@v0.8.25
         with:
           setup: 'true'
           cache: 'true'
