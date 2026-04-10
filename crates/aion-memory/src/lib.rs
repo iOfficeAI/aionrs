@@ -4,6 +4,7 @@
 // project context, and external references.
 
 pub mod error;
+pub mod index;
 pub mod paths;
 pub mod store;
 pub mod types;
