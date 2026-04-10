@@ -86,10 +86,7 @@ pub fn compact_messages(messages: &mut Vec<Message>, keep_tail: usize) {
         summarized_count
     );
 
-    let summary_msg = Message {
-        role: Role::User,
-        content: vec![ContentBlock::Text { text: summary_text }],
-    };
+    let summary_msg = Message::new(Role::User, vec![ContentBlock::Text { text: summary_text }]);
 
     let tail: Vec<Message> = messages.drain(tail_start..).collect();
     messages.truncate(1); // keep first message
@@ -104,18 +101,18 @@ mod tests {
     #[test]
     fn test_compact_messages_too_few() {
         let mut messages = vec![
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text {
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
                     text: "hello".to_string(),
                 }],
-            },
-            Message {
-                role: Role::Assistant,
-                content: vec![ContentBlock::Text {
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Text {
                     text: "hi".to_string(),
                 }],
-            },
+            ),
         ];
         compact_messages(&mut messages, 4);
         assert_eq!(messages.len(), 2); // no change
@@ -124,15 +121,17 @@ mod tests {
     #[test]
     fn test_compact_messages() {
         let mut messages: Vec<Message> = (0..10)
-            .map(|i| Message {
-                role: if i % 2 == 0 {
-                    Role::User
-                } else {
-                    Role::Assistant
-                },
-                content: vec![ContentBlock::Text {
-                    text: format!("msg {}", i),
-                }],
+            .map(|i| {
+                Message::new(
+                    if i % 2 == 0 {
+                        Role::User
+                    } else {
+                        Role::Assistant
+                    },
+                    vec![ContentBlock::Text {
+                        text: format!("msg {}", i),
+                    }],
+                )
             })
             .collect();
 
@@ -169,15 +168,17 @@ mod tests {
     fn test_compact_messages_preserves_first_and_last() {
         // Build 8 messages (indices 0–7); keep_tail = 3
         let mut messages: Vec<Message> = (0..8)
-            .map(|i| Message {
-                role: if i % 2 == 0 {
-                    Role::User
-                } else {
-                    Role::Assistant
-                },
-                content: vec![ContentBlock::Text {
-                    text: format!("msg {}", i),
-                }],
+            .map(|i| {
+                Message::new(
+                    if i % 2 == 0 {
+                        Role::User
+                    } else {
+                        Role::Assistant
+                    },
+                    vec![ContentBlock::Text {
+                        text: format!("msg {}", i),
+                    }],
+                )
             })
             .collect();
 
@@ -205,15 +206,17 @@ mod tests {
         let keep_tail = 4;
         let min_messages = keep_tail + 2; // = 6
         let mut messages: Vec<Message> = (0..min_messages)
-            .map(|i| Message {
-                role: if i % 2 == 0 {
-                    Role::User
-                } else {
-                    Role::Assistant
-                },
-                content: vec![ContentBlock::Text {
-                    text: format!("msg {}", i),
-                }],
+            .map(|i| {
+                Message::new(
+                    if i % 2 == 0 {
+                        Role::User
+                    } else {
+                        Role::Assistant
+                    },
+                    vec![ContentBlock::Text {
+                        text: format!("msg {}", i),
+                    }],
+                )
             })
             .collect();
 

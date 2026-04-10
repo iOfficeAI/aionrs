@@ -1,5 +1,6 @@
 // Core agent infrastructure: engine, session, orchestration, output sinks.
 
+pub mod compact;
 pub mod confirm;
 pub mod context;
 pub mod engine;

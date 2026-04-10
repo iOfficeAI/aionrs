@@ -195,12 +195,12 @@ impl AgentEngine {
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
         self.current_msg_id = msg_id.to_string();
         self.output.emit_stream_start(msg_id);
-        self.messages.push(Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
+        self.messages.push(Message::now(
+            Role::User,
+            vec![ContentBlock::Text {
                 text: user_input.to_string(),
             }],
-        });
+        ));
 
         for turn in 0..self.max_turns {
             let request = LlmRequest {
@@ -259,10 +259,7 @@ impl AgentEngine {
             }
             assistant_content.extend(tool_calls.clone());
 
-            self.messages.push(Message {
-                role: Role::Assistant,
-                content: assistant_content,
-            });
+            self.messages.push(Message::now(Role::Assistant, assistant_content));
 
             if tool_calls.is_empty() {
                 self.save_session();
@@ -342,10 +339,7 @@ impl AgentEngine {
                 }
             }
 
-            self.messages.push(Message {
-                role: Role::User,
-                content: outcome.results,
-            });
+            self.messages.push(Message::now(Role::User, outcome.results));
 
             // Save session after each turn
             self.save_session();

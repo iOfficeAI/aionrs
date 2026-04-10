@@ -41,6 +41,7 @@ fn anthropic_config(api_key: &str) -> Config {
             directory: "/tmp".to_string(),
             max_sessions: 1,
         },
+        compact: aion_config::compact::CompactConfig::default(),
         hooks: HooksConfig::default(),
         bedrock: None,
         vertex: None,

@@ -321,12 +321,12 @@ mod tests {
 
         let mut session = manager.create("openai", "gpt-4", "/tmp", None).unwrap();
 
-        let msg = Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
+        let msg = Message::new(
+            Role::User,
+            vec![ContentBlock::Text {
                 text: "hello".to_string(),
             }],
-        };
+        );
         session.messages.push(msg);
 
         manager.update_index_for(&session).unwrap();

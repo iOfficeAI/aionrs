@@ -646,18 +646,18 @@ mod tests {
     #[test]
     fn test_merge_assistant_messages_enabled() {
         let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: vec![ContentBlock::Text {
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Text {
                     text: "hello".into(),
                 }],
-            },
-            Message {
-                role: Role::Assistant,
-                content: vec![ContentBlock::Text {
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Text {
                     text: " world".into(),
                 }],
-            },
+            ),
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
         let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
@@ -668,18 +668,18 @@ mod tests {
     #[test]
     fn test_merge_assistant_messages_disabled() {
         let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: vec![ContentBlock::Text {
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Text {
                     text: "hello".into(),
                 }],
-            },
-            Message {
-                role: Role::Assistant,
-                content: vec![ContentBlock::Text {
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Text {
                     text: " world".into(),
                 }],
-            },
+            ),
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
         let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
@@ -691,9 +691,9 @@ mod tests {
     #[test]
     fn test_clean_orphan_tool_calls_enabled() {
         let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: vec![
+            Message::new(
+                Role::Assistant,
+                vec![
                     ContentBlock::ToolUse {
                         id: "tc1".into(),
                         name: "bash".into(),
@@ -705,15 +705,15 @@ mod tests {
                         input: json!({}),
                     },
                 ],
-            },
-            Message {
-                role: Role::Tool,
-                content: vec![ContentBlock::ToolResult {
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
                     tool_use_id: "tc1".into(),
                     content: "ok".into(),
                     is_error: false,
                 }],
-            },
+            ),
             // tc2 has no result -> orphan
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
@@ -726,9 +726,9 @@ mod tests {
     #[test]
     fn test_clean_orphan_tool_calls_disabled() {
         let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: vec![
+            Message::new(
+                Role::Assistant,
+                vec![
                     ContentBlock::ToolUse {
                         id: "tc1".into(),
                         name: "bash".into(),
@@ -740,15 +740,15 @@ mod tests {
                         input: json!({}),
                     },
                 ],
-            },
-            Message {
-                role: Role::Tool,
-                content: vec![ContentBlock::ToolResult {
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
                     tool_use_id: "tc1".into(),
                     content: "ok".into(),
                     is_error: false,
                 }],
-            },
+            ),
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
         let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
@@ -761,30 +761,30 @@ mod tests {
     #[test]
     fn test_dedup_tool_results_enabled() {
         let messages = vec![
-            Message {
-                role: Role::Assistant,
-                content: vec![ContentBlock::ToolUse {
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
                     id: "tc1".into(),
                     name: "bash".into(),
                     input: json!({}),
                 }],
-            },
-            Message {
-                role: Role::Tool,
-                content: vec![ContentBlock::ToolResult {
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
                     tool_use_id: "tc1".into(),
                     content: "first".into(),
                     is_error: false,
                 }],
-            },
-            Message {
-                role: Role::Tool,
-                content: vec![ContentBlock::ToolResult {
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
                     tool_use_id: "tc1".into(),
                     content: "second".into(),
                     is_error: false,
                 }],
-            },
+            ),
         ];
         let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
         let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();

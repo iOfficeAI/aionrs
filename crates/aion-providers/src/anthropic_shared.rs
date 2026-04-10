@@ -376,12 +376,12 @@ mod tests {
 
     #[test]
     fn test_build_messages_text_only() {
-        let messages = vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
+        let messages = vec![Message::new(
+            Role::User,
+            vec![ContentBlock::Text {
                 text: "Hello".to_string(),
             }],
-        }];
+        )];
         let result = build_messages(&messages, &default_compat());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["role"], "user");
@@ -393,14 +393,14 @@ mod tests {
 
     #[test]
     fn test_build_messages_with_tool_use() {
-        let messages = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::ToolUse {
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
                 id: "call_1".to_string(),
                 name: "bash".to_string(),
                 input: json!({"cmd": "ls"}),
             }],
-        }];
+        )];
         let result = build_messages(&messages, &default_compat());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["role"], "assistant");
@@ -413,14 +413,14 @@ mod tests {
 
     #[test]
     fn test_build_messages_with_tool_result() {
-        let messages = vec![Message {
-            role: Role::Tool,
-            content: vec![ContentBlock::ToolResult {
+        let messages = vec![Message::new(
+            Role::Tool,
+            vec![ContentBlock::ToolResult {
                 tool_use_id: "call_1".to_string(),
                 content: "file list".to_string(),
                 is_error: false,
             }],
-        }];
+        )];
         let result = build_messages(&messages, &default_compat());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["role"], "user"); // Tool maps to "user"
@@ -433,12 +433,12 @@ mod tests {
 
     #[test]
     fn test_build_messages_with_thinking() {
-        let messages = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::Thinking {
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::Thinking {
                 thinking: "Let me think...".to_string(),
             }],
-        }];
+        )];
         let result = build_messages(&messages, &default_compat());
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["role"], "assistant");
@@ -451,10 +451,10 @@ mod tests {
 
     #[test]
     fn test_ensure_alternation_inserts_user_filler_before_assistant() {
-        let messages = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::Text { text: "hi".into() }],
-        }];
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::Text { text: "hi".into() }],
+        )];
         let compat = ProviderCompat {
             ensure_alternation: Some(true),
             merge_same_role: Some(true),
@@ -468,10 +468,10 @@ mod tests {
 
     #[test]
     fn test_ensure_alternation_disabled_no_filler() {
-        let messages = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::Text { text: "hi".into() }],
-        }];
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::Text { text: "hi".into() }],
+        )];
         let compat = ProviderCompat {
             ensure_alternation: Some(false),
             ..Default::default()
@@ -484,14 +484,8 @@ mod tests {
     #[test]
     fn test_merge_same_role_enabled_merges_consecutive_user() {
         let messages = vec![
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text { text: "a".into() }],
-            },
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text { text: "b".into() }],
-            },
+            Message::new(Role::User, vec![ContentBlock::Text { text: "a".into() }]),
+            Message::new(Role::User, vec![ContentBlock::Text { text: "b".into() }]),
         ];
         let compat = ProviderCompat {
             merge_same_role: Some(true),
@@ -506,14 +500,8 @@ mod tests {
     #[test]
     fn test_merge_same_role_disabled_keeps_separate() {
         let messages = vec![
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text { text: "a".into() }],
-            },
-            Message {
-                role: Role::User,
-                content: vec![ContentBlock::Text { text: "b".into() }],
-            },
+            Message::new(Role::User, vec![ContentBlock::Text { text: "a".into() }]),
+            Message::new(Role::User, vec![ContentBlock::Text { text: "b".into() }]),
         ];
         let compat = ProviderCompat {
             merge_same_role: Some(false),
@@ -525,14 +513,14 @@ mod tests {
 
     #[test]
     fn test_auto_tool_id_generates_id_when_empty() {
-        let messages = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::ToolUse {
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
                 id: String::new(),
                 name: "bash".into(),
                 input: json!({}),
             }],
-        }];
+        )];
         let compat = ProviderCompat {
             auto_tool_id: Some(true),
             ..Default::default()
@@ -545,14 +533,14 @@ mod tests {
 
     #[test]
     fn test_auto_tool_id_preserves_existing_id() {
-        let messages = vec![Message {
-            role: Role::Assistant,
-            content: vec![ContentBlock::ToolUse {
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
                 id: "existing_id".into(),
                 name: "bash".into(),
                 input: json!({}),
             }],
-        }];
+        )];
         let compat = ProviderCompat {
             auto_tool_id: Some(true),
             ..Default::default()

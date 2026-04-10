@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{AuthConfig, OAuthManager};
+use crate::compact::CompactConfig;
 use crate::compat::ProviderCompat;
 use crate::hooks::HooksConfig;
 use aion_types::llm::ThinkingConfig;
@@ -81,6 +82,9 @@ pub struct ConfigFile {
 
     #[serde(default)]
     pub session: SessionConfig,
+
+    #[serde(default)]
+    pub compact: CompactConfig,
 
     #[serde(default)]
     pub hooks: HooksConfig,
@@ -239,6 +243,7 @@ pub struct Config {
     pub compat: ProviderCompat,
     pub tools: ToolsConfig,
     pub session: SessionConfig,
+    pub compact: CompactConfig,
     pub hooks: HooksConfig,
     pub bedrock: Option<BedrockConfig>,
     pub vertex: Option<VertexConfig>,
@@ -373,6 +378,7 @@ impl Config {
             compat,
             tools,
             session: merged.session,
+            compact: merged.compact,
             hooks: merged.hooks,
             bedrock: merged.bedrock,
             vertex: merged.vertex,
@@ -635,12 +641,25 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
     let vertex = project.vertex.or(global.vertex);
     let auth = project.auth.or(global.auth);
 
+    // Compact: project overrides global for any non-default field.
+    // Since CompactConfig uses serde defaults, a fully-default project config
+    // is indistinguishable from "absent". We use project if its context_window
+    // differs from the default, otherwise fall back to global.
+    let compact = if project.compact.context_window != CompactConfig::default().context_window
+        || !project.compact.enabled
+    {
+        project.compact
+    } else {
+        global.compact
+    };
+
     ConfigFile {
         default,
         providers,
         profiles,
         tools,
         session,
+        compact,
         hooks,
         bedrock,
         vertex,
@@ -835,6 +854,18 @@ max_turns = 30
 auto_approve = false             # --auto-approve overrides
 # Tools that skip confirmation even when auto_approve = false
 allow_list = ["Read", "Grep", "Glob"]
+
+# Context compaction settings
+# [compact]
+# context_window = 200000        # context window size in tokens
+# output_reserve = 20000         # tokens reserved for output
+# autocompact_buffer = 13000     # buffer below effective window for autocompact trigger
+# emergency_buffer = 3000        # tokens from limit for emergency block
+# max_failures = 3               # consecutive failures before circuit-breaker trips
+# micro_keep_recent = 5          # keep N most recent tool results
+# micro_gap_seconds = 3600       # gap threshold for time-based microcompact
+# compactable_tools = ["Read", "Bash", "Grep", "Glob", "Write", "Edit"]
+# enabled = true
 
 # Session settings
 [session]

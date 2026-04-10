@@ -258,6 +258,7 @@ pub fn test_config() -> Config {
             directory: "/tmp/aionrs-test-sessions".to_string(),
             max_sessions: 5,
         },
+        compact: aion_config::compact::CompactConfig::default(),
         hooks: HooksConfig::default(),
         bedrock: None,
         vertex: None,

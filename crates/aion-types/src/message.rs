@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -38,6 +39,30 @@ pub enum ContentBlock {
 pub struct Message {
     pub role: Role,
     pub content: Vec<ContentBlock>,
+    /// When this message was created.  Used by microcompact to decide
+    /// whether old tool results should be cleared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
+}
+
+impl Message {
+    /// Create a message without a timestamp (backward-compatible default).
+    pub fn new(role: Role, content: Vec<ContentBlock>) -> Self {
+        Self {
+            role,
+            content,
+            timestamp: None,
+        }
+    }
+
+    /// Create a message stamped with the current UTC time.
+    pub fn now(role: Role, content: Vec<ContentBlock>) -> Self {
+        Self {
+            role,
+            content,
+            timestamp: Some(Utc::now()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,18 +293,13 @@ mod tests {
 
     #[test]
     fn test_message_construction_text_content() {
-        // arrange
         let content = vec![ContentBlock::Text {
             text: "Hello".to_string(),
         }];
-        // act
-        let msg = Message {
-            role: Role::User,
-            content,
-        };
-        // assert
+        let msg = Message::new(Role::User, content);
         assert_eq!(msg.role, Role::User);
         assert_eq!(msg.content.len(), 1);
+        assert!(msg.timestamp.is_none());
         match &msg.content[0] {
             ContentBlock::Text { text } => assert_eq!(text, "Hello"),
             _ => panic!("expected Text block"),
@@ -288,7 +308,6 @@ mod tests {
 
     #[test]
     fn test_message_construction_mixed_content() {
-        // arrange
         let content = vec![
             ContentBlock::Text {
                 text: "Calling tool".to_string(),
@@ -299,13 +318,61 @@ mod tests {
                 input: json!({"query": "rust"}),
             },
         ];
-        // act
-        let msg = Message {
-            role: Role::Assistant,
-            content,
-        };
-        // assert
+        let msg = Message::new(Role::Assistant, content);
         assert_eq!(msg.role, Role::Assistant);
         assert_eq!(msg.content.len(), 2);
+        assert!(msg.timestamp.is_none());
+    }
+
+    #[test]
+    fn test_message_now_has_timestamp() {
+        let before = Utc::now();
+        let msg = Message::now(
+            Role::User,
+            vec![ContentBlock::Text {
+                text: "hi".to_string(),
+            }],
+        );
+        let after = Utc::now();
+        let ts = msg.timestamp.expect("Message::now should set timestamp");
+        assert!(ts >= before && ts <= after);
+    }
+
+    #[test]
+    fn test_message_timestamp_serialization_roundtrip() {
+        let msg = Message::now(
+            Role::User,
+            vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        );
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("timestamp"));
+
+        let back: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.timestamp, msg.timestamp);
+    }
+
+    #[test]
+    fn test_message_timestamp_backward_compat_deserialization() {
+        // Old JSON without timestamp field should deserialize with timestamp = None
+        let json = r#"{"role":"user","content":[{"type":"text","text":"hi"}]}"#;
+        let msg: Message = serde_json::from_str(json).unwrap();
+        assert!(msg.timestamp.is_none());
+    }
+
+    #[test]
+    fn test_message_new_skips_timestamp_in_json() {
+        let msg = Message::new(
+            Role::User,
+            vec![ContentBlock::Text {
+                text: "hi".to_string(),
+            }],
+        );
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(
+            !json.contains("timestamp"),
+            "None timestamp should be omitted via skip_serializing_if"
+        );
     }
 }

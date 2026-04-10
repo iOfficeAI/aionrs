@@ -17,12 +17,12 @@ fn minimal_request() -> LlmRequest {
     LlmRequest {
         model: "claude-3-5-sonnet-20241022".to_string(),
         system: "You are helpful.".to_string(),
-        messages: vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
+        messages: vec![Message::new(
+            Role::User,
+            vec![ContentBlock::Text {
                 text: "Hello".to_string(),
             }],
-        }],
+        )],
         tools: vec![],
         max_tokens: 1024,
         thinking: None,

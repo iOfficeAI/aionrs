@@ -16,12 +16,12 @@ fn make_request() -> LlmRequest {
     LlmRequest {
         model: "gpt-4o".to_string(),
         system: "You are a test assistant.".to_string(),
-        messages: vec![Message {
-            role: Role::User,
-            content: vec![ContentBlock::Text {
+        messages: vec![Message::new(
+            Role::User,
+            vec![ContentBlock::Text {
                 text: "Hello".to_string(),
             }],
-        }],
+        )],
         tools: vec![],
         max_tokens: 512,
         thinking: None,
