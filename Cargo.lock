@@ -108,6 +108,7 @@ dependencies = [
  "rstest",
  "serde",
  "serde_yaml",
+ "serial_test",
  "tempfile",
  "thiserror",
  "workspace-hack",

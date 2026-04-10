@@ -7,14 +7,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use aion_memory::paths;
+use serial_test::serial;
 
 // -- TC-2.1: Default memory base directory ------------------------------------
 
 #[test]
+#[serial(env)]
 fn tc_2_1_default_base_dir_uses_platform_config() {
     // Ensure env override is NOT set
     let saved = std::env::var(env_key()).ok();
-    // SAFETY: test-only env manipulation
+    // SAFETY: #[serial(env)] ensures no concurrent env mutation.
     unsafe { std::env::remove_var(env_key()) };
 
     let base = paths::memory_base_dir();
@@ -33,9 +35,10 @@ fn tc_2_1_default_base_dir_uses_platform_config() {
 // -- TC-2.2: Environment variable overrides base directory --------------------
 
 #[test]
+#[serial(env)]
 fn tc_2_2_env_var_overrides_base_dir() {
     let saved = std::env::var(env_key()).ok();
-    // SAFETY: test-only env manipulation
+    // SAFETY: #[serial(env)] ensures no concurrent env mutation.
     unsafe { std::env::set_var(env_key(), "/custom/memory/path") };
 
     let base = paths::memory_base_dir();
@@ -47,9 +50,10 @@ fn tc_2_2_env_var_overrides_base_dir() {
 // -- TC-2.3: Project memory directory path ------------------------------------
 
 #[test]
+#[serial(env)]
 fn tc_2_3_auto_memory_dir_structure() {
     let saved = std::env::var(env_key()).ok();
-    // SAFETY: test-only env manipulation
+    // SAFETY: #[serial(env)] ensures no concurrent env mutation.
     unsafe { std::env::set_var(env_key(), "/base") };
 
     let dir = paths::auto_memory_dir(Path::new("/home/user/my-project"));
@@ -201,8 +205,8 @@ fn env_key() -> &'static str {
     "AIONRS_MEMORY_DIR"
 }
 
-/// SAFETY: only called from single-threaded test context.
 fn restore_env(saved: Option<String>) {
+    // SAFETY: only called from #[serial(env)] tests.
     unsafe {
         match saved {
             Some(v) => std::env::set_var(env_key(), v),

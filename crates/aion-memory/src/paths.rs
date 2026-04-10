@@ -190,12 +190,20 @@ fn normalize_lexical(path: &Path) -> PathBuf {
 
 /// Normalize a path for comparison: try filesystem canonicalization first,
 /// fall back to lexical normalization if the path doesn't exist yet.
+///
+/// Returns `Err(())` when the path cannot be safely resolved — including
+/// when canonicalization fails AND the path contains `..` segments
+/// (lexical normalization cannot safely resolve parent references).
 fn normalize_path(path: &Path) -> std::result::Result<PathBuf, ()> {
     if let Ok(canonical) = fs::canonicalize(path) {
         return Ok(canonical);
     }
-    // Path may not exist yet (e.g. checking a hypothetical file).
-    // Fall back to lexical normalization.
+    // Path doesn't exist on disk. Lexical normalization is only safe when
+    // there are no `..` segments — those require real filesystem state to
+    // resolve correctly (symlinks, mount points, etc.).
+    if contains_traversal(&path.to_string_lossy()) {
+        return Err(());
+    }
     let normalized = normalize_lexical(path);
     if normalized.as_os_str().is_empty() {
         return Err(());
@@ -218,6 +226,7 @@ fn simple_hash(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::path::Path;
 
     // -- sanitize_path --------------------------------------------------------
@@ -338,10 +347,20 @@ mod tests {
 
     #[test]
     fn is_memory_path_nonexistent_returns_false() {
-        // Non-existent paths: canonicalization fails, lexical fallback used
+        // Non-existent paths with no common prefix
         assert!(!is_memory_path(
             Path::new("/nonexistent/a/b.md"),
             Path::new("/different/dir"),
+        ));
+    }
+
+    #[test]
+    fn is_memory_path_traversal_in_nonexistent_path_returns_false() {
+        // Non-existent path with `..` must not bypass membership check
+        // (regression test for review-1.3 ISSUE-1)
+        assert!(!is_memory_path(
+            Path::new("/base/memory/../../../etc/passwd"),
+            Path::new("/base/memory"),
         ));
     }
 
@@ -369,12 +388,12 @@ mod tests {
     // -- memory_base_dir (env override) ---------------------------------------
 
     #[test]
+    #[serial(env)]
     fn base_dir_env_override() {
-        // SAFETY: test-only env manipulation; tests in this module run
-        // sequentially within a single thread.
         let key = MEMORY_DIR_ENV;
         let original = std::env::var(key).ok();
 
+        // SAFETY: #[serial(env)] ensures no concurrent env mutation.
         unsafe { std::env::set_var(key, "/custom/memory") };
         let result = memory_base_dir();
         assert_eq!(result, Some(PathBuf::from("/custom/memory")));
@@ -383,10 +402,12 @@ mod tests {
     }
 
     #[test]
+    #[serial(env)]
     fn base_dir_empty_env_falls_through() {
         let key = MEMORY_DIR_ENV;
         let original = std::env::var(key).ok();
 
+        // SAFETY: #[serial(env)] ensures no concurrent env mutation.
         unsafe { std::env::set_var(key, "") };
         let result = memory_base_dir();
         // Should fall through to app_config_dir
@@ -398,10 +419,12 @@ mod tests {
     // -- auto_memory_dir ------------------------------------------------------
 
     #[test]
+    #[serial(env)]
     fn auto_memory_dir_structure() {
         let key = MEMORY_DIR_ENV;
         let original = std::env::var(key).ok();
 
+        // SAFETY: #[serial(env)] ensures no concurrent env mutation.
         unsafe { std::env::set_var(key, "/base") };
         let dir = auto_memory_dir(Path::new("/home/user/project")).unwrap();
         assert_eq!(dir, PathBuf::from("/base/projects/-home-user-project/memory"));
@@ -409,8 +432,8 @@ mod tests {
         restore_env(key, original);
     }
 
-    /// SAFETY: only called from single-threaded test context.
     fn restore_env(key: &str, saved: Option<String>) {
+        // SAFETY: only called from #[serial(env)] tests.
         unsafe {
             match saved {
                 Some(v) => std::env::set_var(key, v),
