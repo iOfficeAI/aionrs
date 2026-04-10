@@ -100,6 +100,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "aion-memory"
+version = "0.1.7"
+dependencies = [
+ "chrono",
+ "rstest",
+ "serde",
+ "serde_yaml",
+ "tempfile",
+ "thiserror",
+ "workspace-hack",
+]
+
+[[package]]
 name = "aion-protocol"
 version = "0.1.7"
 dependencies = [

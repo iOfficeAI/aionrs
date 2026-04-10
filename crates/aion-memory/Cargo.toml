@@ -1,0 +1,19 @@
+[package]
+name = "aion-memory"
+description = "Long-term memory system for aionrs: cross-session storage of user preferences, feedback, project context, and external references"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace      = true
+serde_yaml.workspace = true
+chrono.workspace     = true
+thiserror.workspace  = true
+
+workspace-hack.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+rstest.workspace   = true
