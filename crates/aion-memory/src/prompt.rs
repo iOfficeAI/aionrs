@@ -6,7 +6,6 @@
 
 use std::path::Path;
 
-use crate::error::Result;
 use crate::index::{read_index, truncate_index, MAX_INDEX_LINES};
 use crate::paths::ENTRYPOINT_NAME;
 
@@ -200,7 +199,7 @@ Memory is one of several persistence mechanisms available to you as you assist t
 ///
 /// This is the all-in-one function used when the caller needs a single
 /// string to inject into the system prompt.
-pub fn build_memory_prompt(memory_dir: &Path) -> Result<String> {
+pub fn build_memory_prompt(memory_dir: &Path) -> String {
     let mut lines = build_memory_instructions(memory_dir);
 
     let entrypoint = memory_dir.join(ENTRYPOINT_NAME);
@@ -221,7 +220,7 @@ pub fn build_memory_prompt(memory_dir: &Path) -> Result<String> {
         lines.push(truncation.content);
     }
 
-    Ok(lines.join("\n"))
+    lines.join("\n")
 }
 
 /// Build only the behavioral instructions (without MEMORY.md content).
@@ -416,7 +415,7 @@ mod tests {
     #[test]
     fn prompt_with_nonexistent_dir_shows_empty_state() {
         let result =
-            build_memory_prompt(Path::new("/nonexistent/memory/dir")).unwrap();
+            build_memory_prompt(Path::new("/nonexistent/memory/dir"));
         assert!(result.contains(ENTRYPOINT_NAME));
         assert!(result.contains("currently empty"));
     }
@@ -433,7 +432,7 @@ mod tests {
         )
         .unwrap();
 
-        let result = build_memory_prompt(&mem_dir).unwrap();
+        let result = build_memory_prompt(&mem_dir);
         assert!(result.contains("user_role.md"));
         assert!(result.contains("user role info"));
         assert!(!result.contains("currently empty"));
@@ -447,7 +446,7 @@ mod tests {
         let index_path = mem_dir.join(ENTRYPOINT_NAME);
         std::fs::write(&index_path, "").unwrap();
 
-        let result = build_memory_prompt(&mem_dir).unwrap();
+        let result = build_memory_prompt(&mem_dir);
         assert!(result.contains("currently empty"));
     }
 
@@ -459,7 +458,7 @@ mod tests {
         let index_path = mem_dir.join(ENTRYPOINT_NAME);
         std::fs::write(&index_path, "- [A](a.md) \u{2014} test\n").unwrap();
 
-        let result = build_memory_prompt(&mem_dir).unwrap();
+        let result = build_memory_prompt(&mem_dir);
 
         // Instructions (type descriptions) should appear before the index content
         let types_pos = result.find("## Types of memory").unwrap();
@@ -485,7 +484,7 @@ mod tests {
             .collect();
         std::fs::write(&index_path, &content).unwrap();
 
-        let result = build_memory_prompt(&mem_dir).unwrap();
+        let result = build_memory_prompt(&mem_dir);
         assert!(result.contains("WARNING"));
     }
 

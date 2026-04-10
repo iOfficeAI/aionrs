@@ -161,9 +161,9 @@ impl MemoryEntry {
 pub struct IndexTruncation {
     /// The (possibly truncated) content.
     pub content: String,
-    /// Number of lines in the output.
+    /// Number of lines in the original (pre-truncation) content.
     pub line_count: usize,
-    /// Byte count of the output.
+    /// Byte count of the original (pre-truncation) content.
     pub byte_count: usize,
     /// Whether any truncation was applied.
     pub was_truncated: bool,

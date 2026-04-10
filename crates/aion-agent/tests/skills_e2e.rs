@@ -219,7 +219,7 @@ async fn e7_system_prompt_injection() {
     let cwd = root.to_string_lossy().to_string();
     let skills = load_all_skills(&root, &[], false, None).await;
 
-    let prompt = build_system_prompt(None, &cwd, &skills, None);
+    let prompt = build_system_prompt(None, &cwd, &skills, None, None);
     assert!(
         prompt.contains("greet"),
         "E7 FAIL: 'greet' not in system prompt"

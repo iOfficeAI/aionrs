@@ -1,13 +1,24 @@
+use std::path::Path;
+
+use aion_memory::prompt::build_memory_prompt;
 use aion_skills::prompt::format_skills_within_budget;
 use aion_skills::types::SkillMetadata;
 use aion_types::message::{ContentBlock, Message, Role};
 
-/// Build the system prompt from config and environment
+/// Build the system prompt from config and environment.
+///
+/// Sections are assembled in this order:
+/// 1. Base intro (role, working directory, date)
+/// 2. Custom prompt (user config)
+/// 3. AGENTS.md (project instructions)
+/// 4. Memory system prompt (behavioral instructions + MEMORY.md content)
+/// 5. Skills reminder (available skills listing)
 pub fn build_system_prompt(
     custom_prompt: Option<&str>,
     cwd: &str,
     skills: &[SkillMetadata],
     context_window_tokens: Option<usize>,
+    memory_dir: Option<&Path>,
 ) -> String {
     let mut parts = Vec::new();
 
@@ -23,11 +34,19 @@ pub fn build_system_prompt(
     }
 
     // Read AGENTS.md if it exists
-    let agents_md = std::path::Path::new(cwd).join("AGENTS.md");
+    let agents_md = Path::new(cwd).join("AGENTS.md");
     if agents_md.exists()
         && let Ok(content) = std::fs::read_to_string(&agents_md)
     {
         parts.push(format!("# Project Instructions (AGENTS.md)\n\n{content}"));
+    }
+
+    // Inject memory system prompt (behavioral instructions + MEMORY.md content)
+    if let Some(dir) = memory_dir {
+        let memory_prompt = build_memory_prompt(dir);
+        if !memory_prompt.is_empty() {
+            parts.push(memory_prompt);
+        }
     }
 
     // Inject visible skill listing (exclude skills hidden from model invocation)
@@ -131,7 +150,7 @@ mod tests {
     fn test_build_system_prompt_includes_cwd() {
         // Verify that the returned prompt contains the provided working directory path
         let cwd = "/some/test/path";
-        let prompt = build_system_prompt(None, cwd, &[], None);
+        let prompt = build_system_prompt(None, cwd, &[], None, None);
         assert!(prompt.contains(cwd), "system prompt should contain the cwd");
     }
 
@@ -139,7 +158,7 @@ mod tests {
     fn test_build_system_prompt_with_custom_instructions() {
         // Verify that custom instructions are included in the returned prompt
         let custom = "Always respond in haiku.";
-        let prompt = build_system_prompt(Some(custom), "/tmp", &[], None);
+        let prompt = build_system_prompt(Some(custom), "/tmp", &[], None, None);
         assert!(
             prompt.contains(custom),
             "system prompt should contain the custom instructions"
@@ -255,7 +274,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_no_skills_no_reminder() {
-        let result = build_system_prompt(None, "/tmp", &[], None);
+        let result = build_system_prompt(None, "/tmp", &[], None, None);
         assert!(
             !result.contains("The following skills are available"),
             "empty skills should not inject skill reminder"
@@ -268,7 +287,7 @@ mod tests {
             make_test_skill("skill-one", "Does one", false, false),
             make_test_skill("skill-two", "Does two", false, false),
         ];
-        let result = build_system_prompt(None, "/tmp", &skills, None);
+        let result = build_system_prompt(None, "/tmp", &skills, None, None);
         assert!(
             result.contains("<system-reminder>"),
             "result should contain <system-reminder>"
@@ -291,7 +310,7 @@ mod tests {
             make_test_skill("visible-skill", "Visible", false, false),
             make_test_skill("hidden-skill", "Hidden", false, true),
         ];
-        let result = build_system_prompt(None, "/tmp", &skills, None);
+        let result = build_system_prompt(None, "/tmp", &skills, None, None);
         assert!(
             result.contains("visible-skill"),
             "visible skill should appear"
@@ -308,7 +327,7 @@ mod tests {
             make_test_skill("hidden-a", "Hidden A", false, true),
             make_test_skill("hidden-b", "Hidden B", false, true),
         ];
-        let result = build_system_prompt(None, "/tmp", &skills, None);
+        let result = build_system_prompt(None, "/tmp", &skills, None, None);
         assert!(
             !result.contains("The following skills are available"),
             "all-hidden skills should not inject reminder"
@@ -318,7 +337,7 @@ mod tests {
     #[test]
     fn test_build_system_prompt_custom_prompt_and_skills() {
         let skills = vec![make_test_skill("my-skill", "My desc", false, false)];
-        let result = build_system_prompt(Some("Custom instructions here"), "/tmp", &skills, None);
+        let result = build_system_prompt(Some("Custom instructions here"), "/tmp", &skills, None, None);
         assert!(
             result.contains("Custom instructions here"),
             "custom prompt should appear"
@@ -332,7 +351,7 @@ mod tests {
     #[test]
     fn test_build_system_prompt_skills_reminder_after_custom_prompt() {
         let skills = vec![make_test_skill("my-skill", "My desc", false, false)];
-        let result = build_system_prompt(Some("Custom text"), "/tmp", &skills, None);
+        let result = build_system_prompt(Some("Custom text"), "/tmp", &skills, None, None);
         let custom_pos = result.find("Custom text").unwrap();
         let reminder_pos = result.rfind("<system-reminder>").unwrap();
         assert!(
@@ -345,7 +364,7 @@ mod tests {
     fn test_build_system_prompt_small_budget_triggers_minimal_mode() {
         // context_window_tokens = 50 → budget = 2 chars, triggers minimal mode for non-bundled
         let skill = make_test_skill("nb-skill", &"x".repeat(100), false, false);
-        let result = build_system_prompt(None, "/tmp", &[skill], Some(50));
+        let result = build_system_prompt(None, "/tmp", &[skill], Some(50), None);
         // Minimal mode: skill appears as name only, no ': '
         assert!(
             result.contains("- nb-skill"),
@@ -359,7 +378,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_cwd_in_prompt() {
-        let result = build_system_prompt(None, "/workspace/my-project", &[], None);
+        let result = build_system_prompt(None, "/workspace/my-project", &[], None, None);
         assert!(
             result.contains("/workspace/my-project"),
             "cwd should appear in the system prompt"
@@ -375,7 +394,7 @@ mod tests {
         std::fs::write(cwd.join("AGENTS.md"), "AGENTS_CONTENT_HERE").unwrap();
         std::fs::write(cwd.join("CLAUDE.md"), "CLAUDE_CONTENT_HERE").unwrap();
 
-        let result = build_system_prompt(None, &cwd.to_string_lossy(), &[], None);
+        let result = build_system_prompt(None, &cwd.to_string_lossy(), &[], None, None);
 
         assert!(
             result.contains("AGENTS_CONTENT_HERE"),
@@ -399,7 +418,7 @@ mod tests {
         // Only CLAUDE.md exists, no AGENTS.md
         std::fs::write(cwd.join("CLAUDE.md"), "SHOULD_NOT_APPEAR").unwrap();
 
-        let result = build_system_prompt(None, &cwd.to_string_lossy(), &[], None);
+        let result = build_system_prompt(None, &cwd.to_string_lossy(), &[], None, None);
 
         assert!(
             !result.contains("SHOULD_NOT_APPEAR"),
@@ -408,6 +427,140 @@ mod tests {
         assert!(
             !result.contains("Project Instructions"),
             "no project instructions should be injected"
+        );
+    }
+
+    // --- Memory integration tests ---
+
+    #[test]
+    fn memory_none_dir_no_injection() {
+        let result = build_system_prompt(None, "/tmp", &[], None, None);
+        assert!(
+            !result.contains("auto memory"),
+            "no memory content when memory_dir is None"
+        );
+    }
+
+    #[test]
+    fn memory_with_dir_injects_prompt() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&mem_dir).unwrap();
+        std::fs::write(
+            mem_dir.join("MEMORY.md"),
+            "- [Role](user_role.md) \u{2014} senior engineer\n",
+        )
+        .unwrap();
+
+        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir));
+
+        assert!(
+            result.contains("auto memory"),
+            "should contain memory system display name"
+        );
+        assert!(
+            result.contains("Types of memory"),
+            "should contain type definitions"
+        );
+        assert!(
+            result.contains("user_role.md"),
+            "should contain MEMORY.md content"
+        );
+    }
+
+    #[test]
+    fn memory_nonexistent_dir_graceful_degradation() {
+        let result = build_system_prompt(
+            None,
+            "/tmp",
+            &[],
+            None,
+            Some(Path::new("/nonexistent/memory/dir")),
+        );
+
+        // Should not panic and should show empty state
+        assert!(
+            result.contains("currently empty"),
+            "nonexistent memory dir should show empty state"
+        );
+    }
+
+    #[test]
+    fn memory_empty_dir_shows_empty_state() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&mem_dir).unwrap();
+        // No MEMORY.md
+
+        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir));
+
+        assert!(
+            result.contains("currently empty"),
+            "empty memory dir should show empty state"
+        );
+    }
+
+    #[test]
+    fn memory_appears_after_agents_md_before_skills() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cwd = tmp.path();
+
+        // Create AGENTS.md
+        std::fs::write(cwd.join("AGENTS.md"), "PROJECT_RULES_HERE").unwrap();
+
+        // Create memory dir with content
+        let mem_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&mem_dir).unwrap();
+        std::fs::write(
+            mem_dir.join("MEMORY.md"),
+            "- [A](a.md) \u{2014} test\n",
+        )
+        .unwrap();
+
+        let skills = vec![make_test_skill("test-skill", "A skill", false, false)];
+
+        let result = build_system_prompt(
+            None,
+            &cwd.to_string_lossy(),
+            &skills,
+            None,
+            Some(&mem_dir),
+        );
+
+        let agents_pos = result.find("PROJECT_RULES_HERE").unwrap();
+        let memory_pos = result.find("auto memory").unwrap();
+        let skills_pos = result.find("test-skill").unwrap();
+
+        assert!(
+            agents_pos < memory_pos,
+            "AGENTS.md should appear before memory"
+        );
+        assert!(
+            memory_pos < skills_pos,
+            "memory should appear before skills"
+        );
+    }
+
+    #[test]
+    fn memory_no_bb_brand_in_prompt() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&mem_dir).unwrap();
+        std::fs::write(
+            mem_dir.join("MEMORY.md"),
+            "- [Test](test.md) \u{2014} entry\n",
+        )
+        .unwrap();
+
+        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir));
+
+        assert!(
+            !result.contains("~/.claude"),
+            "should not contain bb brand path"
+        );
+        assert!(
+            !result.contains("CLAUDE.md"),
+            "should not reference CLAUDE.md"
         );
     }
 }

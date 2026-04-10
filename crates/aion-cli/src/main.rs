@@ -203,9 +203,18 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
+    // Resolve memory directory for the current project
+    let cwd_path = std::path::Path::new(&cwd);
+    let memory_dir = aion_memory::paths::auto_memory_dir(cwd_path);
+
     // Build system prompt from context
-    let system_prompt =
-        context::build_system_prompt(config.system_prompt.as_deref(), &cwd, &[], None);
+    let system_prompt = context::build_system_prompt(
+        config.system_prompt.as_deref(),
+        &cwd,
+        &[],
+        None,
+        memory_dir.as_deref(),
+    );
     config.system_prompt = Some(system_prompt);
 
     // Register built-in tools
@@ -237,12 +246,16 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Load skills from all sources (bundled, MCP, user, project)
-    let cwd_path = std::path::Path::new(&cwd);
     let skills = load_all_skills(cwd_path, &[], false, mcp_manager.as_deref()).await;
 
     // Build system prompt with loaded skills
-    let system_prompt =
-        context::build_system_prompt(config.system_prompt.as_deref(), &cwd, &skills, None);
+    let system_prompt = context::build_system_prompt(
+        config.system_prompt.as_deref(),
+        &cwd,
+        &skills,
+        None,
+        memory_dir.as_deref(),
+    );
     config.system_prompt = Some(system_prompt);
 
     // Register SkillTool so the LLM can invoke skills

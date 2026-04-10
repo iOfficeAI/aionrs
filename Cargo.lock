@@ -17,6 +17,7 @@ version = "0.1.7"
 dependencies = [
  "aion-config",
  "aion-mcp",
+ "aion-memory",
  "aion-protocol",
  "aion-providers",
  "aion-skills",
@@ -49,6 +50,7 @@ dependencies = [
  "aion-agent",
  "aion-config",
  "aion-mcp",
+ "aion-memory",
  "aion-protocol",
  "aion-providers",
  "aion-skills",

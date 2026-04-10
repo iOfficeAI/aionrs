@@ -254,6 +254,7 @@ fn generate_filename(fm: &MemoryFrontmatter) -> String {
         .as_deref()
         .filter(|n| !n.trim().is_empty())
         .map(sanitize_filename)
+        .filter(|s| !s.is_empty()) // pure non-ASCII names sanitize to empty
         .unwrap_or_else(|| {
             // Use a simple hash of the current time as fallback
             let now = std::time::SystemTime::now()
@@ -555,6 +556,35 @@ mod tests {
     #[test]
     fn sanitize_preserves_alphanumeric() {
         assert_eq!(sanitize_filename("abc123"), "abc123");
+    }
+
+    #[test]
+    fn sanitize_pure_non_ascii_returns_empty() {
+        assert_eq!(sanitize_filename("我的角色"), "");
+        assert_eq!(sanitize_filename("日本語"), "");
+    }
+
+    #[test]
+    fn filename_pure_non_ascii_name_falls_back_to_hash() {
+        let fm1 = MemoryFrontmatter {
+            name: Some("我的角色".into()),
+            description: None,
+            memory_type: Some(MemoryType::User),
+        };
+        let fm2 = MemoryFrontmatter {
+            name: Some("项目状态".into()),
+            description: None,
+            memory_type: Some(MemoryType::User),
+        };
+        let name1 = generate_filename(&fm1);
+        let name2 = generate_filename(&fm2);
+        // Both should get unique hash-based names, not collide
+        assert!(name1.starts_with("user_"));
+        assert!(name1.ends_with(".md"));
+        assert_ne!(name1, "user_.md", "should not produce empty name part");
+        // With time-based hash, names should differ (race possible but
+        // extremely unlikely given nanos resolution)
+        assert_ne!(name1, name2, "pure non-ASCII names should not collide");
     }
 
     // -- is_scannable_md -----------------------------------------------------

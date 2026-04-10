@@ -20,7 +20,7 @@ fn tc_6_1_prompt_contains_all_required_parts() {
     let mem_dir = tmp.path().join("memory");
     fs::create_dir_all(&mem_dir).unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     // Memory system introduction
     assert!(
@@ -71,7 +71,7 @@ fn tc_6_2_prompt_includes_memory_dir_path() {
     let mem_dir = tmp.path().join("my_project_memory");
     fs::create_dir_all(&mem_dir).unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     assert!(
         prompt.contains(&mem_dir.display().to_string()),
@@ -93,7 +93,7 @@ fn tc_6_3_prompt_includes_memory_md_content() {
                          - [Test Policy](feedback_tests.md) \u{2014} always use real DB\n";
     fs::write(mem_dir.join("MEMORY.md"), index_content).unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     assert!(
         prompt.contains("user_role.md"),
@@ -120,7 +120,7 @@ fn tc_6_4_no_memory_md_shows_empty_message() {
     fs::create_dir_all(&mem_dir).unwrap();
     // No MEMORY.md file created
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     assert!(
         prompt.contains("currently empty"),
@@ -135,7 +135,7 @@ fn tc_6_4_empty_memory_md_shows_empty_message() {
     fs::create_dir_all(&mem_dir).unwrap();
     fs::write(mem_dir.join("MEMORY.md"), "").unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     assert!(
         prompt.contains("currently empty"),
@@ -150,7 +150,7 @@ fn tc_6_4_whitespace_only_memory_md_shows_empty_message() {
     fs::create_dir_all(&mem_dir).unwrap();
     fs::write(mem_dir.join("MEMORY.md"), "   \n\n  ").unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     assert!(
         prompt.contains("currently empty"),
@@ -173,7 +173,7 @@ fn tc_6_5_no_bb_brand_in_prompt() {
     )
     .unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     assert!(
         !prompt.contains("~/.claude"),
@@ -253,7 +253,7 @@ fn prompt_with_large_index_includes_truncation_warning() {
         .collect();
     fs::write(mem_dir.join("MEMORY.md"), &content).unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     assert!(
         prompt.contains("WARNING"),
@@ -289,11 +289,10 @@ fn type_descriptions_standalone() {
 
 #[test]
 fn prompt_nonexistent_dir_succeeds() {
-    // build_memory_prompt should not fail even if the directory doesn't exist
+    // build_memory_prompt should not panic even if the directory doesn't exist
     // (read_index returns empty string for missing files)
     let result = build_memory_prompt(Path::new("/nonexistent/path/memory"));
-    assert!(result.is_ok());
-    assert!(result.unwrap().contains("currently empty"));
+    assert!(result.contains("currently empty"));
 }
 
 #[test]
@@ -307,7 +306,7 @@ fn prompt_sections_appear_in_correct_order() {
     )
     .unwrap();
 
-    let prompt = build_memory_prompt(&mem_dir).unwrap();
+    let prompt = build_memory_prompt(&mem_dir);
 
     // Verify section ordering
     let positions = [
