@@ -103,6 +103,7 @@ dependencies = [
 name = "aion-memory"
 version = "0.1.7"
 dependencies = [
+ "aion-config",
  "chrono",
  "rstest",
  "serde",
