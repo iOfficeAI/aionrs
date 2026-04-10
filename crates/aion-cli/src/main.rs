@@ -207,16 +207,6 @@ async fn main() -> anyhow::Result<()> {
     let cwd_path = std::path::Path::new(&cwd);
     let memory_dir = aion_memory::paths::auto_memory_dir(cwd_path);
 
-    // Build system prompt from context
-    let system_prompt = context::build_system_prompt(
-        config.system_prompt.as_deref(),
-        &cwd,
-        &[],
-        None,
-        memory_dir.as_deref(),
-    );
-    config.system_prompt = Some(system_prompt);
-
     // Register built-in tools
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(ReadTool));
