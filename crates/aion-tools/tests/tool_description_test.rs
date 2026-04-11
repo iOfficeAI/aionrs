@@ -190,6 +190,21 @@ fn grep_description_mentions_result_limit() {
     );
 }
 
+// --- TC-4.3-09: Grep description accuracy fix (R-4.2-01) ---
+
+#[test]
+fn grep_description_does_not_say_at_most_matches() {
+    let desc = GrepTool.description();
+    assert!(
+        !desc.contains("at most 250 matches"),
+        "Grep description should not say 'at most 250 matches' (was per-file, not global)"
+    );
+    assert!(
+        desc.contains("truncated to 250 lines"),
+        "Grep description should accurately say 'truncated to 250 lines'"
+    );
+}
+
 // --- TC-4.2-08: ToolDef propagation ---
 
 #[test]

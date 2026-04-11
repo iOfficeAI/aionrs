@@ -7,6 +7,30 @@ use aion_types::message::{ContentBlock, Message, Role};
 
 use crate::plan::prompt as plan_prompt;
 
+/// Return the tool-usage guidance section for the system prompt.
+///
+/// This section teaches the model when to prefer dedicated tools over Bash,
+/// how to handle parallel vs sequential calls, and cross-tool best practices.
+/// Intentionally redundant with individual tool descriptions — the dual
+/// placement ensures the model follows the rules regardless of attention span.
+fn tool_usage_guidance() -> &'static str {
+    "\
+# Using your tools
+ - Do NOT use Bash when a dedicated tool is available. Using dedicated tools \
+allows the user to better understand and review your work:
+   - File search: Glob (not find or ls)
+   - Content search: Grep (not grep or rg)
+   - Read files: Read (not cat, head, or tail)
+   - Edit files: Edit (not sed or awk)
+   - Write files: Write (not echo redirection or cat with heredoc)
+ - You can call multiple tools in a single response. If there are no \
+dependencies between them, make all independent calls in parallel. \
+However, if one call depends on a previous result, run them sequentially.
+ - Prefer Edit over Write for modifying existing files — Edit sends only \
+the diff, which is easier to review.
+ - Always Read a file before editing it."
+}
+
 /// Build the system prompt from config and environment.
 ///
 /// Sections are assembled in this order:
@@ -32,6 +56,9 @@ pub fn build_system_prompt(
          Current date: {}",
         chrono::Local::now().format("%Y-%m-%d")
     ));
+
+    // Tool usage guidance — placed early so the model sees it before making any tool call
+    parts.push(tool_usage_guidance().to_string());
 
     if let Some(custom) = custom_prompt {
         parts.push(custom.to_string());
@@ -575,6 +602,115 @@ mod tests {
         assert!(
             !result.contains("CLAUDE.md"),
             "should not reference CLAUDE.md"
+        );
+    }
+
+    // --- Tool usage guidance tests (task 4.3) ---
+
+    #[test]
+    fn tool_guidance_section_exists() {
+        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        assert!(
+            result.contains("# Using your tools"),
+            "system prompt should contain the tool guidance heading"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_contains_bash_prohibition_list() {
+        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        assert!(result.contains("Glob"), "should mention Glob as find/ls replacement");
+        assert!(result.contains("Grep"), "should mention Grep as grep/rg replacement");
+        assert!(result.contains("Read"), "should mention Read as cat/head/tail replacement");
+        assert!(result.contains("Edit"), "should mention Edit as sed/awk replacement");
+        assert!(result.contains("Write"), "should mention Write as echo/heredoc replacement");
+    }
+
+    #[test]
+    fn tool_guidance_contains_parallel_call_rules() {
+        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        assert!(
+            result.contains("parallel"),
+            "should contain parallel call guidance"
+        );
+        assert!(
+            result.contains("sequentially"),
+            "should explain when to run sequentially"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_contains_edit_over_write_preference() {
+        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        assert!(
+            result.contains("Prefer Edit over Write"),
+            "should contain Edit-over-Write preference"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_contains_read_before_edit_rule() {
+        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        assert!(
+            result.contains("Read a file before editing"),
+            "should contain Read-before-Edit rule"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_after_intro_before_custom_prompt() {
+        let result = build_system_prompt(Some("CUSTOM_MARKER_43"), "/tmp", &[], None, None, false);
+        let intro_pos = result.find("Working directory").unwrap();
+        let guidance_pos = result.find("# Using your tools").unwrap();
+        let custom_pos = result.find("CUSTOM_MARKER_43").unwrap();
+        assert!(
+            guidance_pos > intro_pos,
+            "tool guidance should appear after intro"
+        );
+        assert!(
+            guidance_pos < custom_pos,
+            "tool guidance should appear before custom prompt"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_before_skills_reminder() {
+        let skills = vec![make_test_skill("guide-test-skill", "A skill", false, false)];
+        let result = build_system_prompt(None, "/tmp", &skills, None, None, false);
+        let guidance_pos = result.find("# Using your tools").unwrap();
+        let skills_pos = result.find("guide-test-skill").unwrap();
+        assert!(
+            guidance_pos < skills_pos,
+            "tool guidance should appear before skills reminder"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_present_in_plan_mode() {
+        let result = build_system_prompt(None, "/tmp", &[], None, None, true);
+        assert!(
+            result.contains("# Using your tools"),
+            "tool guidance should be present in plan mode"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_before_memory() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mem_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&mem_dir).unwrap();
+        std::fs::write(
+            mem_dir.join("MEMORY.md"),
+            "- [X](x.md) \u{2014} test\n",
+        )
+        .unwrap();
+
+        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+        let guidance_pos = result.find("# Using your tools").unwrap();
+        let memory_pos = result.find("auto memory").unwrap();
+        assert!(
+            guidance_pos < memory_pos,
+            "tool guidance should appear before memory section"
         );
     }
 }

@@ -21,7 +21,7 @@ impl Tool for GrepTool {
          NEVER run grep or rg as a Bash command.\n\n\
          - Supports full regex syntax (e.g., \"log.*Error\", \"fn\\\\s+\\\\w+\").\n\
          - Use the glob parameter to filter by file pattern (e.g., \"*.rs\").\n\
-         - Returns at most 250 matches.\n\
+         - Output is truncated to 250 lines.\n\
          - Set case_insensitive to true for case-insensitive search."
     }
 
@@ -101,7 +101,7 @@ async fn try_ripgrep(
     case_insensitive: bool,
 ) -> Result<ToolResult, std::io::Error> {
     let mut cmd = Command::new("rg");
-    cmd.arg(pattern).arg(path).arg("-n").arg("--max-count=250");
+    cmd.arg(pattern).arg(path).arg("-n");
 
     if let Some(g) = glob_pattern {
         cmd.arg("--glob").arg(g);
@@ -128,8 +128,10 @@ async fn try_ripgrep(
         });
     }
 
+    // Truncate to 250 lines (global limit, not per-file)
+    let lines: Vec<&str> = stdout.lines().take(250).collect();
     Ok(ToolResult {
-        content: stdout.to_string(),
+        content: lines.join("\n"),
         is_error: false,
     })
 }
