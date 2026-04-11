@@ -1,5 +1,6 @@
 use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
+use std::time::UNIX_EPOCH;
 
 use lru::LruCache;
 
@@ -99,6 +100,16 @@ impl FileStateCache {
     pub fn current_size_bytes(&self) -> usize {
         self.current_size_bytes
     }
+}
+
+/// Get file modification time as milliseconds since UNIX epoch.
+///
+/// Returns `None` if the file does not exist or metadata is unavailable.
+pub fn file_mtime_ms(path: &Path) -> Option<u64> {
+    let meta = std::fs::metadata(path).ok()?;
+    let modified = meta.modified().ok()?;
+    let duration = modified.duration_since(UNIX_EPOCH).ok()?;
+    Some(duration.as_millis() as u64)
 }
 
 /// Normalize a path by resolving `.` and `..` components without filesystem access.

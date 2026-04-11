@@ -89,7 +89,8 @@ fn read_description_handles_binary() {
 
 #[test]
 fn edit_description_requires_read_first() {
-    let desc = EditTool.description();
+    let tool = EditTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("Read"),
         "Edit description should require Read before editing"
@@ -98,7 +99,8 @@ fn edit_description_requires_read_first() {
 
 #[test]
 fn edit_description_mentions_uniqueness() {
-    let desc = EditTool.description();
+    let tool = EditTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("unique"),
         "Edit description should mention old_string uniqueness requirement"
@@ -107,7 +109,8 @@ fn edit_description_mentions_uniqueness() {
 
 #[test]
 fn edit_description_mentions_replace_all() {
-    let desc = EditTool.description();
+    let tool = EditTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("replace_all"),
         "Edit description should document replace_all option"
@@ -118,7 +121,8 @@ fn edit_description_mentions_replace_all() {
 
 #[test]
 fn write_description_mentions_overwrite() {
-    let desc = WriteTool.description();
+    let tool = WriteTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("overwrite") || desc.contains("overwrites"),
         "Write description should explain overwrite semantics"
@@ -127,7 +131,8 @@ fn write_description_mentions_overwrite() {
 
 #[test]
 fn write_description_requires_read_for_existing() {
-    let desc = WriteTool.description();
+    let tool = WriteTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("Read"),
         "Write description should mention reading existing files first"
@@ -136,7 +141,8 @@ fn write_description_requires_read_for_existing() {
 
 #[test]
 fn write_description_prefers_edit() {
-    let desc = WriteTool.description();
+    let tool = WriteTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("Edit"),
         "Write description should recommend Edit for modifications"
@@ -215,8 +221,8 @@ fn tool_def_description_matches_tool_instance() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(BashTool));
     registry.register(Box::new(ReadTool::new(None)));
-    registry.register(Box::new(EditTool));
-    registry.register(Box::new(WriteTool));
+    registry.register(Box::new(EditTool::new(None)));
+    registry.register(Box::new(WriteTool::new(None)));
     registry.register(Box::new(GlobTool));
     registry.register(Box::new(GrepTool));
 

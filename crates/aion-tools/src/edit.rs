@@ -1,12 +1,33 @@
+use std::path::Path;
+use std::sync::{Arc, RwLock};
+
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use aion_protocol::events::ToolCategory;
+use aion_types::file_state::FileState;
 use aion_types::tool::{JsonSchema, ToolResult};
 
 use crate::Tool;
+use crate::file_cache::{FileStateCache, file_mtime_ms};
 
-pub struct EditTool;
+pub struct EditTool {
+    file_cache: Option<Arc<RwLock<FileStateCache>>>,
+}
+
+impl EditTool {
+    /// Create an EditTool with optional file state cache.
+    ///
+    /// When cache is `Some`, the tool enforces:
+    /// - "Must Read first" guard (file must be in cache before editing)
+    /// - Staleness detection (disk mtime must match cached mtime)
+    /// - Post-write cache update (mtime + content refreshed after edit)
+    ///
+    /// Pass `None` to disable all cache-related guards (legacy behavior).
+    pub fn new(file_cache: Option<Arc<RwLock<FileStateCache>>>) -> Self {
+        Self { file_cache }
+    }
+}
 
 #[async_trait]
 impl Tool for EditTool {
@@ -76,6 +97,40 @@ impl Tool for EditTool {
         };
         let replace_all = input["replace_all"].as_bool().unwrap_or(false);
 
+        let path = Path::new(file_path);
+
+        // Cache guard: "must Read first" + staleness detection.
+        if let Some(cache_arc) = &self.file_cache
+            && let Ok(mut cache) = cache_arc.write()
+        {
+            let cached = cache.get(path);
+            if cached.is_none() {
+                return ToolResult {
+                    content: format!(
+                        "You must Read {} before editing. Use the Read tool first \
+                         so the file content is loaded into context.",
+                        file_path
+                    ),
+                    is_error: true,
+                };
+            }
+            // Staleness check: compare cached mtime with current disk mtime.
+            let cached_mtime = cached.map(|s| s.mtime_ms);
+            let disk_mtime = file_mtime_ms(path);
+            if let (Some(cached_mt), Some(disk_mt)) = (cached_mtime, disk_mtime)
+                && cached_mt != disk_mt
+            {
+                return ToolResult {
+                    content: format!(
+                        "File {} has been modified externally since last read. \
+                         Read the file again to see the current content before editing.",
+                        file_path
+                    ),
+                    is_error: true,
+                };
+            }
+        }
+
         let content = match std::fs::read_to_string(file_path) {
             Ok(c) => c,
             Err(e) => {
@@ -118,6 +173,27 @@ impl Tool for EditTool {
             };
         }
 
+        // Post-write cache update: refresh mtime and content.
+        if let Some(cache_arc) = &self.file_cache
+            && let (Ok(mut cache), Some(new_mtime)) = (cache_arc.write(), file_mtime_ms(path))
+        {
+            // Build line-numbered content matching Read tool format.
+            let numbered: Vec<String> = new_content
+                .lines()
+                .enumerate()
+                .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
+                .collect();
+            cache.insert(
+                file_path.into(),
+                FileState {
+                    content: numbered.join("\n"),
+                    mtime_ms: new_mtime,
+                    offset: None,
+                    limit: None,
+                },
+            );
+        }
+
         ToolResult {
             content: format!(
                 "Edited {}: replaced {} occurrence(s)",
@@ -150,24 +226,54 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
+    use aion_config::file_cache::FileCacheConfig;
+
+    fn make_cache() -> Arc<RwLock<FileStateCache>> {
+        let config = FileCacheConfig {
+            max_entries: 100,
+            max_size_bytes: 25 * 1024 * 1024,
+            enabled: true,
+        };
+        Arc::new(RwLock::new(FileStateCache::new(&config)))
+    }
+
+    /// Simulate a Read by inserting a cache entry for the given file path.
+    fn simulate_read(cache: &Arc<RwLock<FileStateCache>>, path: &Path) {
+        let mtime = file_mtime_ms(path).unwrap_or(0);
+        let content = std::fs::read_to_string(path).unwrap_or_default();
+        let numbered: Vec<String> = content
+            .lines()
+            .enumerate()
+            .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
+            .collect();
+        cache.write().unwrap().insert(
+            path.to_path_buf(),
+            FileState {
+                content: numbered.join("\n"),
+                mtime_ms: mtime,
+                offset: None,
+                limit: None,
+            },
+        );
+    }
+
+    // -- Legacy tests (no cache) --
+
     #[tokio::test]
     async fn test_edit_replace_block() {
-        // arrange
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
         std::fs::write(&file_path, "hello world").unwrap();
 
-        let tool = EditTool;
+        let tool = EditTool::new(None);
         let input = json!({
             "file_path": file_path.to_str().unwrap(),
             "old_string": "hello",
             "new_string": "goodbye"
         });
 
-        // act
         let result = tool.execute(input).await;
 
-        // assert
         assert!(!result.is_error, "unexpected error: {}", result.content);
         let content = std::fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "goodbye world");
@@ -175,22 +281,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_edit_old_string_not_found() {
-        // arrange
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
         std::fs::write(&file_path, "hello world").unwrap();
 
-        let tool = EditTool;
+        let tool = EditTool::new(None);
         let input = json!({
             "file_path": file_path.to_str().unwrap(),
             "old_string": "nonexistent",
             "new_string": "replacement"
         });
 
-        // act
         let result = tool.execute(input).await;
 
-        // assert
         assert!(result.is_error);
         assert!(
             result.content.contains("not found"),
@@ -201,22 +304,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_edit_preserves_surrounding() {
-        // arrange
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("test.txt");
         std::fs::write(&file_path, "aaa\nbbb\nccc\n").unwrap();
 
-        let tool = EditTool;
+        let tool = EditTool::new(None);
         let input = json!({
             "file_path": file_path.to_str().unwrap(),
             "old_string": "bbb",
             "new_string": "XXX"
         });
 
-        // act
         let result = tool.execute(input).await;
 
-        // assert
         assert!(!result.is_error, "unexpected error: {}", result.content);
         let content = std::fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "aaa\nXXX\nccc\n");
@@ -224,26 +324,186 @@ mod tests {
 
     #[tokio::test]
     async fn test_edit_nonexistent_file() {
-        // arrange
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("does_not_exist.txt");
 
-        let tool = EditTool;
+        let tool = EditTool::new(None);
         let input = json!({
             "file_path": file_path.to_str().unwrap(),
             "old_string": "anything",
             "new_string": "replacement"
         });
 
-        // act
         let result = tool.execute(input).await;
 
-        // assert
         assert!(result.is_error);
         assert!(
             result.content.contains("Failed to read file"),
             "expected read failure message, got: {}",
             result.content
         );
+    }
+
+    // -- Cache guard tests --
+
+    #[tokio::test]
+    async fn edit_without_read_returns_error() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("unread.txt");
+        std::fs::write(&file_path, "hello").unwrap();
+
+        let cache = make_cache();
+        let tool = EditTool::new(Some(cache));
+
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "hello",
+            "new_string": "bye"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("must Read"),
+            "expected 'must Read' in error: {}",
+            result.content
+        );
+        // File must be unchanged.
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "hello");
+    }
+
+    #[tokio::test]
+    async fn edit_after_read_succeeds() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("read_then_edit.txt");
+        std::fs::write(&file_path, "hello world").unwrap();
+
+        let cache = make_cache();
+        simulate_read(&cache, &file_path);
+
+        let tool = EditTool::new(Some(cache));
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "hello",
+            "new_string": "goodbye"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "goodbye world"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_detects_external_modification() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("stale.txt");
+        std::fs::write(&file_path, "original").unwrap();
+
+        let cache = make_cache();
+        simulate_read(&cache, &file_path);
+
+        // External modification: change file after caching.
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&file_path, "externally changed").unwrap();
+
+        let tool = EditTool::new(Some(cache));
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "original",
+            "new_string": "new"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("modified externally"),
+            "expected staleness error: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_then_edit_succeeds_via_cache_update() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("double_edit.txt");
+        std::fs::write(&file_path, "aaa bbb ccc").unwrap();
+
+        let cache = make_cache();
+        simulate_read(&cache, &file_path);
+
+        let tool = EditTool::new(Some(cache));
+
+        // First edit.
+        let input1 = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "aaa",
+            "new_string": "AAA"
+        });
+        let r1 = tool.execute(input1).await;
+        assert!(!r1.is_error, "first edit failed: {}", r1.content);
+
+        // Second edit should succeed because first edit updated the cache.
+        let input2 = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "bbb",
+            "new_string": "BBB"
+        });
+        let r2 = tool.execute(input2).await;
+        assert!(!r2.is_error, "second edit failed: {}", r2.content);
+        assert_eq!(
+            std::fs::read_to_string(&file_path).unwrap(),
+            "AAA BBB ccc"
+        );
+    }
+
+    #[tokio::test]
+    async fn no_cache_edit_bypasses_guard() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("nocache.txt");
+        std::fs::write(&file_path, "hello").unwrap();
+
+        let tool = EditTool::new(None);
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "hello",
+            "new_string": "bye"
+        });
+
+        let result = tool.execute(input).await;
+        assert!(!result.is_error, "expected success without cache: {}", result.content);
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "bye");
+    }
+
+    #[tokio::test]
+    async fn replace_all_updates_cache() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("replaceall.txt");
+        std::fs::write(&file_path, "a-a-a").unwrap();
+
+        let cache = make_cache();
+        simulate_read(&cache, &file_path);
+
+        let tool = EditTool::new(Some(cache.clone()));
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "a",
+            "new_string": "b",
+            "replace_all": true
+        });
+
+        let result = tool.execute(input).await;
+        assert!(!result.is_error, "replace_all failed: {}", result.content);
+
+        // Verify cache was updated: mtime should match current disk mtime.
+        let disk_mtime = file_mtime_ms(&file_path).unwrap();
+        let mut c = cache.write().unwrap();
+        let cached = c.get(&file_path).expect("file should be in cache");
+        assert_eq!(cached.mtime_ms, disk_mtime);
     }
 }

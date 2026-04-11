@@ -212,8 +212,8 @@ async fn main() -> anyhow::Result<()> {
     // Register built-in tools
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(ReadTool::new(None)));
-    registry.register(Box::new(WriteTool));
-    registry.register(Box::new(EditTool));
+    registry.register(Box::new(WriteTool::new(None)));
+    registry.register(Box::new(EditTool::new(None)));
     registry.register(Box::new(BashTool));
     registry.register(Box::new(GrepTool));
     registry.register(Box::new(GlobTool));

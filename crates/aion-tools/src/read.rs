@@ -1,6 +1,5 @@
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use std::time::UNIX_EPOCH;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -10,7 +9,7 @@ use aion_types::file_state::FileState;
 use aion_types::tool::{JsonSchema, ToolResult};
 
 use crate::Tool;
-use crate::file_cache::FileStateCache;
+use crate::file_cache::{FileStateCache, file_mtime_ms};
 
 /// Stub returned when a file has not changed since the model last read it.
 /// Saves tokens by avoiding re-sending identical content.
@@ -174,16 +173,6 @@ impl Tool for ReadTool {
             .unwrap_or("unknown");
         format!("Read {}", path)
     }
-}
-
-/// Get file modification time as milliseconds since UNIX epoch.
-///
-/// Returns `None` if the file does not exist or metadata is unavailable.
-fn file_mtime_ms(path: &Path) -> Option<u64> {
-    let meta = std::fs::metadata(path).ok()?;
-    let modified = meta.modified().ok()?;
-    let duration = modified.duration_since(UNIX_EPOCH).ok()?;
-    Some(duration.as_millis() as u64)
 }
 
 #[cfg(test)]
