@@ -416,6 +416,302 @@ async fn tc_2_6_07_input_tokens_tracked() {
     assert_eq!(result.usage.input_tokens, 110_000);
 }
 
+// ── TC-2.6-02: Execution order — micro before auto ────────────────────────
+
+#[tokio::test]
+async fn tc_2_6_02_micro_before_auto_execution_order() {
+    // Build a scenario where both microcompact and autocompact trigger
+    // in the same compaction cycle.  A custom provider captures the
+    // messages sent to the autocompact LLM call so we can verify that
+    // microcompact already cleared old tool results before autocompact
+    // was invoked.
+
+    let captured: Arc<Mutex<Option<Vec<aion_types::message::Message>>>> =
+        Arc::new(Mutex::new(None));
+    let capture_ref = captured.clone();
+
+    struct OrderProvider {
+        regular_count: Mutex<usize>,
+        captured: Arc<Mutex<Option<Vec<aion_types::message::Message>>>>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for OrderProvider {
+        async fn stream(
+            &self,
+            request: &LlmRequest,
+        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+            let is_compact = request.tools.is_empty();
+
+            if is_compact {
+                // Capture messages that autocompact sends to the LLM
+                *self.captured.lock().unwrap() = Some(request.messages.clone());
+
+                let events = vec![
+                    LlmEvent::TextDelta("<summary>Order test summary</summary>".to_string()),
+                    LlmEvent::Done {
+                        stop_reason: StopReason::EndTurn,
+                        usage: TokenUsage {
+                            input_tokens: 5_000,
+                            output_tokens: 2_000,
+                            ..Default::default()
+                        },
+                    },
+                ];
+                let (tx, rx) = mpsc::channel(64);
+                tokio::spawn(async move {
+                    for e in events {
+                        let _ = tx.send(e).await;
+                    }
+                });
+                return Ok(rx);
+            }
+
+            let count = {
+                let mut c = self.regular_count.lock().unwrap();
+                let v = *c;
+                *c += 1;
+                v
+            };
+
+            // Turns 0-6: tool use.  Turn 6 reports high input_tokens
+            // so that micro and auto both trigger in the SAME cycle
+            // (turn 7's run_compaction).
+            // Turn 7 (after compact): text to end the run.
+            //
+            // micro_keep_recent = 3 → count threshold = 6.
+            // After 7 tool-use turns: 7 > 6 → micro fires.
+            // After turn 6: last_input_tokens = 170k > 167k → auto fires.
+            let events = if count < 7 {
+                let input_tokens = if count == 6 { 170_000 } else { 10_000 };
+                vec![
+                    LlmEvent::ToolUse {
+                        id: format!("t{count}"),
+                        name: "mock_tool".to_string(),
+                        input: serde_json::json!({}),
+                    },
+                    LlmEvent::Done {
+                        stop_reason: StopReason::ToolUse,
+                        usage: TokenUsage {
+                            input_tokens,
+                            output_tokens: 100,
+                            ..Default::default()
+                        },
+                    },
+                ]
+            } else {
+                vec![
+                    LlmEvent::TextDelta("Done after compact".to_string()),
+                    LlmEvent::Done {
+                        stop_reason: StopReason::EndTurn,
+                        usage: TokenUsage {
+                            input_tokens: 5_000,
+                            output_tokens: 100,
+                            ..Default::default()
+                        },
+                    },
+                ]
+            };
+
+            let (tx, rx) = mpsc::channel(64);
+            tokio::spawn(async move {
+                for e in events {
+                    let _ = tx.send(e).await;
+                }
+            });
+            Ok(rx)
+        }
+    }
+
+    let provider = Arc::new(OrderProvider {
+        regular_count: Mutex::new(0),
+        captured: capture_ref,
+    });
+
+    let mut config = test_config();
+    config.compact = CompactConfig {
+        micro_keep_recent: 3,
+        compactable_tools: vec!["mock_tool".into()],
+        context_window: 200_000,
+        emergency_buffer: 3_000,
+        ..Default::default()
+    };
+    config.max_turns = 20;
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(common::MockTool::new("mock_tool", "tool output data", false)));
+    let output = silent_output();
+
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let result = engine.run("Start", "msg-1").await.expect("should succeed");
+
+    assert_eq!(result.text, "Done after compact");
+
+    // Verify: the messages that autocompact received should contain
+    // tool results cleared by microcompact (proving micro ran first
+    // within the SAME compaction cycle).
+    let msgs = captured.lock().unwrap();
+    let msgs = msgs.as_ref().expect("autocompact should have been called");
+
+    let cleared_count = msgs
+        .iter()
+        .flat_map(|m| m.content.iter())
+        .filter(|b| {
+            matches!(
+                b,
+                aion_types::message::ContentBlock::ToolResult { content, .. }
+                    if content == aion_agent::compact::micro::CLEARED_TOOL_RESULT
+            )
+        })
+        .count();
+
+    // 7 tool results total, keep_recent=3 → 4 cleared by micro
+    // before auto received the messages.
+    assert_eq!(
+        cleared_count, 4,
+        "microcompact should have cleared 4 tool results before autocompact ran"
+    );
+}
+
+// ── TC-2.6-E2E-02: Microcompact + autocompact cooperative scenario ────────
+
+#[tokio::test]
+async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
+    // Verify that microcompact and autocompact cooperate in the same
+    // compaction cycle.  Microcompact frees some tokens from old tool
+    // results, and autocompact still fires because the input token
+    // watermark (which is not reduced by micro) remains above threshold.
+
+    let compact_call_count: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+    let counter_ref = compact_call_count.clone();
+
+    struct CoopProvider {
+        regular_count: Mutex<usize>,
+        compact_calls: Arc<Mutex<usize>>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for CoopProvider {
+        async fn stream(
+            &self,
+            request: &LlmRequest,
+        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+            let is_compact = request.tools.is_empty();
+
+            if is_compact {
+                *self.compact_calls.lock().unwrap() += 1;
+
+                let events = vec![
+                    LlmEvent::TextDelta(
+                        "<summary>Cooperative summary</summary>".to_string(),
+                    ),
+                    LlmEvent::Done {
+                        stop_reason: StopReason::EndTurn,
+                        usage: TokenUsage {
+                            input_tokens: 5_000,
+                            output_tokens: 2_000,
+                            ..Default::default()
+                        },
+                    },
+                ];
+                let (tx, rx) = mpsc::channel(64);
+                tokio::spawn(async move {
+                    for e in events {
+                        let _ = tx.send(e).await;
+                    }
+                });
+                return Ok(rx);
+            }
+
+            let count = {
+                let mut c = self.regular_count.lock().unwrap();
+                let v = *c;
+                *c += 1;
+                v
+            };
+
+            // 7 tool-use turns (count 0-6).  Turn 6 returns high tokens.
+            // micro_keep_recent = 3 → count threshold = 6.
+            // After 7 tool results: 7 > 6 → micro fires.
+            // After turn 6: last_input_tokens = 170k > 167k → auto fires.
+            let events = if count < 7 {
+                let input_tokens = if count == 6 { 170_000 } else { 10_000 };
+                vec![
+                    LlmEvent::ToolUse {
+                        id: format!("t{count}"),
+                        name: "mock_tool".to_string(),
+                        input: serde_json::json!({}),
+                    },
+                    LlmEvent::Done {
+                        stop_reason: StopReason::ToolUse,
+                        usage: TokenUsage {
+                            input_tokens,
+                            output_tokens: 100,
+                            ..Default::default()
+                        },
+                    },
+                ]
+            } else {
+                vec![
+                    LlmEvent::TextDelta("After cooperative compact".to_string()),
+                    LlmEvent::Done {
+                        stop_reason: StopReason::EndTurn,
+                        usage: TokenUsage {
+                            input_tokens: 5_000,
+                            output_tokens: 100,
+                            ..Default::default()
+                        },
+                    },
+                ]
+            };
+
+            let (tx, rx) = mpsc::channel(64);
+            tokio::spawn(async move {
+                for e in events {
+                    let _ = tx.send(e).await;
+                }
+            });
+            Ok(rx)
+        }
+    }
+
+    let provider = Arc::new(CoopProvider {
+        regular_count: Mutex::new(0),
+        compact_calls: counter_ref,
+    });
+
+    let mut config = test_config();
+    config.compact = CompactConfig {
+        micro_keep_recent: 3,
+        compactable_tools: vec!["mock_tool".into()],
+        context_window: 200_000,
+        emergency_buffer: 3_000,
+        ..Default::default()
+    };
+    config.max_turns = 20;
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(common::MockTool::new("mock_tool", "tool output data", false)));
+    let output = silent_output();
+
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let result = engine.run("Work", "msg-1").await.expect("should succeed");
+
+    assert_eq!(result.text, "After cooperative compact");
+
+    // Autocompact was called exactly once (micro freed tokens but
+    // did not reduce last_input_tokens, so auto still fired).
+    let calls = *compact_call_count.lock().unwrap();
+    assert_eq!(
+        calls, 1,
+        "autocompact should fire exactly once despite microcompact running first"
+    );
+
+    // Total turns: 7 tool-use + 1 post-compact text = 8 engine turns,
+    // plus 1 internal compact LLM call = 9 provider calls.
+    assert_eq!(result.turns, 8);
+}
+
 // ── TC-2.6-E2E-03: Circuit breaker after repeated failures ─────────────────
 
 #[tokio::test]
