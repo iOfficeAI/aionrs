@@ -31,7 +31,12 @@ impl Tool for SpawnTool {
 
     fn description(&self) -> &str {
         "Spawn one or more sub-agents to handle tasks in parallel. \
-         Each sub-agent has its own conversation context and tool access."
+         Each sub-agent has its own conversation context and tool access.\n\n\
+         - Maximum 5 sub-agents per call.\n\
+         - Each sub-agent runs up to 10 conversation turns with a 4096 token output limit.\n\
+         - Use for independent, parallelizable tasks (e.g., searching different modules, \
+         running separate analyses).\n\
+         - Do NOT use for tasks that need shared state or sequential coordination."
     }
 
     fn input_schema(&self) -> JsonSchema {

@@ -15,7 +15,13 @@ impl Tool for ReadTool {
     }
 
     fn description(&self) -> &str {
-        "Reads a file from the local filesystem. Returns content with line numbers."
+        "Reads a file from the local filesystem. Returns content with line numbers.\n\n\
+         Usage:\n\
+         - The file_path parameter must be an absolute path, not a relative path.\n\
+         - By default, it reads the entire file. Use offset and limit for partial reads on large files.\n\
+         - Results are returned with line numbers (1-based) followed by a tab and the line content.\n\
+         - Binary files return \"(binary file, N bytes)\" instead of content.\n\
+         - This tool can only read files, not directories. To list a directory, use Bash with ls."
     }
 
     fn input_schema(&self) -> JsonSchema {

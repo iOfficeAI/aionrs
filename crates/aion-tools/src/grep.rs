@@ -16,7 +16,13 @@ impl Tool for GrepTool {
     }
 
     fn description(&self) -> &str {
-        "Searches file contents using regex patterns."
+        "Searches file contents using regex patterns (powered by ripgrep).\n\n\
+         IMPORTANT: ALWAYS use this Grep tool for content search. \
+         NEVER run grep or rg as a Bash command.\n\n\
+         - Supports full regex syntax (e.g., \"log.*Error\", \"fn\\\\s+\\\\w+\").\n\
+         - Use the glob parameter to filter by file pattern (e.g., \"*.rs\").\n\
+         - Returns at most 250 matches.\n\
+         - Set case_insensitive to true for case-insensitive search."
     }
 
     fn input_schema(&self) -> JsonSchema {

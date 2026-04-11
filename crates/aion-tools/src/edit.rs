@@ -15,7 +15,15 @@ impl Tool for EditTool {
     }
 
     fn description(&self) -> &str {
-        "Performs exact string replacements in files."
+        "Performs exact string replacements in files.\n\n\
+         Usage:\n\
+         - You must use the Read tool first before editing a file.\n\
+         - The old_string must be unique in the file. If multiple matches exist, \
+         the edit will fail. Provide more surrounding context to make it unique, \
+         or use replace_all to change every occurrence.\n\
+         - Use replace_all for renaming variables or replacing all instances of a string.\n\
+         - Prefer Edit over Write for modifying existing files — Edit only sends the diff.\n\
+         - When matching text from Read output, preserve the exact indentation (tabs/spaces)."
     }
 
     fn input_schema(&self) -> JsonSchema {

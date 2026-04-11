@@ -21,7 +21,21 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "Executes a shell command and returns its output."
+        "Executes a shell command and returns its output.\n\n\
+         IMPORTANT: Do NOT use Bash when a dedicated tool is available:\n\
+         - File search: use Glob (not find or ls)\n\
+         - Content search: use Grep (not grep or rg)\n\
+         - Read files: use Read (not cat, head, or tail)\n\
+         - Edit files: use Edit (not sed or awk)\n\
+         - Write files: use Write (not echo or cat with heredoc)\n\n\
+         # Instructions\n\
+         - Use absolute paths to avoid working directory confusion.\n\
+         - When issuing multiple independent commands, make parallel tool calls \
+         instead of chaining them. Use `&&` only when commands depend on each other.\n\
+         - You may specify an optional timeout in milliseconds (default 120000, max 600000).\n\n\
+         # Git safety\n\
+         - Never force push, reset --hard, or use --no-verify unless explicitly asked.\n\
+         - Prefer creating new commits over amending existing ones."
     }
 
     fn input_schema(&self) -> JsonSchema {

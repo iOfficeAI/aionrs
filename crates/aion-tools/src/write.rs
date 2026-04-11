@@ -17,7 +17,12 @@ impl Tool for WriteTool {
     }
 
     fn description(&self) -> &str {
-        "Writes content to a file, creating parent directories if needed."
+        "Writes content to a file, creating parent directories if needed.\n\n\
+         Usage:\n\
+         - This tool overwrites the existing file completely (not append).\n\
+         - If the file already exists, you must use Read first to see its current content.\n\
+         - Prefer Edit over Write for modifying existing files — Edit only sends the diff.\n\
+         - Use Write only for creating new files or complete rewrites."
     }
 
     fn input_schema(&self) -> JsonSchema {

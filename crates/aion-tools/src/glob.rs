@@ -19,7 +19,12 @@ impl Tool for GlobTool {
     }
 
     fn description(&self) -> &str {
-        "Finds files matching a glob pattern."
+        "Fast file pattern matching tool that works with any codebase size.\n\n\
+         - Supports glob patterns like \"**/*.rs\" or \"src/**/*.ts\".\n\
+         - Returns matching file paths sorted by modification time (newest first).\n\
+         - Returns at most 100 results. Only returns files, not directories.\n\
+         - The path parameter defaults to the current working directory.\n\
+         - Use this tool when you need to find files by name or extension patterns."
     }
 
     fn input_schema(&self) -> JsonSchema {

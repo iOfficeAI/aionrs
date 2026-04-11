@@ -1,0 +1,216 @@
+//! Integration tests for enhanced tool descriptions (TC-4.2-01 through TC-4.2-08).
+//!
+//! These are black-box tests that verify each tool's description contains
+//! the key guidance information specified in the test plan.
+
+use aion_tools::bash::BashTool;
+use aion_tools::edit::EditTool;
+use aion_tools::glob::GlobTool;
+use aion_tools::grep::GrepTool;
+use aion_tools::read::ReadTool;
+use aion_tools::registry::ToolRegistry;
+use aion_tools::write::WriteTool;
+use aion_tools::Tool;
+
+// --- TC-4.2-01: Bash tool description contains key guidance ---
+
+#[test]
+fn bash_description_references_dedicated_tools() {
+    let desc = BashTool.description();
+    assert!(
+        desc.contains("Glob"),
+        "Bash description should cross-reference Glob tool"
+    );
+    assert!(
+        desc.contains("Grep"),
+        "Bash description should cross-reference Grep tool"
+    );
+    assert!(
+        desc.contains("Read"),
+        "Bash description should cross-reference Read tool"
+    );
+    assert!(
+        desc.contains("Edit"),
+        "Bash description should cross-reference Edit tool"
+    );
+}
+
+#[test]
+fn bash_description_contains_timeout_info() {
+    let desc = BashTool.description();
+    assert!(
+        desc.contains("120") || desc.to_lowercase().contains("timeout"),
+        "Bash description should mention timeout"
+    );
+}
+
+#[test]
+fn bash_description_contains_parallel_guidance() {
+    let desc = BashTool.description();
+    assert!(
+        desc.contains("parallel") || desc.contains("&&"),
+        "Bash description should contain parallel command guidance"
+    );
+}
+
+// --- TC-4.2-02: Read tool description contains usage constraints ---
+
+#[test]
+fn read_description_requires_absolute_path() {
+    let desc = ReadTool.description();
+    assert!(
+        desc.contains("absolute path"),
+        "Read description should mention absolute path requirement"
+    );
+}
+
+#[test]
+fn read_description_mentions_line_numbers() {
+    let desc = ReadTool.description();
+    assert!(
+        desc.contains("line number"),
+        "Read description should explain line number output format"
+    );
+}
+
+#[test]
+fn read_description_handles_binary() {
+    let desc = ReadTool.description();
+    assert!(
+        desc.to_lowercase().contains("binary"),
+        "Read description should mention binary file handling"
+    );
+}
+
+// --- TC-4.2-03: Edit tool description contains preconditions ---
+
+#[test]
+fn edit_description_requires_read_first() {
+    let desc = EditTool.description();
+    assert!(
+        desc.contains("Read"),
+        "Edit description should require Read before editing"
+    );
+}
+
+#[test]
+fn edit_description_mentions_uniqueness() {
+    let desc = EditTool.description();
+    assert!(
+        desc.contains("unique"),
+        "Edit description should mention old_string uniqueness requirement"
+    );
+}
+
+#[test]
+fn edit_description_mentions_replace_all() {
+    let desc = EditTool.description();
+    assert!(
+        desc.contains("replace_all"),
+        "Edit description should document replace_all option"
+    );
+}
+
+// --- TC-4.2-04: Write tool description contains operation semantics ---
+
+#[test]
+fn write_description_mentions_overwrite() {
+    let desc = WriteTool.description();
+    assert!(
+        desc.contains("overwrite") || desc.contains("overwrites"),
+        "Write description should explain overwrite semantics"
+    );
+}
+
+#[test]
+fn write_description_requires_read_for_existing() {
+    let desc = WriteTool.description();
+    assert!(
+        desc.contains("Read"),
+        "Write description should mention reading existing files first"
+    );
+}
+
+#[test]
+fn write_description_prefers_edit() {
+    let desc = WriteTool.description();
+    assert!(
+        desc.contains("Edit"),
+        "Write description should recommend Edit for modifications"
+    );
+}
+
+// --- TC-4.2-05: Glob tool description contains result limits ---
+
+#[test]
+fn glob_description_mentions_result_limit() {
+    let desc = GlobTool.description();
+    assert!(
+        desc.contains("100"),
+        "Glob description should mention the 100 result limit"
+    );
+}
+
+#[test]
+fn glob_description_mentions_sort_order() {
+    let desc = GlobTool.description();
+    let lower = desc.to_lowercase();
+    assert!(
+        lower.contains("modification time") || lower.contains("newest"),
+        "Glob description should explain sort order"
+    );
+}
+
+// --- TC-4.2-06: Grep tool description contains mandatory usage rule ---
+
+#[test]
+fn grep_description_forbids_bash_grep() {
+    let desc = GrepTool.description();
+    assert!(
+        desc.contains("NEVER") || desc.contains("never"),
+        "Grep description should forbid using grep in Bash"
+    );
+}
+
+#[test]
+fn grep_description_mentions_regex() {
+    let desc = GrepTool.description();
+    assert!(
+        desc.contains("regex"),
+        "Grep description should mention regex support"
+    );
+}
+
+#[test]
+fn grep_description_mentions_result_limit() {
+    let desc = GrepTool.description();
+    assert!(
+        desc.contains("250"),
+        "Grep description should mention the 250 result limit"
+    );
+}
+
+// --- TC-4.2-08: ToolDef propagation ---
+
+#[test]
+fn tool_def_description_matches_tool_instance() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(BashTool));
+    registry.register(Box::new(ReadTool));
+    registry.register(Box::new(EditTool));
+    registry.register(Box::new(WriteTool));
+    registry.register(Box::new(GlobTool));
+    registry.register(Box::new(GrepTool));
+
+    let defs = registry.to_tool_defs();
+
+    for def in &defs {
+        let tool = registry.get(&def.name).expect("tool should exist in registry");
+        assert_eq!(
+            def.description,
+            tool.description(),
+            "ToolDef description for '{}' should match Tool::description()",
+            def.name
+        );
+    }
+}
