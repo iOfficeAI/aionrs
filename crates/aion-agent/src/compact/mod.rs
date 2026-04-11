@@ -5,5 +5,7 @@
 //! - **Autocompact**: watermark-triggered LLM summarization
 //! - **Emergency**: blocks API calls when near the context window limit
 
+pub mod auto;
 pub mod micro;
+pub mod prompt;
 pub mod state;
