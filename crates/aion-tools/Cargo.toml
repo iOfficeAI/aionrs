@@ -18,6 +18,7 @@ serde_json.workspace  = true
 async-trait.workspace = true
 anyhow.workspace      = true
 glob.workspace        = true
+lru.workspace         = true
 
 workspace-hack.workspace = true
 

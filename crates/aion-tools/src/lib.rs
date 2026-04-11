@@ -1,5 +1,6 @@
 pub mod bash;
 pub mod edit;
+pub mod file_cache;
 pub mod glob;
 pub mod grep;
 pub mod read;
