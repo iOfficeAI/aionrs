@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 
+use aion_config::compact::CompactConfig;
 use aion_config::config::Config;
 use aion_config::hooks::HookEngine;
 use aion_providers::{LlmProvider, ProviderError, create_provider};
@@ -8,6 +9,8 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, effort_to_string};
 
+use crate::compact::{auto, emergency, micro};
+use crate::compact::state::CompactState;
 use crate::confirm::ToolConfirmer;
 use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
@@ -37,6 +40,10 @@ pub struct AgentEngine {
     /// Persisted reasoning effort, updated by skill context modifiers.
     /// Carried into each turn's LlmRequest.reasoning_effort.
     current_reasoning_effort: Option<String>,
+    /// Compaction configuration (thresholds, enabled flag, etc.)
+    compact_config: CompactConfig,
+    /// Runtime compaction state (circuit breaker, last input tokens)
+    compact_state: CompactState,
 }
 
 impl AgentEngine {
@@ -66,6 +73,7 @@ impl AgentEngine {
         };
 
         let allow_list = config.tools.allow_list.clone();
+        let compact_config = config.compact.clone();
 
         Self {
             provider,
@@ -89,6 +97,8 @@ impl AgentEngine {
             protocol_writer: None,
             allow_list,
             current_reasoning_effort: None,
+            compact_config,
+            compact_state: CompactState::new(),
         }
     }
 
@@ -125,6 +135,7 @@ impl AgentEngine {
         };
 
         let allow_list = config.tools.allow_list.clone();
+        let compact_config = config.compact.clone();
 
         Self {
             provider,
@@ -146,6 +157,8 @@ impl AgentEngine {
             protocol_writer: None,
             allow_list,
             current_reasoning_effort: None,
+            compact_config,
+            compact_state: CompactState::new(),
         }
     }
 
@@ -203,6 +216,11 @@ impl AgentEngine {
         ));
 
         for turn in 0..self.max_turns {
+            // Run multi-level compaction before each API call.
+            // On the first turn last_input_tokens is 0 so neither
+            // autocompact nor emergency will fire.
+            self.run_compaction().await?;
+
             let request = LlmRequest {
                 model: self.model.clone(),
                 system: self.system_prompt.clone(),
@@ -250,6 +268,9 @@ impl AgentEngine {
             self.total_usage.output_tokens += turn_usage.output_tokens;
             self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
             self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
+
+            // Track per-turn input tokens for compaction watermark
+            self.compact_state.last_input_tokens = turn_usage.input_tokens;
 
             let mut assistant_content: Vec<ContentBlock> = Vec::new();
             if !assistant_text.is_empty() {
@@ -347,6 +368,75 @@ impl AgentEngine {
 
         self.save_session();
         Err(AgentError::MaxTurnsExceeded(self.max_turns))
+    }
+
+    /// Run the multi-level compaction pipeline before each API call.
+    ///
+    /// Execution order: microcompact → autocompact → emergency check.
+    /// After a successful autocompact the emergency check is skipped
+    /// because the context has been significantly reduced.
+    async fn run_compaction(&mut self) -> Result<(), AgentError> {
+        // 1. Microcompact (lightweight, no LLM call)
+        if micro::should_microcompact(&self.messages, &self.compact_config) {
+            let result = micro::microcompact(&mut self.messages, &self.compact_config);
+            if result.cleared_count > 0 {
+                self.output.emit_info(&format!(
+                    "Microcompact: cleared {} tool results (~{} tokens freed)",
+                    result.cleared_count, result.estimated_tokens_freed
+                ));
+            }
+        }
+
+        // 2. Autocompact (LLM summarization)
+        let mut compacted = false;
+        if auto::should_autocompact(self.compact_state.last_input_tokens, &self.compact_config)
+            && !self.compact_state.is_circuit_broken(&self.compact_config)
+        {
+            let provider = Arc::clone(&self.provider);
+            match auto::autocompact(
+                provider.as_ref(),
+                &self.messages,
+                &self.model,
+                &self.compact_config,
+                &mut self.compact_state,
+            )
+            .await
+            {
+                Ok(result) => {
+                    self.output.emit_info(&format!(
+                        "Autocompact: summarized {} messages ({} tokens → compact)",
+                        result.messages_summarized, result.pre_compact_tokens
+                    ));
+                    self.messages = result.messages;
+                    compacted = true;
+                }
+                Err(auto::CompactError::CircuitBroken { .. }) => {
+                    // Already tripped; logged at circuit-breaker level
+                }
+                Err(e) => {
+                    self.output
+                        .emit_error(&format!("Autocompact failed: {}", e));
+                }
+            }
+        }
+
+        // 3. Emergency check (skip if autocompact just succeeded)
+        if !compacted
+            && emergency::is_at_emergency_limit(
+                self.compact_state.last_input_tokens,
+                &self.compact_config,
+            )
+        {
+            return Err(AgentError::ContextTooLong {
+                input_tokens: self.compact_state.last_input_tokens,
+                limit: self
+                    .compact_config
+                    .context_window
+                    .saturating_sub(self.compact_config.emergency_buffer),
+            });
+        }
+
+        Ok(())
     }
 
     /// Run stop hooks when the agent session ends
@@ -455,6 +545,8 @@ mod phase6_tests {
             protocol_writer: None,
             allow_list,
             current_reasoning_effort: None,
+            compact_config: aion_config::compact::CompactConfig::default(),
+            compact_state: super::CompactState::new(),
         }
     }
 
@@ -584,6 +676,265 @@ mod phase6_tests {
         engine.apply_context_modifiers(&modifiers);
         assert_eq!(engine.model, "new-model");
         assert_eq!(model_before, "original");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2 tests — run_compaction()
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod compact_tests {
+    use std::sync::{Arc, Mutex};
+
+    use aion_config::compact::CompactConfig;
+    use aion_providers::{LlmProvider, ProviderError};
+    use aion_tools::registry::ToolRegistry;
+    use aion_types::llm::{LlmEvent, LlmRequest};
+    use aion_types::message::{ContentBlock, Message, Role};
+    use serde_json::json;
+
+    use crate::compact::state::CompactState;
+    use crate::confirm::ToolConfirmer;
+    use crate::output::OutputSink;
+
+    struct NullOutput;
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+    #[async_trait::async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(
+            &self,
+            _: &LlmRequest,
+        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    fn make_compact_engine(
+        compact_config: CompactConfig,
+        compact_state: CompactState,
+        messages: Vec<Message>,
+    ) -> super::AgentEngine {
+        super::AgentEngine {
+            provider: Arc::new(NullProvider),
+            tools: ToolRegistry::new(),
+            messages,
+            system_prompt: String::new(),
+            model: "test-model".to_string(),
+            max_tokens: 4096,
+            max_turns: 10,
+            total_usage: Default::default(),
+            thinking: None,
+            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
+            hooks: None,
+            session_manager: None,
+            current_session: None,
+            output: Arc::new(NullOutput),
+            current_msg_id: String::new(),
+            approval_manager: None,
+            protocol_writer: None,
+            allow_list: vec![],
+            current_reasoning_effort: None,
+            compact_config,
+            compact_state,
+        }
+    }
+
+    fn tool_use_msg(id: &str, name: &str) -> Message {
+        Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
+                id: id.to_string(),
+                name: name.to_string(),
+                input: json!({}),
+            }],
+        )
+    }
+
+    fn tool_result_msg(id: &str, content: &str) -> Message {
+        Message::new(
+            Role::User,
+            vec![ContentBlock::ToolResult {
+                tool_use_id: id.to_string(),
+                content: content.to_string(),
+                is_error: false,
+            }],
+        )
+    }
+
+    // -- Emergency check fires when at limit --
+
+    #[tokio::test]
+    async fn emergency_fires_when_at_limit() {
+        let config = CompactConfig {
+            context_window: 200_000,
+            emergency_buffer: 3_000,
+            ..Default::default()
+        };
+        let mut state = CompactState::new();
+        state.last_input_tokens = 198_000; // >= 197k limit
+
+        let mut engine = make_compact_engine(config, state, vec![]);
+        let result = engine.run_compaction().await;
+
+        match result {
+            Err(super::AgentError::ContextTooLong {
+                input_tokens,
+                limit,
+            }) => {
+                assert_eq!(input_tokens, 198_000);
+                assert_eq!(limit, 197_000);
+            }
+            other => panic!("expected ContextTooLong, got: {:?}", other),
+        }
+    }
+
+    // -- Emergency does not fire when below limit --
+
+    #[tokio::test]
+    async fn emergency_silent_below_limit() {
+        let config = CompactConfig::default();
+        let mut state = CompactState::new();
+        state.last_input_tokens = 190_000; // below 197k
+
+        let mut engine = make_compact_engine(config, state, vec![]);
+        assert!(engine.run_compaction().await.is_ok());
+    }
+
+    // -- Microcompact runs when count trigger fires --
+
+    #[tokio::test]
+    async fn microcompact_clears_old_results() {
+        // 12 tool results with keep_recent=3 (threshold=6) → should clear 9
+        let mut messages = Vec::new();
+        for i in 0..12 {
+            let id = format!("t{i}");
+            messages.push(tool_use_msg(&id, "Read"));
+            messages.push(tool_result_msg(&id, &format!("data-{i}")));
+        }
+
+        let config = CompactConfig {
+            micro_keep_recent: 3,
+            ..Default::default()
+        };
+        let state = CompactState::new();
+
+        let mut engine = make_compact_engine(config, state, messages);
+        engine.run_compaction().await.unwrap();
+
+        // Last 3 tool results should be preserved
+        let cleared_count = engine
+            .messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .filter(|b| {
+                matches!(b, ContentBlock::ToolResult { content, .. } if content == "[Tool result cleared]")
+            })
+            .count();
+
+        assert_eq!(cleared_count, 9);
+    }
+
+    // -- Disabled config skips micro and auto but not emergency --
+
+    #[tokio::test]
+    async fn disabled_config_skips_micro_auto() {
+        let mut messages = Vec::new();
+        for i in 0..12 {
+            let id = format!("t{i}");
+            messages.push(tool_use_msg(&id, "Read"));
+            messages.push(tool_result_msg(&id, &format!("data-{i}")));
+        }
+
+        let config = CompactConfig {
+            enabled: false,
+            micro_keep_recent: 3,
+            ..Default::default()
+        };
+        let state = CompactState::new();
+
+        let mut engine = make_compact_engine(config, state, messages);
+        engine.run_compaction().await.unwrap();
+
+        // Nothing should be cleared (microcompact skipped)
+        let cleared_count = engine
+            .messages
+            .iter()
+            .flat_map(|m| &m.content)
+            .filter(|b| {
+                matches!(b, ContentBlock::ToolResult { content, .. } if content == "[Tool result cleared]")
+            })
+            .count();
+
+        assert_eq!(cleared_count, 0, "microcompact should be skipped when disabled");
+    }
+
+    #[tokio::test]
+    async fn disabled_config_still_fires_emergency() {
+        let config = CompactConfig {
+            enabled: false,
+            context_window: 200_000,
+            emergency_buffer: 3_000,
+            ..Default::default()
+        };
+        let mut state = CompactState::new();
+        state.last_input_tokens = 198_000;
+
+        let mut engine = make_compact_engine(config, state, vec![]);
+        let result = engine.run_compaction().await;
+
+        assert!(
+            matches!(result, Err(super::AgentError::ContextTooLong { .. })),
+            "emergency should fire even when disabled"
+        );
+    }
+
+    // -- Zero tokens on first turn does not trigger anything --
+
+    #[tokio::test]
+    async fn first_turn_zero_tokens_no_compaction() {
+        let config = CompactConfig::default();
+        let state = CompactState::new(); // last_input_tokens = 0
+
+        let mut engine = make_compact_engine(config, state, vec![]);
+        assert!(engine.run_compaction().await.is_ok());
+        assert_eq!(engine.compact_state.last_input_tokens, 0);
+    }
+
+    // -- Circuit broken prevents autocompact, emergency still fires --
+
+    #[tokio::test]
+    async fn circuit_broken_skips_auto_but_emergency_fires() {
+        let config = CompactConfig {
+            context_window: 200_000,
+            emergency_buffer: 3_000,
+            max_failures: 3,
+            ..Default::default()
+        };
+        let mut state = CompactState::new();
+        state.last_input_tokens = 198_000; // triggers both auto and emergency
+        state.consecutive_failures = 3; // circuit broken
+
+        let mut engine = make_compact_engine(config, state, vec![]);
+        let result = engine.run_compaction().await;
+
+        // Auto is skipped due to circuit breaker; emergency fires
+        assert!(matches!(
+            result,
+            Err(super::AgentError::ContextTooLong { .. })
+        ));
     }
 }
 

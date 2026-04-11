@@ -114,6 +114,9 @@ pub fn build_summary_content(formatted_summary: &str, is_auto: bool) -> String {
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Remove `<tag>...</tag>` (first occurrence) from text.
+///
+/// If the closing tag appears before the opening tag (reversed order),
+/// the text is returned unchanged to avoid producing duplicate content.
 fn strip_tag(text: &str, tag: &str) -> String {
     let open = format!("<{tag}>");
     let close = format!("</{tag}>");
@@ -124,6 +127,11 @@ fn strip_tag(text: &str, tag: &str) -> String {
     let Some(end) = text.find(&close) else {
         return text.to_string();
     };
+
+    // Guard: closing tag before opening tag → no-op
+    if end < start {
+        return text.to_string();
+    }
 
     let mut result = String::with_capacity(text.len());
     result.push_str(&text[..start]);
@@ -268,6 +276,15 @@ mod tests {
     fn strip_tag_noop_when_tag_missing() {
         let text = "no tags here";
         assert_eq!(strip_tag(text, "foo"), "no tags here");
+    }
+
+    #[test]
+    fn strip_tag_noop_when_reversed_order() {
+        // Closing tag before opening tag should be treated as no-op
+        let text = "before</foo>middle<foo>inside</foo>after";
+        // The first </foo> is at position 6, first <foo> is at position 17
+        // Since end < start, the text should be returned unchanged
+        assert_eq!(strip_tag(text, "foo"), text);
     }
 
     // ── extract_tag_content ─────────────────────────────────────────────
