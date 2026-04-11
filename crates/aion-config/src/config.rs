@@ -658,12 +658,14 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
     };
 
     // File cache: project overrides global if any field differs from default.
-    let file_cache =
-        if !project.file_cache.enabled || project.file_cache.max_entries != FileCacheConfig::default().max_entries {
-            project.file_cache
-        } else {
-            global.file_cache
-        };
+    let file_cache = if !project.file_cache.enabled
+        || project.file_cache.max_entries != FileCacheConfig::default().max_entries
+        || project.file_cache.max_size_bytes != FileCacheConfig::default().max_size_bytes
+    {
+        project.file_cache
+    } else {
+        global.file_cache
+    };
 
     // Bedrock/Vertex/Auth: project overrides global
     let bedrock = project.bedrock.or(global.bedrock);
@@ -1822,6 +1824,34 @@ enabled = false
             "global should be preserved when project is all-default"
         );
         assert_eq!(merged.file_cache.max_size_bytes, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn merge_file_cache_project_max_size_bytes_overrides_global() {
+        // R-5.5-01: project changes only max_size_bytes (enabled=true, max_entries=default).
+        let global = ConfigFile {
+            file_cache: FileCacheConfig {
+                max_entries: 100,
+                max_size_bytes: 50 * 1024 * 1024,
+                enabled: true,
+            },
+            ..Default::default()
+        };
+        let project = ConfigFile {
+            file_cache: FileCacheConfig {
+                max_entries: 100, // default
+                max_size_bytes: 10 * 1024 * 1024, // non-default
+                enabled: true,    // default
+            },
+            ..Default::default()
+        };
+
+        let merged = merge_config_files(global, project);
+        assert_eq!(
+            merged.file_cache.max_size_bytes,
+            10 * 1024 * 1024,
+            "project max_size_bytes should override global"
+        );
     }
 
     #[test]
