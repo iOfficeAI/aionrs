@@ -26,7 +26,7 @@
 - [x] 3.2 实现 plan mode 类型和配置（PlanConfig + ContextModifier 扩展）
 - [x] 3.3 实现 plan mode 状态管理和工具（PlanState + EnterPlanMode/ExitPlanMode）
 - [x] 3.4 实现 plan mode 系统提示和 plan 文件管理
-- [ ] 3.5 集成到 engine 循环（状态转换 + 工具过滤）
+- [x] 3.5 集成到 engine 循环（状态转换 + 工具过滤）
 - [ ] 3.6 测试和阶段收尾
 
 ### 阶段 4：工具描述质量增强
@@ -45,8 +45,9 @@
 
 ## 当前状态
 - **当前阶段**: 阶段 3 — Plan Mode
-- **最近完成**: 3.4 实现 plan mode 系统提示和 plan 文件管理（2026-04-11）
-  - prompt.rs（plan mode 指令 + 退出通知）、file.rs（plan 文件读写）
-  - context.rs 新增 plan_mode_active 参数
-  - 31 个新增测试，累计 ~1389 个
-- **下一任务**: 3.5 集成到 engine 循环（状态转换 + 工具过滤）
+- **最近完成**: 3.5 集成到 engine 循环（状态转换 + 工具过滤）（2026-04-11）
+  - engine.rs（plan_state/plan_active_flag + apply_context_modifiers 扩展 + run() 工具过滤）
+  - registry.rs（to_tool_defs_filtered()）、main.rs（条件注册 plan tools）
+  - 修复 R-3.4-01、ToolCategory 添加 Copy/PartialEq
+  - 28 个新增测试，累计 ~1412 个
+- **下一任务**: 3.6 测试和阶段收尾

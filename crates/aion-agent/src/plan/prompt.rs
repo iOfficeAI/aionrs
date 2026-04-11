@@ -13,15 +13,15 @@
 pub fn plan_mode_instructions() -> &'static str {
     r#"# Plan Mode
 
-Plan mode is active. You MUST NOT make any edits, run any non-read-only tools, or otherwise make any changes to the system. The only exception is writing to the plan file mentioned below.
+Plan mode is active. You MUST NOT make any edits, run any non-read-only tools, or otherwise make any changes to the system.
 
 ## Allowed actions
 - Read files, search code, and explore the codebase using read-only tools (Read, Grep, Glob)
-- Write to the plan file (if a plan file path is provided)
+- Compose your implementation plan in your response text
 - Ask clarifying questions
 
 ## Forbidden actions
-- Editing, creating, or deleting files (except the plan file)
+- Editing, creating, or deleting files
 - Running shell commands that modify state
 - Making commits or pushing changes
 
@@ -37,7 +37,7 @@ Based on your understanding, design the implementation approach:
 - Consider edge cases and error handling
 
 ### Phase 3: Write the plan
-Write a clear, actionable implementation plan including:
+Compose a clear, actionable implementation plan in your response including:
 - **Context**: brief explanation of why this change is needed
 - **Files to modify**: list each file and what changes are needed
 - **Existing code to reuse**: reference functions and utilities with file paths
@@ -93,6 +93,19 @@ mod tests {
         assert!(
             text.contains("Submit for review"),
             "should have submission phase"
+        );
+    }
+
+    #[test]
+    fn instructions_compose_in_response_not_write_file() {
+        let text = plan_mode_instructions();
+        assert!(
+            text.contains("Compose your implementation plan in your response"),
+            "should guide LLM to compose plan in response text"
+        );
+        assert!(
+            !text.contains("Write to the plan file"),
+            "should not mention writing to plan file (R-3.4-01 fix)"
         );
     }
 

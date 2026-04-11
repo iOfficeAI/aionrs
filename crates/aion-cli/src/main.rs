@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use clap::Parser;
@@ -8,6 +9,7 @@ use aion_agent::engine::AgentEngine;
 use aion_agent::output::OutputSink;
 use aion_agent::output::protocol_sink::ProtocolSink;
 use aion_agent::output::terminal::TerminalSink;
+use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
 use aion_agent::session;
 use aion_agent::skill_tool::SkillTool;
 use aion_agent::spawn_tool::SpawnTool;
@@ -269,6 +271,17 @@ async fn main() -> anyhow::Result<()> {
     let spawner = Arc::new(AgentSpawner::new(provider.clone(), config.clone()));
     registry.register(Box::new(SpawnTool::new(spawner.clone())));
 
+    // Register Plan Mode tools (if enabled)
+    let plan_active_flag = Arc::new(AtomicBool::new(false));
+    if config.plan.enabled {
+        registry.register(Box::new(EnterPlanModeTool::new(Arc::clone(
+            &plan_active_flag,
+        ))));
+        registry.register(Box::new(ExitPlanModeTool::new(Arc::clone(
+            &plan_active_flag,
+        ))));
+    }
+
     if cli.json_stream {
         return run_json_stream_mode(
             config,
@@ -277,6 +290,7 @@ async fn main() -> anyhow::Result<()> {
             mcp_manager,
             cli.resume,
             cli.session_id,
+            plan_active_flag.clone(),
         )
         .await;
     }
@@ -302,6 +316,7 @@ async fn main() -> anyhow::Result<()> {
         engine.init_session(&provider_name, &cwd, cli.session_id.as_deref())?;
         engine
     };
+    engine.set_plan_active_flag(plan_active_flag.clone());
 
     let prompt = cli.prompt.join(" ");
     if prompt.is_empty() {
@@ -417,6 +432,7 @@ async fn run_json_stream_mode(
     mcp_manager: Option<Arc<McpManager>>,
     resume: Option<String>,
     session_id: Option<String>,
+    plan_active_flag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let writer = Arc::new(ProtocolWriter::new());
     let protocol_sink = Arc::new(ProtocolSink::new(writer.clone()));
@@ -439,6 +455,7 @@ async fn run_json_stream_mode(
         engine.init_session(&provider_name, &cwd, session_id.as_deref())?;
         engine
     };
+    engine.set_plan_active_flag(plan_active_flag);
 
     let sid = engine.current_session_id();
     protocol_sink.emit_ready(has_mcp, sid);

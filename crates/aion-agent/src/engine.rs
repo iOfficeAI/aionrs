@@ -1,13 +1,15 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use aion_config::compact::CompactConfig;
 use aion_config::config::Config;
 use aion_config::hooks::HookEngine;
+use aion_protocol::events::ToolCategory;
 use aion_providers::{LlmProvider, ProviderError, create_provider};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
-use aion_types::skill_types::{ContextModifier, effort_to_string};
+use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 
 use crate::compact::{auto, emergency, micro};
 use crate::compact::state::CompactState;
@@ -16,6 +18,8 @@ use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
 };
 use crate::output::OutputSink;
+use crate::plan::prompt as plan_prompt;
+use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
 
 pub struct AgentEngine {
@@ -44,6 +48,11 @@ pub struct AgentEngine {
     compact_config: CompactConfig,
     /// Runtime compaction state (circuit breaker, last input tokens)
     compact_state: CompactState,
+    /// Runtime plan mode state (active flag, pre-plan allow-list, plan file path)
+    plan_state: PlanState,
+    /// Shared flag read by EnterPlanMode/ExitPlanMode tools to validate transitions.
+    /// Updated by the engine when processing PlanModeTransition modifiers.
+    plan_active_flag: Option<Arc<AtomicBool>>,
 }
 
 impl AgentEngine {
@@ -99,6 +108,8 @@ impl AgentEngine {
             current_reasoning_effort: None,
             compact_config,
             compact_state: CompactState::new(),
+            plan_state: PlanState::default(),
+            plan_active_flag: None,
         }
     }
 
@@ -159,6 +170,8 @@ impl AgentEngine {
             current_reasoning_effort: None,
             compact_config,
             compact_state: CompactState::new(),
+            plan_state: PlanState::default(),
+            plan_active_flag: None,
         }
     }
 
@@ -204,6 +217,15 @@ impl AgentEngine {
         self.current_reasoning_effort = effort;
     }
 
+    /// Set the shared plan-mode active flag.
+    ///
+    /// This flag is shared with EnterPlanMode/ExitPlanMode tools so they can
+    /// validate transitions (e.g. reject double-entry).  The engine updates
+    /// the flag when processing `PlanModeTransition` context modifiers.
+    pub fn set_plan_active_flag(&mut self, flag: Arc<AtomicBool>) {
+        self.plan_active_flag = Some(flag);
+    }
+
     /// Run the agent loop with user input
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
         self.current_msg_id = msg_id.to_string();
@@ -221,11 +243,33 @@ impl AgentEngine {
             // autocompact nor emergency will fire.
             self.run_compaction().await?;
 
+            // Build tool list: filter based on plan mode state
+            let tools = if self.plan_state.is_active {
+                // Plan mode: only Info-category tools (excluding EnterPlanMode)
+                self.tools.to_tool_defs_filtered(|t| {
+                    t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
+                })
+            } else {
+                // Normal mode: all tools except ExitPlanMode
+                self.tools.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
+            };
+
+            // Build system prompt: append plan mode instructions when active
+            let system = if self.plan_state.is_active {
+                format!(
+                    "{}\n\n{}",
+                    self.system_prompt,
+                    plan_prompt::plan_mode_instructions()
+                )
+            } else {
+                self.system_prompt.clone()
+            };
+
             let request = LlmRequest {
                 model: self.model.clone(),
-                system: self.system_prompt.clone(),
+                system,
                 messages: self.messages.clone(),
-                tools: self.tools.to_tool_defs(),
+                tools,
                 max_tokens: self.max_tokens,
                 thinking: self.thinking.clone(),
                 reasoning_effort: self.current_reasoning_effort.clone(),
@@ -464,6 +508,32 @@ impl AgentEngine {
                 }
                 self.confirmer.lock().unwrap().add_to_allow_list(tool_name);
             }
+
+            // Handle plan mode transitions
+            if let Some(ref transition) = modifier.plan_mode_transition {
+                match transition {
+                    PlanModeTransition::Enter => {
+                        self.plan_state.pre_plan_allow_list = self.allow_list.clone();
+                        self.plan_state.is_active = true;
+                        if let Some(ref flag) = self.plan_active_flag {
+                            flag.store(true, Ordering::Release);
+                        }
+                    }
+                    PlanModeTransition::Exit { plan_content } => {
+                        self.plan_state.is_active = false;
+                        self.allow_list = self.plan_state.pre_plan_allow_list.clone();
+                        if let Some(ref flag) = self.plan_active_flag {
+                            flag.store(false, Ordering::Release);
+                        }
+                        // Save plan content to file if both content and path are available
+                        if let Some(content) = plan_content
+                            && let Some(ref path) = self.plan_state.plan_file_path
+                        {
+                            let _ = crate::plan::file::write_plan(path, content);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -547,6 +617,8 @@ mod phase6_tests {
             current_reasoning_effort: None,
             compact_config: aion_config::compact::CompactConfig::default(),
             compact_state: super::CompactState::new(),
+            plan_state: Default::default(),
+            plan_active_flag: None,
         }
     }
 
@@ -743,6 +815,8 @@ mod compact_tests {
             current_reasoning_effort: None,
             compact_config,
             compact_state,
+            plan_state: Default::default(),
+            plan_active_flag: None,
         }
     }
 
@@ -929,6 +1003,271 @@ mod compact_tests {
             result,
             Err(super::AgentError::ContextTooLong { .. })
         ));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Phase 3 tests — plan mode integration in apply_context_modifiers()
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod plan_mode_tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use aion_providers::{LlmProvider, ProviderError};
+    use aion_tools::registry::ToolRegistry;
+    use aion_types::llm::{LlmEvent, LlmRequest};
+    use aion_types::skill_types::{ContextModifier, PlanModeTransition};
+
+    use crate::compact::state::CompactState;
+    use crate::confirm::ToolConfirmer;
+    use crate::output::OutputSink;
+    use crate::plan::state::PlanState;
+
+    struct NullOutput;
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+    #[async_trait::async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(
+            &self,
+            _: &LlmRequest,
+        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    fn make_plan_engine(allow_list: Vec<String>) -> super::AgentEngine {
+        let flag = Arc::new(AtomicBool::new(false));
+        super::AgentEngine {
+            provider: Arc::new(NullProvider),
+            tools: ToolRegistry::new(),
+            messages: vec![],
+            system_prompt: String::new(),
+            model: "test-model".to_string(),
+            max_tokens: 4096,
+            max_turns: 10,
+            total_usage: Default::default(),
+            thinking: None,
+            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
+            hooks: None,
+            session_manager: None,
+            current_session: None,
+            output: Arc::new(NullOutput),
+            current_msg_id: String::new(),
+            approval_manager: None,
+            protocol_writer: None,
+            allow_list,
+            current_reasoning_effort: None,
+            compact_config: aion_config::compact::CompactConfig::default(),
+            compact_state: CompactState::new(),
+            plan_state: PlanState::default(),
+            plan_active_flag: Some(flag),
+        }
+    }
+
+    // --- TC-3.5-03: Enter transition activates plan mode ---
+
+    #[test]
+    fn enter_transition_activates_plan_mode() {
+        let mut engine = make_plan_engine(vec!["Read".into(), "Bash".into()]);
+        let modifiers = vec![Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })];
+
+        engine.apply_context_modifiers(&modifiers);
+
+        assert!(engine.plan_state.is_active, "plan mode should be active");
+        assert_eq!(
+            engine.plan_state.pre_plan_allow_list,
+            vec!["Read".to_string(), "Bash".to_string()],
+            "pre_plan_allow_list should capture original allow_list"
+        );
+    }
+
+    // --- TC-3.5-03 supplement: shared flag updated on enter ---
+
+    #[test]
+    fn enter_transition_updates_shared_flag() {
+        let mut engine = make_plan_engine(vec![]);
+        let flag = engine.plan_active_flag.clone().unwrap();
+        assert!(!flag.load(Ordering::Acquire));
+
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })]);
+
+        assert!(flag.load(Ordering::Acquire), "shared flag should be true");
+    }
+
+    // --- TC-3.5-04: Exit transition deactivates plan mode and restores allow_list ---
+
+    #[test]
+    fn exit_transition_deactivates_and_restores() {
+        let mut engine = make_plan_engine(vec!["Read".into(), "Bash".into()]);
+
+        // Enter plan mode first
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })]);
+        assert!(engine.plan_state.is_active);
+
+        // Modify allow_list while in plan mode (simulating a skill adding tools)
+        engine.allow_list.push("NewTool".into());
+
+        // Exit plan mode
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Exit {
+                plan_content: None,
+            }),
+            ..Default::default()
+        })]);
+
+        assert!(!engine.plan_state.is_active, "plan mode should be inactive");
+        assert_eq!(
+            engine.allow_list,
+            vec!["Read".to_string(), "Bash".to_string()],
+            "allow_list should be restored to pre-plan state"
+        );
+    }
+
+    // --- TC-3.5-04 supplement: shared flag updated on exit ---
+
+    #[test]
+    fn exit_transition_updates_shared_flag() {
+        let mut engine = make_plan_engine(vec![]);
+        let flag = engine.plan_active_flag.clone().unwrap();
+
+        // Enter
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })]);
+        assert!(flag.load(Ordering::Acquire));
+
+        // Exit
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Exit {
+                plan_content: None,
+            }),
+            ..Default::default()
+        })]);
+        assert!(
+            !flag.load(Ordering::Acquire),
+            "shared flag should be false after exit"
+        );
+    }
+
+    // --- TC-3.5-05: No transition does not affect plan state ---
+
+    #[test]
+    fn no_transition_does_not_affect_plan_state() {
+        let mut engine = make_plan_engine(vec![]);
+
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            model: Some("new-model".into()),
+            plan_mode_transition: None,
+            ..Default::default()
+        })]);
+
+        assert_eq!(engine.model, "new-model");
+        assert!(!engine.plan_state.is_active, "plan state should remain inactive");
+    }
+
+    // --- Enter + other modifiers applied together ---
+
+    #[test]
+    fn enter_with_model_override_both_applied() {
+        let mut engine = make_plan_engine(vec![]);
+
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            model: Some("planning-model".into()),
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })]);
+
+        assert!(engine.plan_state.is_active);
+        assert_eq!(engine.model, "planning-model");
+    }
+
+    // --- No plan_active_flag set does not panic ---
+
+    #[test]
+    fn enter_without_flag_does_not_panic() {
+        let mut engine = make_plan_engine(vec![]);
+        engine.plan_active_flag = None;
+
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })]);
+
+        assert!(engine.plan_state.is_active);
+    }
+
+    // --- Plan file written on exit with content ---
+
+    #[test]
+    fn exit_with_content_writes_plan_file() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let plan_path = tmp.path().join("plans").join("test.md");
+
+        let mut engine = make_plan_engine(vec![]);
+        engine.plan_state.plan_file_path = Some(plan_path.clone());
+
+        // Enter then exit with plan content
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })]);
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Exit {
+                plan_content: Some("# Implementation Plan\nStep 1: do things".into()),
+            }),
+            ..Default::default()
+        })]);
+
+        let content = std::fs::read_to_string(&plan_path).unwrap();
+        assert_eq!(content, "# Implementation Plan\nStep 1: do things");
+    }
+
+    // --- Exit without content does not write file ---
+
+    #[test]
+    fn exit_without_content_no_file_written() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let plan_path = tmp.path().join("plans").join("test.md");
+
+        let mut engine = make_plan_engine(vec![]);
+        engine.plan_state.plan_file_path = Some(plan_path.clone());
+
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Enter),
+            ..Default::default()
+        })]);
+        engine.apply_context_modifiers(&[Some(ContextModifier {
+            plan_mode_transition: Some(PlanModeTransition::Exit {
+                plan_content: None,
+            }),
+            ..Default::default()
+        })]);
+
+        assert!(!plan_path.exists(), "no file should be created without content");
     }
 }
 

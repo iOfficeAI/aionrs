@@ -234,7 +234,7 @@ pub async fn execute_tool_calls_with_approval(
                 call_id: id.clone(),
                 tool: ToolInfo {
                     name: name.clone(),
-                    category: category.clone(),
+                    category,
                     args: input.clone(),
                     description,
                 },

@@ -6,15 +6,15 @@
 
 - 角色: review
 - 阶段: phase-3
-- 任务: 3.4
-- 描述: 审查 plan mode 系统提示和 plan 文件管理
+- 任务: 3.5
+- 描述: 集成到 engine 循环（状态转换 + 工具过滤）
 
 ## 待处理 ISSUE
 
-- R-3.3-01 [LOW] Tool trait context_modifier_for() 文档注释过时（"Only SkillTool overrides this"），需更新 — 第 2 轮
+（无）
 
 ## 上下文
 
-- 上次完成: 3.4 impl（prompt.rs + file.rs + context.rs plan_mode_active）
-- 实施报告: .tmp/docs/evolution/phases/phase-3/impl-3.4.md
-- 累计测试: ~1389
+- 上次完成: 3.5 impl（R-3.4-01 已修复，R-3.3-01 已过期关闭）
+- 实施报告: .tmp/docs/evolution/phases/phase-3/impl-3.5.md
+- 累计测试: ~1412

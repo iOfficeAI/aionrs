@@ -44,6 +44,24 @@ impl ToolRegistry {
             })
             .collect()
     }
+
+    /// Generate API tool definitions for tools matching a predicate.
+    ///
+    /// Used by plan mode to restrict the tool set sent to the LLM.
+    pub fn to_tool_defs_filtered<F>(&self, filter: F) -> Vec<ToolDef>
+    where
+        F: Fn(&dyn Tool) -> bool,
+    {
+        self.tools
+            .iter()
+            .filter(|t| filter(t.as_ref()))
+            .map(|t| ToolDef {
+                name: t.name().to_string(),
+                description: t.description().to_string(),
+                input_schema: t.input_schema(),
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
@@ -58,6 +76,7 @@ mod tests {
     struct MockTool {
         tool_name: String,
         tool_description: String,
+        tool_category: ToolCategory,
     }
 
     #[async_trait]
@@ -86,7 +105,7 @@ mod tests {
         }
 
         fn category(&self) -> ToolCategory {
-            ToolCategory::Info
+            self.tool_category
         }
     }
 
@@ -95,6 +114,19 @@ mod tests {
         Box::new(MockTool {
             tool_name: name.to_string(),
             tool_description: description.to_string(),
+            tool_category: ToolCategory::Info,
+        })
+    }
+
+    fn make_tool_with_category(
+        name: &str,
+        description: &str,
+        category: ToolCategory,
+    ) -> Box<MockTool> {
+        Box::new(MockTool {
+            tool_name: name.to_string(),
+            tool_description: description.to_string(),
+            tool_category: category,
         })
     }
 
@@ -162,5 +194,76 @@ mod tests {
         for def in &defs {
             assert_eq!(def.input_schema, expected_schema);
         }
+    }
+
+    // --- to_tool_defs_filtered tests ---
+
+    #[test]
+    fn filtered_by_category_returns_matching_tools() {
+        let mut registry = ToolRegistry::new();
+        registry.register(make_tool_with_category("Read", "read files", ToolCategory::Info));
+        registry.register(make_tool_with_category("Write", "write files", ToolCategory::Edit));
+        registry.register(make_tool_with_category("Bash", "run commands", ToolCategory::Exec));
+        registry.register(make_tool_with_category(
+            "ExitPlanMode",
+            "exit plan mode",
+            ToolCategory::Info,
+        ));
+
+        let defs = registry
+            .to_tool_defs_filtered(|t| t.category() == ToolCategory::Info);
+
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert!(names.contains(&"Read"));
+        assert!(names.contains(&"ExitPlanMode"));
+        assert!(!names.contains(&"Write"));
+        assert!(!names.contains(&"Bash"));
+    }
+
+    #[test]
+    fn filtered_by_name_excludes_specific_tool() {
+        let mut registry = ToolRegistry::new();
+        registry.register(make_tool("alpha", "first"));
+        registry.register(make_tool("beta", "second"));
+        registry.register(make_tool("gamma", "third"));
+
+        let defs = registry.to_tool_defs_filtered(|t| t.name() != "beta");
+
+        let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"alpha"));
+        assert!(names.contains(&"gamma"));
+        assert!(!names.contains(&"beta"));
+    }
+
+    #[test]
+    fn filtered_accept_all_matches_to_tool_defs() {
+        let mut registry = ToolRegistry::new();
+        registry.register(make_tool("a", "tool a"));
+        registry.register(make_tool("b", "tool b"));
+
+        let all = registry.to_tool_defs();
+        let filtered = registry.to_tool_defs_filtered(|_| true);
+
+        assert_eq!(all.len(), filtered.len());
+        for (a, f) in all.iter().zip(filtered.iter()) {
+            assert_eq!(a.name, f.name);
+        }
+    }
+
+    #[test]
+    fn filtered_reject_all_returns_empty() {
+        let mut registry = ToolRegistry::new();
+        registry.register(make_tool("a", "tool a"));
+
+        let defs = registry.to_tool_defs_filtered(|_| false);
+        assert!(defs.is_empty());
+    }
+
+    #[test]
+    fn filtered_empty_registry_returns_empty() {
+        let registry = ToolRegistry::new();
+        let defs = registry.to_tool_defs_filtered(|_| true);
+        assert!(defs.is_empty());
     }
 }
