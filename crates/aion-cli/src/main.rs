@@ -245,6 +245,7 @@ async fn main() -> anyhow::Result<()> {
         &skills,
         None,
         memory_dir.as_deref(),
+        false,
     );
     config.system_prompt = Some(system_prompt);
 

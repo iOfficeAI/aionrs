@@ -23,7 +23,7 @@ fn tc_7_1_memory_dir_with_content_injects_prompt() {
     )
     .unwrap();
 
-    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir));
+    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
 
     // Should contain memory system sections
     assert!(
@@ -64,7 +64,7 @@ fn tc_7_1_memory_dir_with_content_injects_prompt() {
 
 #[test]
 fn tc_7_2_no_memory_dir_no_injection() {
-    let result = build_system_prompt(None, "/tmp", &[], None, None);
+    let result = build_system_prompt(None, "/tmp", &[], None, None, false);
 
     assert!(
         !result.contains("auto memory"),
@@ -131,6 +131,7 @@ fn tc_7_3_section_ordering() {
         &[skill],
         None,
         Some(&mem_dir),
+        false,
     );
 
     let agents_pos = result
@@ -165,6 +166,7 @@ fn tc_7_4_nonexistent_dir_graceful_degradation() {
         &[],
         None,
         Some(std::path::Path::new("/nonexistent/memory/dir")),
+        false,
     );
 
     // Should not panic
@@ -195,7 +197,7 @@ fn tc_7_5_memory_md_content_injected() {
     )
     .unwrap();
 
-    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir));
+    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
 
     assert!(result.contains("user_role.md"), "should contain first entry");
     assert!(
@@ -223,7 +225,7 @@ fn tc_7_6_no_memory_md_shows_empty() {
     fs::create_dir_all(&mem_dir).unwrap();
     // No MEMORY.md created
 
-    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir));
+    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
 
     assert!(
         result.contains("currently empty"),
@@ -246,7 +248,7 @@ fn tc_7_7_no_bb_brand_in_integrated_prompt() {
     )
     .unwrap();
 
-    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir));
+    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
 
     assert!(
         !result.contains("~/.claude"),
