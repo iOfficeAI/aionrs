@@ -57,7 +57,8 @@ fn bash_description_contains_parallel_guidance() {
 
 #[test]
 fn read_description_requires_absolute_path() {
-    let desc = ReadTool.description();
+    let tool = ReadTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("absolute path"),
         "Read description should mention absolute path requirement"
@@ -66,7 +67,8 @@ fn read_description_requires_absolute_path() {
 
 #[test]
 fn read_description_mentions_line_numbers() {
-    let desc = ReadTool.description();
+    let tool = ReadTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.contains("line number"),
         "Read description should explain line number output format"
@@ -75,7 +77,8 @@ fn read_description_mentions_line_numbers() {
 
 #[test]
 fn read_description_handles_binary() {
-    let desc = ReadTool.description();
+    let tool = ReadTool::new(None);
+    let desc = tool.description();
     assert!(
         desc.to_lowercase().contains("binary"),
         "Read description should mention binary file handling"
@@ -211,7 +214,7 @@ fn grep_description_does_not_say_at_most_matches() {
 fn tool_def_description_matches_tool_instance() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(BashTool));
-    registry.register(Box::new(ReadTool));
+    registry.register(Box::new(ReadTool::new(None)));
     registry.register(Box::new(EditTool));
     registry.register(Box::new(WriteTool));
     registry.register(Box::new(GlobTool));

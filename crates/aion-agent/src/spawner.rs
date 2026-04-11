@@ -150,7 +150,7 @@ type ToolFactory = fn() -> Box<dyn aion_tools::Tool>;
 
 fn build_tool_registry(allowed: &[String]) -> ToolRegistry {
     let all: &[(&str, ToolFactory)] = &[
-        ("Read", || Box::new(ReadTool)),
+        ("Read", || Box::new(ReadTool::new(None))),
         ("Write", || Box::new(WriteTool)),
         ("Edit", || Box::new(EditTool)),
         ("Bash", || Box::new(BashTool)),

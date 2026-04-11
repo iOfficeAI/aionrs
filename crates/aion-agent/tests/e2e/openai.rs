@@ -93,7 +93,7 @@ async fn test_openai_tool_use() {
     let provider = create_provider(&config);
     let output: Arc<dyn OutputSink> = Arc::new(TerminalSink::new(true));
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(ReadTool));
+    registry.register(Box::new(ReadTool::new(None)));
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
     let prompt = format!(
