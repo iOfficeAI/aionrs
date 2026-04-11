@@ -605,4 +605,6 @@ pub enum AgentError {
     MaxTurnsExceeded(usize),
     #[error("User aborted the session")]
     UserAborted,
+    #[error("Context window nearly full ({input_tokens} tokens used, limit {limit})")]
+    ContextTooLong { input_tokens: u64, limit: usize },
 }

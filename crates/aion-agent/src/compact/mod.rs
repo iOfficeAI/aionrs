@@ -6,6 +6,7 @@
 //! - **Emergency**: blocks API calls when near the context window limit
 
 pub mod auto;
+pub mod emergency;
 pub mod micro;
 pub mod prompt;
 pub mod state;
