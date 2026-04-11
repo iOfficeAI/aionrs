@@ -5,3 +5,4 @@ pub mod compact;
 pub mod compat;
 pub mod config;
 pub mod hooks;
+pub mod plan;

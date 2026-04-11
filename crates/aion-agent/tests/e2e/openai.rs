@@ -41,6 +41,7 @@ fn openai_config(api_key: &str) -> Config {
             max_sessions: 1,
         },
         compact: aion_config::compact::CompactConfig::default(),
+        plan: aion_config::plan::PlanConfig::default(),
         hooks: HooksConfig::default(),
         bedrock: None,
         vertex: None,

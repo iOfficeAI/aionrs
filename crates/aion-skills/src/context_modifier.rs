@@ -16,6 +16,7 @@ pub fn from_skill(skill: &SkillMetadata) -> Option<ContextModifier> {
         model: skill.model.clone(),
         effort: skill.effort,
         allowed_tools: skill.allowed_tools.clone(),
+        ..Default::default()
     })
 }
 

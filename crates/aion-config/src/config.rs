@@ -7,6 +7,7 @@ use crate::auth::{AuthConfig, OAuthManager};
 use crate::compact::CompactConfig;
 use crate::compat::ProviderCompat;
 use crate::hooks::HooksConfig;
+use crate::plan::PlanConfig;
 use aion_types::llm::ThinkingConfig;
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,9 @@ pub struct ConfigFile {
 
     #[serde(default)]
     pub compact: CompactConfig,
+
+    #[serde(default)]
+    pub plan: PlanConfig,
 
     #[serde(default)]
     pub hooks: HooksConfig,
@@ -244,6 +248,7 @@ pub struct Config {
     pub tools: ToolsConfig,
     pub session: SessionConfig,
     pub compact: CompactConfig,
+    pub plan: PlanConfig,
     pub hooks: HooksConfig,
     pub bedrock: Option<BedrockConfig>,
     pub vertex: Option<VertexConfig>,
@@ -379,6 +384,7 @@ impl Config {
             tools,
             session: merged.session,
             compact: merged.compact,
+            plan: merged.plan,
             hooks: merged.hooks,
             bedrock: merged.bedrock,
             vertex: merged.vertex,
@@ -636,6 +642,15 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         servers: mcp_servers,
     };
 
+    // Plan: project overrides global if any field differs from default
+    let plan = if !project.plan.enabled
+        || project.plan.plan_directory != PlanConfig::default().plan_directory
+    {
+        project.plan
+    } else {
+        global.plan
+    };
+
     // Bedrock/Vertex/Auth: project overrides global
     let bedrock = project.bedrock.or(global.bedrock);
     let vertex = project.vertex.or(global.vertex);
@@ -660,6 +675,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         tools,
         session,
         compact,
+        plan,
         hooks,
         bedrock,
         vertex,

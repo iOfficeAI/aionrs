@@ -259,6 +259,7 @@ pub fn test_config() -> Config {
             max_sessions: 5,
         },
         compact: aion_config::compact::CompactConfig::default(),
+        plan: aion_config::plan::PlanConfig::default(),
         hooks: HooksConfig::default(),
         bedrock: None,
         vertex: None,

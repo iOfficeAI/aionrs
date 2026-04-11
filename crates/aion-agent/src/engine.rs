@@ -555,8 +555,7 @@ mod phase6_tests {
         let mut engine = make_engine("original-model", vec![]);
         let modifiers = vec![Some(ContextModifier {
             model: Some("override-model".to_string()),
-            effort: None,
-            allowed_tools: vec![],
+            ..Default::default()
         })];
         engine.apply_context_modifiers(&modifiers);
         assert_eq!(engine.model, "override-model");
@@ -566,9 +565,8 @@ mod phase6_tests {
     fn tc_6_22_effort_override_applied() {
         let mut engine = make_engine("m", vec![]);
         let modifiers = vec![Some(ContextModifier {
-            model: None,
             effort: Some(EffortLevel::High),
-            allowed_tools: vec![],
+            ..Default::default()
         })];
         engine.apply_context_modifiers(&modifiers);
         assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
@@ -584,9 +582,8 @@ mod phase6_tests {
         ] {
             let mut engine = make_engine("m", vec![]);
             engine.apply_context_modifiers(&[Some(ContextModifier {
-                model: None,
                 effort: Some(level),
-                allowed_tools: vec![],
+                ..Default::default()
             })]);
             assert_eq!(
                 engine.current_reasoning_effort.as_deref(),
@@ -600,9 +597,8 @@ mod phase6_tests {
     fn tc_6_23_allowed_tools_no_duplicates() {
         let mut engine = make_engine("m", vec!["Bash".to_string()]);
         let modifiers = vec![Some(ContextModifier {
-            model: None,
-            effort: None,
             allowed_tools: vec!["Bash".to_string(), "Read".to_string()],
+            ..Default::default()
         })];
         engine.apply_context_modifiers(&modifiers);
         let bash_count = engine
@@ -634,9 +630,8 @@ mod phase6_tests {
     fn tc_6_26_none_model_does_not_overwrite() {
         let mut engine = make_engine("current-model", vec![]);
         engine.apply_context_modifiers(&[Some(ContextModifier {
-            model: None,
-            effort: None,
             allowed_tools: vec!["Bash".to_string()],
+            ..Default::default()
         })]);
         assert_eq!(engine.model, "current-model");
         assert!(engine.allow_list.contains(&"Bash".to_string()));
@@ -648,13 +643,13 @@ mod phase6_tests {
         let modifiers = vec![
             Some(ContextModifier {
                 model: Some("model-a".to_string()),
-                effort: None,
                 allowed_tools: vec!["Bash".to_string()],
+                ..Default::default()
             }),
             Some(ContextModifier {
                 model: Some("model-b".to_string()),
-                effort: None,
                 allowed_tools: vec!["Read".to_string()],
+                ..Default::default()
             }),
         ];
         engine.apply_context_modifiers(&modifiers);
@@ -669,8 +664,7 @@ mod phase6_tests {
         let model_before = engine.model.clone();
         let modifiers = vec![Some(ContextModifier {
             model: Some("new-model".to_string()),
-            effort: None,
-            allowed_tools: vec![],
+            ..Default::default()
         })];
         assert_eq!(engine.model, model_before);
         engine.apply_context_modifiers(&modifiers);
