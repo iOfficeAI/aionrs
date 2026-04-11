@@ -47,14 +47,6 @@ Compose a clear, actionable implementation plan in your response including:
 When your plan is complete, call ExitPlanMode to submit it for user review. Do not ask "Is this plan okay?" — calling ExitPlanMode is the way to request approval."#
 }
 
-/// Notice appended to the system prompt after the agent exits plan mode.
-///
-/// Informs the LLM that full tool access has been restored and it may
-/// proceed with implementation.
-pub fn plan_mode_exit_notice() -> &'static str {
-    "Plan mode has been exited. Full tool access is restored. You can now make edits, run tools, and implement the plan."
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -117,17 +109,5 @@ mod tests {
             !text.contains("~/.claude"),
             "should not contain bb config path"
         );
-    }
-
-    #[test]
-    fn exit_notice_not_empty() {
-        assert!(!plan_mode_exit_notice().is_empty());
-    }
-
-    #[test]
-    fn exit_notice_indicates_exit() {
-        let text = plan_mode_exit_notice();
-        assert!(text.contains("exited"), "should indicate plan mode exited");
-        assert!(text.contains("restored"), "should indicate access restored");
     }
 }

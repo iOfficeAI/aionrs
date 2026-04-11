@@ -519,17 +519,11 @@ impl AgentEngine {
                             flag.store(true, Ordering::Release);
                         }
                     }
-                    PlanModeTransition::Exit { plan_content } => {
+                    PlanModeTransition::Exit { .. } => {
                         self.plan_state.is_active = false;
                         self.allow_list = self.plan_state.pre_plan_allow_list.clone();
                         if let Some(ref flag) = self.plan_active_flag {
                             flag.store(false, Ordering::Release);
-                        }
-                        // Save plan content to file if both content and path are available
-                        if let Some(content) = plan_content
-                            && let Some(ref path) = self.plan_state.plan_file_path
-                        {
-                            let _ = crate::plan::file::write_plan(path, content);
                         }
                     }
                 }
@@ -1220,55 +1214,6 @@ mod plan_mode_tests {
         assert!(engine.plan_state.is_active);
     }
 
-    // --- Plan file written on exit with content ---
-
-    #[test]
-    fn exit_with_content_writes_plan_file() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let plan_path = tmp.path().join("plans").join("test.md");
-
-        let mut engine = make_plan_engine(vec![]);
-        engine.plan_state.plan_file_path = Some(plan_path.clone());
-
-        // Enter then exit with plan content
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })]);
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Exit {
-                plan_content: Some("# Implementation Plan\nStep 1: do things".into()),
-            }),
-            ..Default::default()
-        })]);
-
-        let content = std::fs::read_to_string(&plan_path).unwrap();
-        assert_eq!(content, "# Implementation Plan\nStep 1: do things");
-    }
-
-    // --- Exit without content does not write file ---
-
-    #[test]
-    fn exit_without_content_no_file_written() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let plan_path = tmp.path().join("plans").join("test.md");
-
-        let mut engine = make_plan_engine(vec![]);
-        engine.plan_state.plan_file_path = Some(plan_path.clone());
-
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })]);
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Exit {
-                plan_content: None,
-            }),
-            ..Default::default()
-        })]);
-
-        assert!(!plan_path.exists(), "no file should be created without content");
-    }
 }
 
 #[derive(Debug)]

@@ -29,12 +29,6 @@ fn tc_3_3_01_plan_state_default_allow_list_empty() {
     assert!(state.pre_plan_allow_list.is_empty());
 }
 
-#[test]
-fn tc_3_3_01_plan_state_default_no_plan_file() {
-    let state = PlanState::default();
-    assert!(state.plan_file_path.is_none());
-}
-
 // ---------------------------------------------------------------------------
 // TC-3.3-02  EnterPlanMode normal execution
 // ---------------------------------------------------------------------------

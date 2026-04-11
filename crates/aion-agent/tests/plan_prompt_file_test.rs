@@ -7,7 +7,7 @@ use std::path::Path;
 
 use aion_agent::context::build_system_prompt;
 use aion_agent::plan::file::{plan_file_path, read_plan, write_plan};
-use aion_agent::plan::prompt::{plan_mode_exit_notice, plan_mode_instructions};
+use aion_agent::plan::prompt::plan_mode_instructions;
 
 // ---------------------------------------------------------------------------
 // TC-3.4-01  plan_mode_instructions content
@@ -53,25 +53,6 @@ fn tc_3_4_01_instructions_forbid_writes() {
     assert!(
         text.contains("MUST NOT") || text.contains("Forbidden"),
         "instructions should forbid write operations"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// TC-3.4-02  plan_mode_exit_notice content
-// ---------------------------------------------------------------------------
-
-#[test]
-fn tc_3_4_02_exit_notice_not_empty() {
-    let text = plan_mode_exit_notice();
-    assert!(!text.is_empty(), "exit notice should not be empty");
-}
-
-#[test]
-fn tc_3_4_02_exit_notice_indicates_exit() {
-    let text = plan_mode_exit_notice();
-    assert!(
-        text.contains("exited") || text.contains("Exited"),
-        "exit notice should indicate plan mode was exited"
     );
 }
 
@@ -185,19 +166,6 @@ fn tc_3_4_09_no_bb_brand_in_instructions() {
     assert!(
         !text.contains("~/.claude"),
         "instructions should not contain bb config path"
-    );
-}
-
-#[test]
-fn tc_3_4_09_no_bb_brand_in_exit_notice() {
-    let text = plan_mode_exit_notice();
-    assert!(
-        !text.contains("Claude"),
-        "exit notice should not contain Claude brand"
-    );
-    assert!(
-        !text.contains("~/.claude"),
-        "exit notice should not contain bb config path"
     );
 }
 
