@@ -5,11 +5,10 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use aion_protocol::events::ToolCategory;
-use aion_types::file_state::FileState;
 use aion_types::tool::{JsonSchema, ToolResult};
 
 use crate::Tool;
-use crate::file_cache::{FileStateCache, file_mtime_ms};
+use crate::file_cache::{FileStateCache, update_cache_after_write};
 
 pub struct WriteTool {
     file_cache: Option<Arc<RwLock<FileStateCache>>>,
@@ -114,25 +113,8 @@ impl Tool for WriteTool {
                     is_error: true,
                 };
             }
-            // Post-write cache update (fallback path).
-            if let Some(cache_arc) = &self.file_cache
-                && let (Ok(mut cache), Some(new_mtime)) =
-                    (cache_arc.write(), file_mtime_ms(path))
-            {
-                let numbered: Vec<String> = content
-                    .lines()
-                    .enumerate()
-                    .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
-                    .collect();
-                cache.insert(
-                    file_path.into(),
-                    FileState {
-                        content: numbered.join("\n"),
-                        mtime_ms: new_mtime,
-                        offset: None,
-                        limit: None,
-                    },
-                );
+            if let Some(cache_arc) = &self.file_cache {
+                update_cache_after_write(cache_arc, path, content);
             }
 
             return ToolResult {
@@ -144,24 +126,8 @@ impl Tool for WriteTool {
             };
         }
 
-        // Post-write cache update.
-        if let Some(cache_arc) = &self.file_cache
-            && let (Ok(mut cache), Some(new_mtime)) = (cache_arc.write(), file_mtime_ms(path))
-        {
-            let numbered: Vec<String> = content
-                .lines()
-                .enumerate()
-                .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
-                .collect();
-            cache.insert(
-                file_path.into(),
-                FileState {
-                    content: numbered.join("\n"),
-                    mtime_ms: new_mtime,
-                    offset: None,
-                    limit: None,
-                },
-            );
+        if let Some(cache_arc) = &self.file_cache {
+            update_cache_after_write(cache_arc, path, content);
         }
 
         let line_count = content.lines().count();
@@ -197,6 +163,7 @@ mod tests {
 
     use aion_config::file_cache::FileCacheConfig;
     use crate::Tool;
+    use crate::file_cache::file_mtime_ms;
 
     fn make_cache() -> Arc<RwLock<FileStateCache>> {
         let config = FileCacheConfig {

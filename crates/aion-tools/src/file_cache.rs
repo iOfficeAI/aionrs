@@ -1,5 +1,6 @@
 use std::num::NonZeroUsize;
 use std::path::{Component, Path, PathBuf};
+use std::sync::Arc;
 use std::time::UNIX_EPOCH;
 
 use lru::LruCache;
@@ -100,6 +101,38 @@ impl FileStateCache {
     pub fn current_size_bytes(&self) -> usize {
         self.current_size_bytes
     }
+}
+
+/// Update the cache after a successful file write (Edit or Write).
+///
+/// Reads the new mtime from disk and stores line-numbered content.
+/// This is the single point for post-write cache updates, eliminating
+/// duplication between EditTool and WriteTool.
+pub fn update_cache_after_write(
+    cache_arc: &Arc<std::sync::RwLock<FileStateCache>>,
+    path: &Path,
+    content: &str,
+) {
+    let Ok(mut cache) = cache_arc.write() else {
+        return;
+    };
+    let Some(new_mtime) = file_mtime_ms(path) else {
+        return;
+    };
+    let numbered: Vec<String> = content
+        .lines()
+        .enumerate()
+        .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
+        .collect();
+    cache.insert(
+        path.to_path_buf(),
+        FileState {
+            content: numbered.join("\n"),
+            mtime_ms: new_mtime,
+            offset: None,
+            limit: None,
+        },
+    );
 }
 
 /// Get file modification time as milliseconds since UNIX epoch.

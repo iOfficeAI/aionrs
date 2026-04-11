@@ -5,11 +5,10 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use aion_protocol::events::ToolCategory;
-use aion_types::file_state::FileState;
 use aion_types::tool::{JsonSchema, ToolResult};
 
 use crate::Tool;
-use crate::file_cache::{FileStateCache, file_mtime_ms};
+use crate::file_cache::{FileStateCache, file_mtime_ms, update_cache_after_write};
 
 pub struct EditTool {
     file_cache: Option<Arc<RwLock<FileStateCache>>>,
@@ -174,24 +173,8 @@ impl Tool for EditTool {
         }
 
         // Post-write cache update: refresh mtime and content.
-        if let Some(cache_arc) = &self.file_cache
-            && let (Ok(mut cache), Some(new_mtime)) = (cache_arc.write(), file_mtime_ms(path))
-        {
-            // Build line-numbered content matching Read tool format.
-            let numbered: Vec<String> = new_content
-                .lines()
-                .enumerate()
-                .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
-                .collect();
-            cache.insert(
-                file_path.into(),
-                FileState {
-                    content: numbered.join("\n"),
-                    mtime_ms: new_mtime,
-                    offset: None,
-                    limit: None,
-                },
-            );
+        if let Some(cache_arc) = &self.file_cache {
+            update_cache_after_write(cache_arc, path, &new_content);
         }
 
         ToolResult {
@@ -227,6 +210,7 @@ mod tests {
     use tempfile::tempdir;
 
     use aion_config::file_cache::FileCacheConfig;
+    use crate::file_cache::update_cache_after_write;
 
     fn make_cache() -> Arc<RwLock<FileStateCache>> {
         let config = FileCacheConfig {
@@ -239,22 +223,8 @@ mod tests {
 
     /// Simulate a Read by inserting a cache entry for the given file path.
     fn simulate_read(cache: &Arc<RwLock<FileStateCache>>, path: &Path) {
-        let mtime = file_mtime_ms(path).unwrap_or(0);
         let content = std::fs::read_to_string(path).unwrap_or_default();
-        let numbered: Vec<String> = content
-            .lines()
-            .enumerate()
-            .map(|(i, line)| format!("{:>6}\t{}", i + 1, line))
-            .collect();
-        cache.write().unwrap().insert(
-            path.to_path_buf(),
-            FileState {
-                content: numbered.join("\n"),
-                mtime_ms: mtime,
-                offset: None,
-                limit: None,
-            },
-        );
+        update_cache_after_write(cache, path, &content);
     }
 
     // -- Legacy tests (no cache) --

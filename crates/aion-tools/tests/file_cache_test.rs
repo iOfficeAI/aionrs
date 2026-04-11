@@ -4,9 +4,10 @@
 //! depending on internal implementation details.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use aion_config::file_cache::FileCacheConfig;
-use aion_tools::file_cache::FileStateCache;
+use aion_tools::file_cache::{FileStateCache, file_mtime_ms, update_cache_after_write};
 use aion_types::file_state::FileState;
 
 fn default_config() -> FileCacheConfig {
@@ -224,4 +225,97 @@ fn partial_read_state_round_trip() {
     let got = cache.get(Path::new("/partial")).unwrap();
     assert_eq!(got.offset, Some(10));
     assert_eq!(got.limit, Some(20));
+}
+
+// ==========================================================================
+// TC-5.5: update_cache_after_write helper and config integration
+// ==========================================================================
+
+/// TC-5.5-01: Cache created with custom max_entries has correct capacity.
+#[test]
+fn tc_5_5_01_custom_capacity() {
+    let config = FileCacheConfig {
+        max_entries: 50,
+        max_size_bytes: 25 * 1024 * 1024,
+        enabled: true,
+    };
+    let mut cache = FileStateCache::new(&config);
+
+    // Insert 50 entries: all should fit.
+    for i in 0..50 {
+        cache.insert(PathBuf::from(format!("/f{}", i)), make_state("x", i));
+    }
+    assert_eq!(cache.len(), 50);
+
+    // 51st entry evicts the LRU.
+    cache.insert(PathBuf::from("/f50"), make_state("x", 50));
+    assert_eq!(cache.len(), 50);
+    assert!(
+        cache.get(Path::new("/f0")).is_none(),
+        "/f0 should be evicted at capacity 50"
+    );
+}
+
+/// update_cache_after_write stores line-numbered content with correct mtime.
+#[test]
+fn update_cache_after_write_stores_numbered_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("helper_test.txt");
+    let content = "line one\nline two\nline three";
+    std::fs::write(&file, content).unwrap();
+
+    let cache_arc = Arc::new(RwLock::new(FileStateCache::new(&default_config())));
+    update_cache_after_write(&cache_arc, &file, content);
+
+    let mut cache = cache_arc.write().unwrap();
+    let cached = cache.get(&file).expect("entry should exist after update");
+
+    // Content should be line-numbered.
+    assert!(cached.content.contains("     1\tline one"));
+    assert!(cached.content.contains("     2\tline two"));
+    assert!(cached.content.contains("     3\tline three"));
+
+    // Mtime should match disk.
+    let disk_mtime = file_mtime_ms(&file).unwrap();
+    assert_eq!(cached.mtime_ms, disk_mtime);
+
+    // Offset and limit should be None (full file).
+    assert!(cached.offset.is_none());
+    assert!(cached.limit.is_none());
+}
+
+/// update_cache_after_write handles empty content.
+#[test]
+fn update_cache_after_write_empty_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("empty.txt");
+    std::fs::write(&file, "").unwrap();
+
+    let cache_arc = Arc::new(RwLock::new(FileStateCache::new(&default_config())));
+    update_cache_after_write(&cache_arc, &file, "");
+
+    let mut cache = cache_arc.write().unwrap();
+    let cached = cache.get(&file).expect("entry should exist");
+    assert_eq!(cached.content, "");
+}
+
+/// update_cache_after_write overwrites previous entry.
+#[test]
+fn update_cache_after_write_overwrites_previous() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("overwrite.txt");
+
+    std::fs::write(&file, "v1").unwrap();
+    let cache_arc = Arc::new(RwLock::new(FileStateCache::new(&default_config())));
+    update_cache_after_write(&cache_arc, &file, "v1");
+
+    // Brief delay for mtime change.
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    std::fs::write(&file, "v2 updated").unwrap();
+    update_cache_after_write(&cache_arc, &file, "v2 updated");
+
+    let mut cache = cache_arc.write().unwrap();
+    let cached = cache.get(&file).unwrap();
+    assert!(cached.content.contains("v2 updated"));
+    assert_eq!(cached.mtime_ms, file_mtime_ms(&file).unwrap());
 }

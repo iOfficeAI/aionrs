@@ -26,6 +26,7 @@ use aion_skills::loader::load_all_skills;
 use aion_skills::permissions::SkillPermissionChecker;
 use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
+use aion_tools::file_cache::FileStateCache;
 use aion_tools::glob::GlobTool;
 use aion_tools::grep::GrepTool;
 use aion_tools::read::ReadTool;
@@ -209,11 +210,20 @@ async fn main() -> anyhow::Result<()> {
     let cwd_path = std::path::Path::new(&cwd);
     let memory_dir = aion_memory::paths::auto_memory_dir(cwd_path);
 
+    // Create file state cache (shared across Read/Edit/Write tools)
+    let file_cache = if config.file_cache.enabled {
+        Some(Arc::new(std::sync::RwLock::new(FileStateCache::new(
+            &config.file_cache,
+        ))))
+    } else {
+        None
+    };
+
     // Register built-in tools
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(ReadTool::new(None)));
-    registry.register(Box::new(WriteTool::new(None)));
-    registry.register(Box::new(EditTool::new(None)));
+    registry.register(Box::new(ReadTool::new(file_cache.clone())));
+    registry.register(Box::new(WriteTool::new(file_cache.clone())));
+    registry.register(Box::new(EditTool::new(file_cache)));
     registry.register(Box::new(BashTool));
     registry.register(Box::new(GrepTool));
     registry.register(Box::new(GlobTool));
