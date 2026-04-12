@@ -35,11 +35,12 @@ the diff, which is easier to review.
 ///
 /// Sections are assembled in this order:
 /// 1. Base intro (role, working directory, date)
-/// 2. Custom prompt (user config)
-/// 3. AGENTS.md (project instructions)
-/// 4. Memory system prompt (behavioral instructions + MEMORY.md content)
-/// 5. Plan mode instructions (when active)
-/// 6. Skills reminder (available skills listing)
+/// 2. Tool usage guidance (dedicated tools, parallel calls, etc.)
+/// 3. Custom prompt (user config)
+/// 4. AGENTS.md (project instructions)
+/// 5. Memory system prompt (behavioral instructions + MEMORY.md content)
+/// 6. Plan mode instructions (when active)
+/// 7. Skills reminder (available skills listing)
 pub fn build_system_prompt(
     custom_prompt: Option<&str>,
     cwd: &str,

@@ -10,7 +10,7 @@ use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
 use aion_protocol::events::ToolCategory;
 use aion_tools::Tool;
 use aion_tools::registry::ToolRegistry;
-use aion_types::skill_types::{ContextModifier, PlanModeTransition};
+use aion_types::skill_types::PlanModeTransition;
 use async_trait::async_trait;
 use serde_json::json;
 
@@ -181,11 +181,14 @@ async fn tc_3_6_e2e_01_full_plan_mode_lifecycle() {
 
 #[test]
 fn tc_3_6_e2e_02_plan_mode_and_compaction_independent() {
+    use aion_agent::compact::micro::microcompact;
+    use aion_agent::plan::state::PlanState;
+    use aion_config::compact::CompactConfig;
     use aion_types::message::{ContentBlock, Message, Role};
 
-    // Simulate messages with tool results (what microcompact processes)
+    // Build messages with compactable tool results
     let mut messages = Vec::new();
-    for i in 0..6 {
+    for i in 0..8 {
         let id = format!("t{i}");
         messages.push(Message::new(
             Role::Assistant,
@@ -205,29 +208,31 @@ fn tc_3_6_e2e_02_plan_mode_and_compaction_independent() {
         ));
     }
 
-    // Simulate plan mode active state
-    let plan_active = true;
-    let pre_plan_allow_list = vec!["Read".to_string(), "Grep".to_string()];
+    // Create plan state simulating active plan mode
+    let plan_state = PlanState {
+        is_active: true,
+        pre_plan_allow_list: vec!["Read".to_string(), "Grep".to_string()],
+    };
 
-    // Run microcompact (clearing old tool results, keeping recent 2)
-    let keep_recent = 2;
-    let tool_result_count: usize = messages
-        .iter()
-        .flat_map(|m| &m.content)
-        .filter(|b| matches!(b, ContentBlock::ToolResult { .. }))
-        .count();
+    // Actually run microcompact
+    let config = CompactConfig {
+        micro_keep_recent: 3,
+        ..CompactConfig::default()
+    };
+    let result = microcompact(&mut messages, &config);
 
+    // Microcompact should have cleared some results
     assert!(
-        tool_result_count > keep_recent,
-        "should have more results than keep_recent"
+        result.cleared_count > 0,
+        "microcompact should clear old results"
     );
 
-    // After microcompact, plan mode state should be unchanged
-    assert!(plan_active, "plan mode should remain active after compaction");
+    // Plan state should be completely unaffected (microcompact only touches messages)
+    assert!(plan_state.is_active, "plan mode should remain active");
     assert_eq!(
-        pre_plan_allow_list,
+        plan_state.pre_plan_allow_list,
         vec!["Read".to_string(), "Grep".to_string()],
-        "allow list should be unchanged after compaction"
+        "allow list should be unchanged"
     );
 }
 

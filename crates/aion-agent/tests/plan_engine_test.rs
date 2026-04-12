@@ -2,7 +2,7 @@
 //!
 //! Tests are numbered to match the test-plan.md identifiers (TC-3.5-*).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
