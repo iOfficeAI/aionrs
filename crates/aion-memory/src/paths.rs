@@ -285,14 +285,23 @@ mod tests {
         assert!(err.to_string().contains("absolute"));
     }
 
+    #[cfg(unix)]
     #[test]
     fn validate_rejects_short_path() {
-        // On Unix, "/" is only 1 char
         let err = validate_memory_path(Path::new("/a")).unwrap_err();
         assert!(matches!(err, MemoryError::PathValidation(_)));
         assert!(err.to_string().contains("short"));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn validate_rejects_short_path() {
+        let err = validate_memory_path(Path::new("C:\\a")).unwrap_err();
+        assert!(matches!(err, MemoryError::PathValidation(_)));
+        assert!(err.to_string().contains("short"));
+    }
+
+    #[cfg(unix)]
     #[test]
     fn validate_rejects_traversal() {
         let err = validate_memory_path(Path::new("/tmp/../../../etc/passwd")).unwrap_err();
@@ -300,11 +309,32 @@ mod tests {
         assert!(err.to_string().contains("traversal"));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn validate_rejects_traversal() {
+        let err =
+            validate_memory_path(Path::new("C:\\tmp\\..\\..\\..\\etc\\passwd")).unwrap_err();
+        assert!(matches!(err, MemoryError::PathValidation(_)));
+        assert!(err.to_string().contains("traversal"));
+    }
+
+    #[cfg(unix)]
     #[test]
     fn validate_accepts_normal_absolute_path() {
         let result = validate_memory_path(Path::new("/tmp/memory/test.md"));
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), PathBuf::from("/tmp/memory/test.md"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn validate_accepts_normal_absolute_path() {
+        let result = validate_memory_path(Path::new("C:\\tmp\\memory\\test.md"));
+        assert!(result.is_ok());
+        assert_eq!(
+            result.unwrap(),
+            PathBuf::from("C:\\tmp\\memory\\test.md")
+        );
     }
 
     // -- memory_entrypoint ----------------------------------------------------
