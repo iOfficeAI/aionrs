@@ -38,7 +38,7 @@ pub fn bedrock_configured() -> bool {
 macro_rules! skip_if_no_openai {
     () => {
         #[allow(unused_variables)]
-        let openai_api_key = match $crate::acceptance::helpers::openai_api_key() {
+        let openai_api_key = match $crate::helpers::openai_api_key() {
             Some(k) => k,
             None => {
                 eprintln!("[acceptance] OPENAI_API_KEY not set — skipping");
@@ -52,7 +52,7 @@ macro_rules! skip_if_no_openai {
 /// Usage: `skip_if_no_bedrock!();` at the start of a test function.
 macro_rules! skip_if_no_bedrock {
     () => {
-        if !$crate::acceptance::helpers::bedrock_configured() {
+        if !$crate::helpers::bedrock_configured() {
             eprintln!("[acceptance] Bedrock not configured — skipping");
             return;
         }
