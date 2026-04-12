@@ -277,6 +277,7 @@ impl AgentEngine {
 
             let mut rx = self.provider.stream(&request).await?;
             let mut assistant_text = String::new();
+            let mut thinking_text = String::new();
             let mut tool_calls: Vec<ContentBlock> = Vec::new();
             let mut stop_reason = StopReason::EndTurn;
             let mut turn_usage = TokenUsage::default();
@@ -294,6 +295,7 @@ impl AgentEngine {
                     }
                     LlmEvent::ThinkingDelta(text) => {
                         self.output.emit_thinking(&text, &self.current_msg_id);
+                        thinking_text.push_str(&text);
                     }
                     LlmEvent::Done {
                         stop_reason: sr,
@@ -317,6 +319,11 @@ impl AgentEngine {
             self.compact_state.last_input_tokens = turn_usage.input_tokens;
 
             let mut assistant_content: Vec<ContentBlock> = Vec::new();
+            if !thinking_text.is_empty() {
+                assistant_content.push(ContentBlock::Thinking {
+                    thinking: thinking_text,
+                });
+            }
             if !assistant_text.is_empty() {
                 assistant_content.push(ContentBlock::Text {
                     text: assistant_text.clone(),

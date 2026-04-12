@@ -29,7 +29,8 @@ pub enum ContentBlock {
         is_error: bool,
     },
 
-    /// Thinking block (Anthropic only, ignored for OpenAI)
+    /// Thinking / reasoning block. Serialized as `thinking` for Anthropic
+    /// and as `reasoning_content` for OpenAI-compatible providers.
     #[serde(rename = "thinking")]
     Thinking { thinking: String },
 }

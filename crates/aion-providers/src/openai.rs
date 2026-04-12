@@ -97,6 +97,26 @@ impl OpenAIProvider {
                 Role::Assistant => {
                     let mut msg_json = json!({ "role": "assistant" });
 
+                    // Preserve reasoning_content for models with thinking mode
+                    // (e.g. DeepSeek Reasoner, Kimi K2.5). The API requires
+                    // previous reasoning_content to be sent back in multi-turn.
+                    let thinking: String = msg
+                        .content
+                        .iter()
+                        .filter_map(|b| {
+                            if let ContentBlock::Thinking { thinking } = b {
+                                Some(thinking.as_str())
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                        .join("");
+
+                    if !thinking.is_empty() {
+                        msg_json["reasoning_content"] = json!(thinking);
+                    }
+
                     let text: String = msg
                         .content
                         .iter()
