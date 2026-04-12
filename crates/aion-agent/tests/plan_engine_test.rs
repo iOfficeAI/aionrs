@@ -2,8 +2,8 @@
 //!
 //! Tests are numbered to match the test-plan.md identifiers (TC-3.5-*).
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
 use aion_protocol::events::ToolCategory;
@@ -99,9 +99,18 @@ fn tc_3_5_01_plan_mode_only_info_tools_plus_exit() {
     let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
 
     // Should include Info tools
-    assert!(names.contains(&"Read"), "Read should be available in plan mode");
-    assert!(names.contains(&"Grep"), "Grep should be available in plan mode");
-    assert!(names.contains(&"Glob"), "Glob should be available in plan mode");
+    assert!(
+        names.contains(&"Read"),
+        "Read should be available in plan mode"
+    );
+    assert!(
+        names.contains(&"Grep"),
+        "Grep should be available in plan mode"
+    );
+    assert!(
+        names.contains(&"Glob"),
+        "Glob should be available in plan mode"
+    );
     assert!(
         names.contains(&"Skill"),
         "Skill should be available in plan mode"
@@ -298,5 +307,8 @@ fn tool_set_transitions_through_plan_mode_cycle() {
     // Exit plan mode: back to normal
     let back_to_normal = registry.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode");
     let back_names: Vec<&str> = back_to_normal.iter().map(|d| d.name.as_str()).collect();
-    assert_eq!(normal_names, back_names, "tool set should be identical after exit");
+    assert_eq!(
+        normal_names, back_names,
+        "tool set should be identical after exit"
+    );
 }

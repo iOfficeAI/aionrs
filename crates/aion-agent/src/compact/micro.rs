@@ -57,8 +57,11 @@ fn time_trigger(messages: &[Message], config: &CompactConfig) -> bool {
 /// Count-based trigger: compactable tool results > keep_recent * 2.
 fn count_trigger(messages: &[Message], config: &CompactConfig) -> bool {
     let tool_names = build_tool_name_map(messages);
-    let compactable_set: HashSet<&str> =
-        config.compactable_tools.iter().map(String::as_str).collect();
+    let compactable_set: HashSet<&str> = config
+        .compactable_tools
+        .iter()
+        .map(String::as_str)
+        .collect();
 
     let count = count_compactable_results(messages, &tool_names, &compactable_set);
     count > config.micro_keep_recent * 2
@@ -74,8 +77,11 @@ fn count_trigger(messages: &[Message], config: &CompactConfig) -> bool {
 /// the keep budget.
 pub fn microcompact(messages: &mut [Message], config: &CompactConfig) -> MicrocompactResult {
     let tool_names = build_tool_name_map(messages);
-    let compactable_set: HashSet<&str> =
-        config.compactable_tools.iter().map(String::as_str).collect();
+    let compactable_set: HashSet<&str> = config
+        .compactable_tools
+        .iter()
+        .map(String::as_str)
+        .collect();
 
     // Collect (message_index, block_index) of all compactable, non-cleared
     // tool results, in conversation order.

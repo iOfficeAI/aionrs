@@ -232,7 +232,10 @@ fn serialize_entry(entry: &MemoryEntry) -> String {
     // serde_yaml adds a trailing newline; trim it for consistent formatting
     let yaml = yaml.trim_end();
 
-    format!("{FRONTMATTER_DELIM}\n{yaml}\n{FRONTMATTER_DELIM}\n\n{}", entry.content)
+    format!(
+        "{FRONTMATTER_DELIM}\n{yaml}\n{FRONTMATTER_DELIM}\n\n{}",
+        entry.content
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -340,10 +343,7 @@ fn is_scannable_md(path: &Path) -> bool {
     if ext != Some("md") {
         return false;
     }
-    let filename = path
-        .file_name()
-        .and_then(|f| f.to_str())
-        .unwrap_or("");
+    let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
     filename != ENTRYPOINT_NAME
 }
 
@@ -385,9 +385,7 @@ fn read_header(path: &Path) -> Option<MemoryHeader> {
 fn file_mtime(path: &Path) -> Option<DateTime<Utc>> {
     let metadata = fs::metadata(path).ok()?;
     let modified = metadata.modified().ok()?;
-    let duration = modified
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?;
+    let duration = modified.duration_since(std::time::UNIX_EPOCH).ok()?;
     Utc.timestamp_opt(duration.as_secs() as i64, duration.subsec_nanos())
         .single()
 }

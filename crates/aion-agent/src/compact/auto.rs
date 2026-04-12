@@ -13,8 +13,8 @@ use aion_types::message::{ContentBlock, Message, Role, TokenUsage};
 use tokio::sync::mpsc;
 
 use super::prompt::{
-    build_compact_prompt, build_summary_content, format_compact_summary,
-    COMPACT_MAX_OUTPUT_TOKENS, COMPACT_SYSTEM_PROMPT,
+    COMPACT_MAX_OUTPUT_TOKENS, COMPACT_SYSTEM_PROMPT, build_compact_prompt, build_summary_content,
+    format_compact_summary,
 };
 use super::state::CompactState;
 
@@ -350,7 +350,12 @@ mod tests {
                 } else {
                     Role::Assistant
                 };
-                Message::new(role, vec![ContentBlock::Text { text: format!("msg-{i}") }])
+                Message::new(
+                    role,
+                    vec![ContentBlock::Text {
+                        text: format!("msg-{i}"),
+                    }],
+                )
             })
             .collect();
 
@@ -365,7 +370,9 @@ mod tests {
             .map(|i| {
                 Message::new(
                     Role::Assistant,
-                    vec![ContentBlock::Text { text: format!("msg-{i}") }],
+                    vec![ContentBlock::Text {
+                        text: format!("msg-{i}"),
+                    }],
                 )
             })
             .collect();
@@ -400,7 +407,12 @@ mod tests {
                 } else {
                     Role::Assistant
                 };
-                Message::new(role, vec![ContentBlock::Text { text: format!("msg-{i}") }])
+                Message::new(
+                    role,
+                    vec![ContentBlock::Text {
+                        text: format!("msg-{i}"),
+                    }],
+                )
             })
             .collect();
 

@@ -1839,9 +1839,9 @@ enabled = false
         };
         let project = ConfigFile {
             file_cache: FileCacheConfig {
-                max_entries: 100, // default
+                max_entries: 100,                 // default
                 max_size_bytes: 10 * 1024 * 1024, // non-default
-                enabled: true,    // default
+                enabled: true,                    // default
             },
             ..Default::default()
         };

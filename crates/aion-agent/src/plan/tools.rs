@@ -1,13 +1,13 @@
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use aion_protocol::events::ToolCategory;
+use aion_tools::Tool;
 use aion_types::skill_types::{ContextModifier, PlanModeTransition};
 use aion_types::tool::{JsonSchema, ToolResult};
-use aion_tools::Tool;
 
 // ---------------------------------------------------------------------------
 // EnterPlanModeTool
@@ -149,9 +149,7 @@ impl Tool for ExitPlanModeTool {
 
     fn context_modifier_for(&self, _input: &Value) -> Option<ContextModifier> {
         Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Exit {
-                plan_content: None,
-            }),
+            plan_mode_transition: Some(PlanModeTransition::Exit { plan_content: None }),
             ..Default::default()
         })
     }

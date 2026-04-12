@@ -24,7 +24,9 @@ pub const EMERGENCY_USER_MESSAGE: &str =
 /// This check is independent of `CompactConfig.enabled`; the emergency
 /// safety net is always active.
 pub fn is_at_emergency_limit(last_input_tokens: u64, config: &CompactConfig) -> bool {
-    let limit = config.context_window.saturating_sub(config.emergency_buffer);
+    let limit = config
+        .context_window
+        .saturating_sub(config.emergency_buffer);
     last_input_tokens as usize >= limit
 }
 

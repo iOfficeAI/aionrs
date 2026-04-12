@@ -377,7 +377,14 @@ mod tests {
     #[test]
     fn test_build_system_prompt_custom_prompt_and_skills() {
         let skills = vec![make_test_skill("my-skill", "My desc", false, false)];
-        let result = build_system_prompt(Some("Custom instructions here"), "/tmp", &skills, None, None, false);
+        let result = build_system_prompt(
+            Some("Custom instructions here"),
+            "/tmp",
+            &skills,
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("Custom instructions here"),
             "custom prompt should appear"
@@ -552,11 +559,7 @@ mod tests {
         // Create memory dir with content
         let mem_dir = tmp.path().join("memory");
         std::fs::create_dir_all(&mem_dir).unwrap();
-        std::fs::write(
-            mem_dir.join("MEMORY.md"),
-            "- [A](a.md) \u{2014} test\n",
-        )
-        .unwrap();
+        std::fs::write(mem_dir.join("MEMORY.md"), "- [A](a.md) \u{2014} test\n").unwrap();
 
         let skills = vec![make_test_skill("test-skill", "A skill", false, false)];
 
@@ -620,11 +623,26 @@ mod tests {
     #[test]
     fn tool_guidance_contains_bash_prohibition_list() {
         let result = build_system_prompt(None, "/tmp", &[], None, None, false);
-        assert!(result.contains("Glob"), "should mention Glob as find/ls replacement");
-        assert!(result.contains("Grep"), "should mention Grep as grep/rg replacement");
-        assert!(result.contains("Read"), "should mention Read as cat/head/tail replacement");
-        assert!(result.contains("Edit"), "should mention Edit as sed/awk replacement");
-        assert!(result.contains("Write"), "should mention Write as echo/heredoc replacement");
+        assert!(
+            result.contains("Glob"),
+            "should mention Glob as find/ls replacement"
+        );
+        assert!(
+            result.contains("Grep"),
+            "should mention Grep as grep/rg replacement"
+        );
+        assert!(
+            result.contains("Read"),
+            "should mention Read as cat/head/tail replacement"
+        );
+        assert!(
+            result.contains("Edit"),
+            "should mention Edit as sed/awk replacement"
+        );
+        assert!(
+            result.contains("Write"),
+            "should mention Write as echo/heredoc replacement"
+        );
     }
 
     #[test]
@@ -700,11 +718,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let mem_dir = tmp.path().join("memory");
         std::fs::create_dir_all(&mem_dir).unwrap();
-        std::fs::write(
-            mem_dir.join("MEMORY.md"),
-            "- [X](x.md) \u{2014} test\n",
-        )
-        .unwrap();
+        std::fs::write(mem_dir.join("MEMORY.md"), "- [X](x.md) \u{2014} test\n").unwrap();
 
         let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
         let guidance_pos = result.find("# Using your tools").unwrap();

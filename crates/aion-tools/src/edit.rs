@@ -209,8 +209,8 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
-    use aion_config::file_cache::FileCacheConfig;
     use crate::file_cache::update_cache_after_write;
+    use aion_config::file_cache::FileCacheConfig;
 
     fn make_cache() -> Arc<RwLock<FileStateCache>> {
         let config = FileCacheConfig {
@@ -426,10 +426,7 @@ mod tests {
         });
         let r2 = tool.execute(input2).await;
         assert!(!r2.is_error, "second edit failed: {}", r2.content);
-        assert_eq!(
-            std::fs::read_to_string(&file_path).unwrap(),
-            "AAA BBB ccc"
-        );
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "AAA BBB ccc");
     }
 
     #[tokio::test]
@@ -446,7 +443,11 @@ mod tests {
         });
 
         let result = tool.execute(input).await;
-        assert!(!result.is_error, "expected success without cache: {}", result.content);
+        assert!(
+            !result.is_error,
+            "expected success without cache: {}",
+            result.content
+        );
         assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "bye");
     }
 

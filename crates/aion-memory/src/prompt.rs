@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-use crate::index::{read_index, truncate_index, MAX_INDEX_LINES};
+use crate::index::{MAX_INDEX_LINES, read_index, truncate_index};
 use crate::paths::ENTRYPOINT_NAME;
 
 // ---------------------------------------------------------------------------
@@ -414,8 +414,7 @@ mod tests {
 
     #[test]
     fn prompt_with_nonexistent_dir_shows_empty_state() {
-        let result =
-            build_memory_prompt(Path::new("/nonexistent/memory/dir"));
+        let result = build_memory_prompt(Path::new("/nonexistent/memory/dir"));
         assert!(result.contains(ENTRYPOINT_NAME));
         assert!(result.contains("currently empty"));
     }
@@ -462,9 +461,7 @@ mod tests {
 
         // Instructions (type descriptions) should appear before the index content
         let types_pos = result.find("## Types of memory").unwrap();
-        let index_pos = result
-            .find(&format!("## {ENTRYPOINT_NAME}"))
-            .unwrap();
+        let index_pos = result.find(&format!("## {ENTRYPOINT_NAME}")).unwrap();
         assert!(
             types_pos < index_pos,
             "instructions should appear before MEMORY.md content"

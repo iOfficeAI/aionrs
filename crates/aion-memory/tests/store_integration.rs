@@ -140,7 +140,11 @@ fn tc_3_8_filename_format() {
 
     // Should be lowercase, safe characters
     assert_eq!(filename, "user_my_role.md");
-    assert!(filename.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.'));
+    assert!(
+        filename
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+    );
 }
 
 // ===========================================================================
@@ -165,7 +169,11 @@ fn tc_4_1_scan_multiple_files() {
         "---\ntype: feedback\n---\nBody",
     )
     .unwrap();
-    fs::write(dir.join("project_status.md"), "---\ntype: project\n---\nBody").unwrap();
+    fs::write(
+        dir.join("project_status.md"),
+        "---\ntype: project\n---\nBody",
+    )
+    .unwrap();
     fs::write(dir.join("MEMORY.md"), "# Index\n- [role](user_role.md)").unwrap();
 
     let headers = store::scan_memory_files(dir).unwrap();

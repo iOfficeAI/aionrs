@@ -68,7 +68,10 @@ fn tc_5_2_03_lru_count_eviction() {
     // 4th insert should evict /f1 (the LRU)
     cache.insert(PathBuf::from("/f4"), make_state("4", 4));
 
-    assert!(cache.get(Path::new("/f1")).is_none(), "/f1 should be evicted");
+    assert!(
+        cache.get(Path::new("/f1")).is_none(),
+        "/f1 should be evicted"
+    );
     assert!(cache.get(Path::new("/f2")).is_some());
     assert!(cache.get(Path::new("/f3")).is_some());
     assert!(cache.get(Path::new("/f4")).is_some());

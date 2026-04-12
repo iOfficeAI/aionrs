@@ -300,11 +300,7 @@ fn prompt_sections_appear_in_correct_order() {
     let tmp = tempfile::tempdir().unwrap();
     let mem_dir = tmp.path().join("memory");
     fs::create_dir_all(&mem_dir).unwrap();
-    fs::write(
-        mem_dir.join("MEMORY.md"),
-        "- [A](a.md) \u{2014} test\n",
-    )
-    .unwrap();
+    fs::write(mem_dir.join("MEMORY.md"), "- [A](a.md) \u{2014} test\n").unwrap();
 
     let prompt = build_memory_prompt(&mem_dir);
 

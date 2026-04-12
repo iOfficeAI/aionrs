@@ -201,17 +201,28 @@ mod tests {
     #[test]
     fn filtered_by_category_returns_matching_tools() {
         let mut registry = ToolRegistry::new();
-        registry.register(make_tool_with_category("Read", "read files", ToolCategory::Info));
-        registry.register(make_tool_with_category("Write", "write files", ToolCategory::Edit));
-        registry.register(make_tool_with_category("Bash", "run commands", ToolCategory::Exec));
+        registry.register(make_tool_with_category(
+            "Read",
+            "read files",
+            ToolCategory::Info,
+        ));
+        registry.register(make_tool_with_category(
+            "Write",
+            "write files",
+            ToolCategory::Edit,
+        ));
+        registry.register(make_tool_with_category(
+            "Bash",
+            "run commands",
+            ToolCategory::Exec,
+        ));
         registry.register(make_tool_with_category(
             "ExitPlanMode",
             "exit plan mode",
             ToolCategory::Info,
         ));
 
-        let defs = registry
-            .to_tool_defs_filtered(|t| t.category() == ToolCategory::Info);
+        let defs = registry.to_tool_defs_filtered(|t| t.category() == ToolCategory::Info);
 
         let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
         assert!(names.contains(&"Read"));

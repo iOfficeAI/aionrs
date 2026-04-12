@@ -14,9 +14,7 @@ pub const COMPACT_MAX_OUTPUT_TOKENS: u32 = 20_000;
 
 /// Build the 9-section compact prompt that asks the LLM to summarize.
 pub fn build_compact_prompt() -> String {
-    format!(
-        "{PREAMBLE}\n\n{BODY}\n\n{FORMAT_INSTRUCTIONS}\n\n{REMINDER}"
-    )
+    format!("{PREAMBLE}\n\n{BODY}\n\n{FORMAT_INSTRUCTIONS}\n\n{REMINDER}")
 }
 
 const PREAMBLE: &str = "\
@@ -184,10 +182,7 @@ mod tests {
     fn prompt_contains_all_nine_sections() {
         let prompt = build_compact_prompt();
         for i in 1..=9 {
-            assert!(
-                prompt.contains(&format!("{i}.")),
-                "Missing section {i}"
-            );
+            assert!(prompt.contains(&format!("{i}.")), "Missing section {i}");
         }
     }
 
@@ -209,7 +204,8 @@ mod tests {
 
     #[test]
     fn strips_analysis_extracts_summary() {
-        let raw = "<analysis>thinking about things</analysis>\n<summary>the actual result</summary>";
+        let raw =
+            "<analysis>thinking about things</analysis>\n<summary>the actual result</summary>";
         assert_eq!(format_compact_summary(raw), "Summary:\nthe actual result");
     }
 

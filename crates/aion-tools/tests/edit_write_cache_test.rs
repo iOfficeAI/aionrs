@@ -11,11 +11,11 @@ use std::sync::{Arc, RwLock};
 use serde_json::json;
 
 use aion_config::file_cache::FileCacheConfig;
+use aion_tools::Tool;
 use aion_tools::edit::EditTool;
 use aion_tools::file_cache::{FileStateCache, file_mtime_ms};
 use aion_tools::read::ReadTool;
 use aion_tools::write::WriteTool;
-use aion_tools::Tool;
 
 fn make_cache() -> Arc<RwLock<FileStateCache>> {
     let config = FileCacheConfig {
@@ -59,7 +59,11 @@ async fn tc_5_4_01_read_then_edit() {
     });
     let result = edit_tool.execute(input).await;
 
-    assert!(!result.is_error, "Edit after Read should succeed: {}", result.content);
+    assert!(
+        !result.is_error,
+        "Edit after Read should succeed: {}",
+        result.content
+    );
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "goodbye world");
 }
 
@@ -114,7 +118,10 @@ async fn tc_5_4_03_external_modification_detected() {
     });
     let result = edit_tool.execute(input).await;
 
-    assert!(result.is_error, "Edit of externally modified file should fail");
+    assert!(
+        result.is_error,
+        "Edit of externally modified file should fail"
+    );
     assert!(
         result.content.contains("modified externally"),
         "Error should mention external modification: {}",

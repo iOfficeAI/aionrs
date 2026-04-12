@@ -97,9 +97,7 @@ mod tests {
 
     #[test]
     fn plan_mode_transition_exit_without_content() {
-        let t = PlanModeTransition::Exit {
-            plan_content: None,
-        };
+        let t = PlanModeTransition::Exit { plan_content: None };
         let dbg = format!("{:?}", t);
         assert!(dbg.contains("Exit"));
         assert!(dbg.contains("None"));
@@ -110,9 +108,7 @@ mod tests {
         assert_eq!(PlanModeTransition::Enter, PlanModeTransition::Enter);
         assert_ne!(
             PlanModeTransition::Enter,
-            PlanModeTransition::Exit {
-                plan_content: None
-            }
+            PlanModeTransition::Exit { plan_content: None }
         );
         assert_eq!(
             PlanModeTransition::Exit {

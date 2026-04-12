@@ -3,9 +3,9 @@
 // TC-A2-01 and TC-A2-03 are purely local (no LLM call).
 // TC-A2-02 makes a real LLM call and is skipped when OPENAI_API_KEY is absent.
 
-use aion_agent::compact::auto::{autocompact, should_autocompact, BOUNDARY_PREFIX};
+use aion_agent::compact::auto::{BOUNDARY_PREFIX, autocompact, should_autocompact};
 use aion_agent::compact::emergency::is_at_emergency_limit;
-use aion_agent::compact::micro::{microcompact, CLEARED_TOOL_RESULT};
+use aion_agent::compact::micro::{CLEARED_TOOL_RESULT, microcompact};
 use aion_agent::compact::state::CompactState;
 use aion_config::compact::CompactConfig;
 use aion_types::message::{ContentBlock, Message, Role};

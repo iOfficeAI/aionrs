@@ -88,12 +88,7 @@ fn memory_full_lifecycle() {
     let entry_path = write_memory(&mem_dir, &entry).unwrap();
     assert!(entry_path.exists(), "memory file should be created on disk");
 
-    let entry_filename = entry_path
-        .file_name()
-        .unwrap()
-        .to_str()
-        .unwrap()
-        .to_owned();
+    let entry_filename = entry_path.file_name().unwrap().to_str().unwrap().to_owned();
 
     // -- Phase 2: Add the entry to the MEMORY.md index ------------------------
 
@@ -113,8 +108,7 @@ fn memory_full_lifecycle() {
 
     // -- Phase 3: Verify system prompt includes the memory content ------------
 
-    let prompt_with_memory =
-        build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+    let prompt_with_memory = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
 
     assert!(
         prompt_with_memory.contains("auto memory"),
@@ -153,8 +147,7 @@ fn memory_full_lifecycle() {
 
     // -- Phase 6: Verify the content is gone from the system prompt -----------
 
-    let prompt_after_delete =
-        build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+    let prompt_after_delete = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
 
     assert!(
         !prompt_after_delete.contains(&entry_filename),

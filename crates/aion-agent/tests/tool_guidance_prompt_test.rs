@@ -124,8 +124,7 @@ fn tc_4_3_04_edit_write_read_rules() {
 
 #[test]
 fn tc_4_3_05_order_after_intro_before_custom() {
-    let result =
-        build_system_prompt(Some("CUSTOM_PROMPT_MARKER"), "/tmp", &[], None, None, false);
+    let result = build_system_prompt(Some("CUSTOM_PROMPT_MARKER"), "/tmp", &[], None, None, false);
 
     let intro_pos = result
         .find("Working directory")
@@ -241,7 +240,10 @@ fn tc_4_3_07_all_sections_coexist() {
         result.contains("PROJECT_RULES_COEXIST"),
         "AGENTS.md should exist"
     );
-    assert!(result.contains("auto memory"), "memory section should exist");
+    assert!(
+        result.contains("auto memory"),
+        "memory section should exist"
+    );
     assert!(
         result.contains("coexist-skill"),
         "skills listing should exist"

@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use aion_agent::compact::auto::{
-    autocompact, extract_compact_metadata, is_compact_boundary, should_autocompact, CompactError,
+    CompactError, autocompact, extract_compact_metadata, is_compact_boundary, should_autocompact,
 };
 use aion_agent::compact::prompt::{
     build_compact_prompt, build_summary_content, format_compact_summary,
@@ -191,10 +191,7 @@ async fn tc_2_4_07_circuit_breaker_blocks_autocompact() {
 fn tc_2_4_08_prompt_contains_all_sections() {
     let prompt = build_compact_prompt();
     for i in 1..=9 {
-        assert!(
-            prompt.contains(&format!("{i}.")),
-            "Missing section {i}"
-        );
+        assert!(prompt.contains(&format!("{i}.")), "Missing section {i}");
     }
     assert!(prompt.contains("CRITICAL: Respond with TEXT ONLY"));
 }

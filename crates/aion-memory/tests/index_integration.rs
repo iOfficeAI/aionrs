@@ -226,10 +226,7 @@ fn tc_5_13_append_to_existing() {
     let content = fs::read_to_string(&path).unwrap();
     let lines: Vec<&str> = content.lines().collect();
     assert_eq!(lines.len(), 3);
-    assert_eq!(
-        lines[2],
-        "- [My Memory](my_memory.md) \u{2014} a test"
-    );
+    assert_eq!(lines[2], "- [My Memory](my_memory.md) \u{2014} a test");
 }
 
 // ===========================================================================
@@ -246,10 +243,7 @@ fn tc_5_14_append_auto_create() {
 
     assert!(path.exists());
     let content = fs::read_to_string(&path).unwrap();
-    assert_eq!(
-        content,
-        "- [First](first.md) \u{2014} the first entry\n"
-    );
+    assert_eq!(content, "- [First](first.md) \u{2014} the first entry\n");
 }
 
 // ===========================================================================
@@ -306,7 +300,8 @@ fn tc_5_16_remove_by_filename() {
 fn tc_5_17_remove_not_found() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("MEMORY.md");
-    let original = "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n- [C](c.md) \u{2014} third\n";
+    let original =
+        "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n- [C](c.md) \u{2014} third\n";
     fs::write(&path, original).unwrap();
 
     index::remove_index_entry(&path, "nonexistent.md").unwrap();

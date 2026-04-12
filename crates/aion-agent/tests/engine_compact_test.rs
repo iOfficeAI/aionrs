@@ -58,17 +58,12 @@ impl LlmProvider for CompactMockProvider {
         _request: &LlmRequest,
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         *self.call_count.lock().unwrap() += 1;
-        let events = self
-            .turns
-            .lock()
-            .unwrap()
-            .pop_front()
-            .unwrap_or_else(|| {
-                vec![LlmEvent::Done {
-                    stop_reason: StopReason::EndTurn,
-                    usage: TokenUsage::default(),
-                }]
-            });
+        let events = self.turns.lock().unwrap().pop_front().unwrap_or_else(|| {
+            vec![LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            }]
+        });
 
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
@@ -166,7 +161,11 @@ async fn tc_2_6_03_emergency_returns_error() {
     config.compact.emergency_buffer = 3_000;
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "result",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output);
@@ -222,7 +221,11 @@ async fn tc_2_6_04_autocompact_then_continue() {
     config.compact = CompactConfig::default();
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "result",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output);
@@ -273,7 +276,11 @@ async fn tc_2_6_05_session_save_after_compact() {
     config.session.directory = dir.path().to_string_lossy().into_owned();
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "result",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
@@ -281,10 +288,7 @@ async fn tc_2_6_05_session_save_after_compact() {
         .init_session("test", "/tmp", None)
         .expect("init session");
 
-    engine
-        .run("Start", "msg-1")
-        .await
-        .expect("should succeed");
+    engine.run("Start", "msg-1").await.expect("should succeed");
 
     // Load the saved session
     let mgr = SessionManager::new(dir.path().to_path_buf(), 10);
@@ -366,7 +370,11 @@ async fn tc_2_6_06b_disabled_still_fires_emergency() {
     config.compact.emergency_buffer = 3_000;
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "result",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
@@ -405,7 +413,11 @@ async fn tc_2_6_07_input_tokens_tracked() {
 
     let config = test_config();
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "result",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
@@ -539,7 +551,11 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
     config.max_turns = 20;
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "tool output data", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "tool output data",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
@@ -602,9 +618,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
                 *self.compact_calls.lock().unwrap() += 1;
 
                 let events = vec![
-                    LlmEvent::TextDelta(
-                        "<summary>Cooperative summary</summary>".to_string(),
-                    ),
+                    LlmEvent::TextDelta("<summary>Cooperative summary</summary>".to_string()),
                     LlmEvent::Done {
                         stop_reason: StopReason::EndTurn,
                         usage: TokenUsage {
@@ -691,7 +705,11 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
     config.max_turns = 20;
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "tool output data", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "tool output data",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
@@ -808,7 +826,11 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
     config.max_turns = 10;
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
+    registry.register(Box::new(common::MockTool::new(
+        "mock_tool",
+        "result",
+        false,
+    )));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);

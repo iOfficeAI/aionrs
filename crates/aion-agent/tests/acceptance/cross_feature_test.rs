@@ -2,13 +2,13 @@
 //
 // Exercises memory + compression + file cache + tool description all at once.
 
-use aion_agent::compact::micro::{microcompact, CLEARED_TOOL_RESULT};
+use aion_agent::compact::micro::{CLEARED_TOOL_RESULT, microcompact};
 use aion_agent::context::build_system_prompt;
 use aion_config::compact::CompactConfig;
 use aion_config::file_cache::FileCacheConfig;
+use aion_tools::Tool;
 use aion_tools::file_cache::FileStateCache;
 use aion_tools::read::ReadTool;
-use aion_tools::Tool;
 use aion_types::message::{ContentBlock, Message, Role};
 use serde_json::json;
 use std::sync::{Arc, RwLock};

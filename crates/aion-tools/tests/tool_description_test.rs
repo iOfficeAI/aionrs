@@ -3,6 +3,7 @@
 //! These are black-box tests that verify each tool's description contains
 //! the key guidance information specified in the test plan.
 
+use aion_tools::Tool;
 use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
 use aion_tools::glob::GlobTool;
@@ -10,7 +11,6 @@ use aion_tools::grep::GrepTool;
 use aion_tools::read::ReadTool;
 use aion_tools::registry::ToolRegistry;
 use aion_tools::write::WriteTool;
-use aion_tools::Tool;
 
 // --- TC-4.2-01: Bash tool description contains key guidance ---
 
@@ -229,7 +229,9 @@ fn tool_def_description_matches_tool_instance() {
     let defs = registry.to_tool_defs();
 
     for def in &defs {
-        let tool = registry.get(&def.name).expect("tool should exist in registry");
+        let tool = registry
+            .get(&def.name)
+            .expect("tool should exist in registry");
         assert_eq!(
             def.description,
             tool.description(),

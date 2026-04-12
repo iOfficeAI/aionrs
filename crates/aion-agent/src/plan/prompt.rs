@@ -81,7 +81,10 @@ mod tests {
         let text = plan_mode_instructions();
         assert!(text.contains("Understand"), "should have explore phase");
         assert!(text.contains("Design"), "should have design phase");
-        assert!(text.contains("Write the plan"), "should have plan writing phase");
+        assert!(
+            text.contains("Write the plan"),
+            "should have plan writing phase"
+        );
         assert!(
             text.contains("Submit for review"),
             "should have submission phase"

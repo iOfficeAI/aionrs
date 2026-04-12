@@ -3,7 +3,7 @@
 //! These tests treat `is_at_emergency_limit` as a public API and verify
 //! functional requirements from test-plan.md without relying on internal details.
 
-use aion_agent::compact::emergency::{is_at_emergency_limit, EMERGENCY_USER_MESSAGE};
+use aion_agent::compact::emergency::{EMERGENCY_USER_MESSAGE, is_at_emergency_limit};
 use aion_config::compact::CompactConfig;
 
 // ── TC-2.5-01: Below emergency threshold ───────────────────────────────────

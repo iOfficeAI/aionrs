@@ -13,8 +13,7 @@ use crate::file_cache::{FileStateCache, file_mtime_ms};
 
 /// Stub returned when a file has not changed since the model last read it.
 /// Saves tokens by avoiding re-sending identical content.
-const FILE_UNCHANGED_STUB: &str =
-    "File unchanged since last read. The content from the earlier Read \
+const FILE_UNCHANGED_STUB: &str = "File unchanged since last read. The content from the earlier Read \
      tool_result in this conversation is still current — refer to that \
      instead of re-reading.";
 

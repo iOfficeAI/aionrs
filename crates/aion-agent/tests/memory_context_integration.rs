@@ -91,11 +91,7 @@ fn tc_7_3_section_ordering() {
     // Create memory dir
     let mem_dir = tmp.path().join("memory");
     fs::create_dir_all(&mem_dir).unwrap();
-    fs::write(
-        mem_dir.join("MEMORY.md"),
-        "- [A](a.md) \u{2014} test\n",
-    )
-    .unwrap();
+    fs::write(mem_dir.join("MEMORY.md"), "- [A](a.md) \u{2014} test\n").unwrap();
 
     // Create a minimal skill metadata
     use aion_skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
@@ -199,7 +195,10 @@ fn tc_7_5_memory_md_content_injected() {
 
     let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
 
-    assert!(result.contains("user_role.md"), "should contain first entry");
+    assert!(
+        result.contains("user_role.md"),
+        "should contain first entry"
+    );
     assert!(
         result.contains("feedback_tests.md"),
         "should contain second entry"

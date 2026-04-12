@@ -195,11 +195,7 @@ fn plan_instructions_appear_after_memory_before_skills() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mem_dir = tmp.path().join("memory");
     std::fs::create_dir_all(&mem_dir).unwrap();
-    std::fs::write(
-        mem_dir.join("MEMORY.md"),
-        "- [A](a.md) \u{2014} test\n",
-    )
-    .unwrap();
+    std::fs::write(mem_dir.join("MEMORY.md"), "- [A](a.md) \u{2014} test\n").unwrap();
 
     let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), true);
 

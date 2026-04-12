@@ -2,8 +2,8 @@
 //!
 //! Tests are numbered to match the test-plan.md identifiers (TC-3.6-E2E-*).
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use aion_agent::plan::prompt::plan_mode_instructions;
 use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
@@ -341,19 +341,13 @@ async fn multiple_plan_mode_cycles_consistent() {
     for cycle in 0..3 {
         // Enter should succeed
         let r = enter.execute(json!({})).await;
-        assert!(
-            !r.is_error,
-            "enter should succeed on cycle {cycle}"
-        );
+        assert!(!r.is_error, "enter should succeed on cycle {cycle}");
 
         flag.store(true, Ordering::Release);
 
         // Exit should succeed
         let r = exit.execute(json!({})).await;
-        assert!(
-            !r.is_error,
-            "exit should succeed on cycle {cycle}"
-        );
+        assert!(!r.is_error, "exit should succeed on cycle {cycle}");
 
         flag.store(false, Ordering::Release);
     }
@@ -373,7 +367,10 @@ fn plan_mode_modifiers_do_not_interfere_with_other_fields() {
     assert!(enter_cm.model.is_none());
     assert!(enter_cm.effort.is_none());
     assert!(enter_cm.allowed_tools.is_empty());
-    assert_eq!(enter_cm.plan_mode_transition, Some(PlanModeTransition::Enter));
+    assert_eq!(
+        enter_cm.plan_mode_transition,
+        Some(PlanModeTransition::Enter)
+    );
 
     // Exit modifier should only set plan_mode_transition
     let exit_cm = exit.context_modifier_for(&json!({})).unwrap();

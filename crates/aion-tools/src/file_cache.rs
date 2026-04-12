@@ -65,8 +65,9 @@ impl FileStateCache {
 
         // push() returns evicted (key, value) if entry-count capacity is reached.
         if let Some((_evicted_key, evicted_val)) = self.entries.push(normalized, state) {
-            self.current_size_bytes =
-                self.current_size_bytes.saturating_sub(evicted_val.content_bytes());
+            self.current_size_bytes = self
+                .current_size_bytes
+                .saturating_sub(evicted_val.content_bytes());
         }
         self.current_size_bytes += new_size;
     }

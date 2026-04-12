@@ -115,15 +115,11 @@ pub fn validate_memory_path(path: &Path) -> Result<PathBuf> {
     let path_str = path.to_string_lossy();
 
     if !path.is_absolute() {
-        return Err(MemoryError::PathValidation(
-            "path must be absolute".into(),
-        ));
+        return Err(MemoryError::PathValidation("path must be absolute".into()));
     }
 
     if path_str.len() < 3 {
-        return Err(MemoryError::PathValidation(
-            "path is too short".into(),
-        ));
+        return Err(MemoryError::PathValidation("path is too short".into()));
     }
 
     if path_str.contains('\0') {
@@ -299,8 +295,7 @@ mod tests {
 
     #[test]
     fn validate_rejects_traversal() {
-        let err =
-            validate_memory_path(Path::new("/tmp/../../../etc/passwd")).unwrap_err();
+        let err = validate_memory_path(Path::new("/tmp/../../../etc/passwd")).unwrap_err();
         assert!(matches!(err, MemoryError::PathValidation(_)));
         assert!(err.to_string().contains("traversal"));
     }
@@ -317,7 +312,10 @@ mod tests {
     #[test]
     fn entrypoint_appends_memory_md() {
         let dir = Path::new("/base/memory");
-        assert_eq!(memory_entrypoint(dir), PathBuf::from("/base/memory/MEMORY.md"));
+        assert_eq!(
+            memory_entrypoint(dir),
+            PathBuf::from("/base/memory/MEMORY.md")
+        );
     }
 
     // -- is_memory_path -------------------------------------------------------
@@ -427,7 +425,10 @@ mod tests {
         // SAFETY: #[serial(env)] ensures no concurrent env mutation.
         unsafe { std::env::set_var(key, "/base") };
         let dir = auto_memory_dir(Path::new("/home/user/project")).unwrap();
-        assert_eq!(dir, PathBuf::from("/base/projects/-home-user-project/memory"));
+        assert_eq!(
+            dir,
+            PathBuf::from("/base/projects/-home-user-project/memory")
+        );
 
         restore_env(key, original);
     }

@@ -11,8 +11,8 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 
-use crate::compact::{auto, emergency, micro};
 use crate::compact::state::CompactState;
+use crate::compact::{auto, emergency, micro};
 use crate::confirm::ToolConfirmer;
 use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
@@ -251,7 +251,8 @@ impl AgentEngine {
                 })
             } else {
                 // Normal mode: all tools except ExitPlanMode
-                self.tools.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
+                self.tools
+                    .to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
             };
 
             // Build system prompt: append plan mode instructions when active
@@ -331,7 +332,8 @@ impl AgentEngine {
             }
             assistant_content.extend(tool_calls.clone());
 
-            self.messages.push(Message::now(Role::Assistant, assistant_content));
+            self.messages
+                .push(Message::now(Role::Assistant, assistant_content));
 
             if tool_calls.is_empty() {
                 self.save_session();
@@ -411,7 +413,8 @@ impl AgentEngine {
                 }
             }
 
-            self.messages.push(Message::now(Role::User, outcome.results));
+            self.messages
+                .push(Message::now(Role::User, outcome.results));
 
             // Save session after each turn
             self.save_session();
@@ -947,7 +950,10 @@ mod compact_tests {
             })
             .count();
 
-        assert_eq!(cleared_count, 0, "microcompact should be skipped when disabled");
+        assert_eq!(
+            cleared_count, 0,
+            "microcompact should be skipped when disabled"
+        );
     }
 
     #[tokio::test]
@@ -1133,9 +1139,7 @@ mod plan_mode_tests {
 
         // Exit plan mode
         engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Exit {
-                plan_content: None,
-            }),
+            plan_mode_transition: Some(PlanModeTransition::Exit { plan_content: None }),
             ..Default::default()
         })]);
 
@@ -1163,9 +1167,7 @@ mod plan_mode_tests {
 
         // Exit
         engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Exit {
-                plan_content: None,
-            }),
+            plan_mode_transition: Some(PlanModeTransition::Exit { plan_content: None }),
             ..Default::default()
         })]);
         assert!(
@@ -1187,7 +1189,10 @@ mod plan_mode_tests {
         })]);
 
         assert_eq!(engine.model, "new-model");
-        assert!(!engine.plan_state.is_active, "plan state should remain inactive");
+        assert!(
+            !engine.plan_state.is_active,
+            "plan state should remain inactive"
+        );
     }
 
     // --- Enter + other modifiers applied together ---
@@ -1220,7 +1225,6 @@ mod plan_mode_tests {
 
         assert!(engine.plan_state.is_active);
     }
-
 }
 
 #[derive(Debug)]

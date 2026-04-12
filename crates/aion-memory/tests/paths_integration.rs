@@ -21,7 +21,10 @@ fn tc_2_1_default_base_dir_uses_platform_config() {
 
     let base = paths::memory_base_dir();
     // Should return Some (platform provides a config dir in CI/test envs)
-    assert!(base.is_some(), "memory_base_dir should return Some on this platform");
+    assert!(
+        base.is_some(),
+        "memory_base_dir should return Some on this platform"
+    );
     let base = base.unwrap();
     // Should end with "aionrs" (the brand, not "claude")
     assert!(
@@ -62,8 +65,14 @@ fn tc_2_3_auto_memory_dir_structure() {
 
     // Should have the structure: <base>/projects/<sanitized>/memory
     let dir_str = dir.to_string_lossy();
-    assert!(dir_str.starts_with("/base/projects/"), "wrong prefix: {dir_str}");
-    assert!(dir_str.ends_with("/memory"), "should end with /memory: {dir_str}");
+    assert!(
+        dir_str.starts_with("/base/projects/"),
+        "wrong prefix: {dir_str}"
+    );
+    assert!(
+        dir_str.ends_with("/memory"),
+        "should end with /memory: {dir_str}"
+    );
 
     // Sanitized name should not contain `/` (the original separator)
     let sanitized = dir.parent().unwrap().file_name().unwrap().to_string_lossy();
@@ -82,7 +91,10 @@ fn tc_2_4_reject_relative_path() {
     let result = paths::validate_memory_path(Path::new("relative/path"));
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("absolute"), "error should mention 'absolute': {err_msg}");
+    assert!(
+        err_msg.contains("absolute"),
+        "error should mention 'absolute': {err_msg}"
+    );
 }
 
 // -- TC-2.5: Reject null byte -------------------------------------------------
@@ -93,7 +105,10 @@ fn tc_2_5_reject_null_byte() {
     let result = paths::validate_memory_path(&bad_path);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("null"), "error should mention null: {err_msg}");
+    assert!(
+        err_msg.contains("null"),
+        "error should mention null: {err_msg}"
+    );
 }
 
 // -- TC-2.6: Reject path traversal --------------------------------------------
@@ -103,7 +118,10 @@ fn tc_2_6_reject_traversal() {
     let result = paths::validate_memory_path(Path::new("/tmp/../../../etc/passwd"));
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(err_msg.contains("traversal"), "error should mention traversal: {err_msg}");
+    assert!(
+        err_msg.contains("traversal"),
+        "error should mention traversal: {err_msg}"
+    );
 }
 
 // -- TC-2.7: Memory entrypoint path -------------------------------------------

@@ -49,7 +49,11 @@ fn tc_8_1_complete_memory_lifecycle() {
 
     // 4. Scan directory — the memory should appear
     let headers = store::scan_memory_files(&mem_dir).unwrap();
-    assert_eq!(headers.len(), 1, "should find exactly 1 memory file (MEMORY.md excluded)");
+    assert_eq!(
+        headers.len(),
+        1,
+        "should find exactly 1 memory file (MEMORY.md excluded)"
+    );
     assert_eq!(headers[0].filename, filename);
     assert_eq!(headers[0].memory_type, Some(MemoryType::Feedback));
     assert_eq!(
@@ -71,7 +75,10 @@ fn tc_8_1_complete_memory_lifecycle() {
     // 6. Read back the memory file — verify content integrity
     let read_back = store::read_memory(&written_path).unwrap();
     assert_eq!(read_back.frontmatter.name.as_deref(), Some("test policy"));
-    assert_eq!(read_back.frontmatter.memory_type, Some(MemoryType::Feedback));
+    assert_eq!(
+        read_back.frontmatter.memory_type,
+        Some(MemoryType::Feedback)
+    );
     assert!(read_back.content.contains("testcontainers"));
 
     // 7. Delete the memory file
@@ -169,7 +176,10 @@ fn tc_8_3_special_characters_in_name() {
         !filename.contains(':'),
         "filename should not contain colon: {filename}"
     );
-    assert!(filename.ends_with(".md"), "filename should end with .md: {filename}");
+    assert!(
+        filename.ends_with(".md"),
+        "filename should end with .md: {filename}"
+    );
 
     // Content should round-trip correctly
     let read_back = store::read_memory(&path).unwrap();

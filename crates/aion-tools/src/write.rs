@@ -161,9 +161,9 @@ mod tests {
     use serde_json::json;
     use tempfile::tempdir;
 
-    use aion_config::file_cache::FileCacheConfig;
     use crate::Tool;
     use crate::file_cache::file_mtime_ms;
+    use aion_config::file_cache::FileCacheConfig;
 
     fn make_cache() -> Arc<RwLock<FileStateCache>> {
         let config = FileCacheConfig {
@@ -299,7 +299,9 @@ mod tests {
         // Cache should have an entry with correct mtime.
         let disk_mtime = file_mtime_ms(&file_path).unwrap();
         let mut c = cache.write().unwrap();
-        let cached = c.get(&file_path).expect("file should be in cache after write");
+        let cached = c
+            .get(&file_path)
+            .expect("file should be in cache after write");
         assert_eq!(cached.mtime_ms, disk_mtime);
         assert!(cached.content.contains("cached content"));
     }

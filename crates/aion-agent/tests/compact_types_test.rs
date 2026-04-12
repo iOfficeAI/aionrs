@@ -17,7 +17,10 @@ fn tc_2_2_04_message_timestamp_serialization() {
     );
 
     let json = serde_json::to_string(&msg).unwrap();
-    assert!(json.contains("\"timestamp\""), "JSON should contain timestamp");
+    assert!(
+        json.contains("\"timestamp\""),
+        "JSON should contain timestamp"
+    );
 
     // Verify ISO 8601 format (contains 'T' separator and '+' or 'Z' timezone)
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();

@@ -2,8 +2,8 @@
 //!
 //! Tests are numbered to match the test-plan.md identifiers (TC-3.3-*).
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde_json::json;
 

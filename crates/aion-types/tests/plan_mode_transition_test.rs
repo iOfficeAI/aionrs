@@ -38,9 +38,7 @@ fn tc_3_2_05_plan_mode_transition_variants() {
     assert!(dbg.contains("My Plan"), "Debug should contain plan text");
 
     // Exit without plan content
-    let exit_without = PlanModeTransition::Exit {
-        plan_content: None,
-    };
+    let exit_without = PlanModeTransition::Exit { plan_content: None };
     let dbg = format!("{:?}", exit_without);
     assert!(dbg.contains("Exit"), "Debug should contain 'Exit'");
     assert!(dbg.contains("None"), "Debug should contain 'None'");
@@ -53,9 +51,7 @@ fn plan_mode_transition_equality() {
 
     assert_ne!(
         PlanModeTransition::Enter,
-        PlanModeTransition::Exit {
-            plan_content: None
-        }
+        PlanModeTransition::Exit { plan_content: None }
     );
 
     assert_eq!(

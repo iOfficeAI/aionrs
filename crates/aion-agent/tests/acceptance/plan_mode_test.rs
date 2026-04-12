@@ -4,17 +4,17 @@
 // - Tool registry filtering produces the correct tool sets for normal vs plan mode
 // - System prompt correctly includes/excludes plan mode instructions
 
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use aion_agent::context::build_system_prompt;
 use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
 use aion_protocol::events::ToolCategory;
-use aion_tools::registry::ToolRegistry;
 use aion_tools::Tool;
+use aion_tools::registry::ToolRegistry;
 use aion_types::tool::ToolResult;
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
 // Helpers: mock tool with configurable category

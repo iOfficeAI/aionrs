@@ -99,10 +99,7 @@ pub fn truncate_index(raw: &str) -> IndexTruncation {
             format_size(byte_count),
             format_size(MAX_INDEX_BYTES),
         ),
-        _ => format!(
-            "{line_count} lines and {}",
-            format_size(byte_count),
-        ),
+        _ => format!("{line_count} lines and {}", format_size(byte_count),),
     };
 
     truncated.push_str(&format!(
@@ -130,12 +127,7 @@ pub fn truncate_index(raw: &str) -> IndexTruncation {
 ///
 /// Creates the file (and parent directories) if it doesn't exist.
 /// Ensures a newline separator before the new entry.
-pub fn append_index_entry(
-    path: &Path,
-    title: &str,
-    filename: &str,
-    summary: &str,
-) -> Result<()> {
+pub fn append_index_entry(path: &Path, title: &str, filename: &str, summary: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -290,11 +282,7 @@ mod tests {
         assert!(result.was_truncated);
         assert_eq!(result.line_count, 250);
         // Content should contain only first 200 lines (before warning)
-        let content_before_warning = result
-            .content
-            .split("\n\n> WARNING:")
-            .next()
-            .unwrap();
+        let content_before_warning = result.content.split("\n\n> WARNING:").next().unwrap();
         let output_lines: Vec<&str> = content_before_warning.split('\n').collect();
         assert_eq!(output_lines.len(), 200);
         assert!(result.content.contains("250 lines"));
@@ -341,11 +329,7 @@ mod tests {
         assert!(result.was_truncated);
 
         // Content before warning should end at a line boundary
-        let before_warning = result
-            .content
-            .split("\n\n> WARNING:")
-            .next()
-            .unwrap();
+        let before_warning = result.content.split("\n\n> WARNING:").next().unwrap();
         // Every line should be complete (not cut mid-content)
         for line in before_warning.lines() {
             assert!(
@@ -384,11 +368,7 @@ mod tests {
 
         assert!(result.was_truncated);
         // Should truncate at MAX_INDEX_BYTES
-        let before_warning = result
-            .content
-            .split("\n\n> WARNING:")
-            .next()
-            .unwrap();
+        let before_warning = result.content.split("\n\n> WARNING:").next().unwrap();
         assert_eq!(before_warning.len(), MAX_INDEX_BYTES);
     }
 
@@ -417,14 +397,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("MEMORY.md");
 
-        append_index_entry(&path, "Role", "user_role.md", "user role info")
-            .unwrap();
+        append_index_entry(&path, "Role", "user_role.md", "user role info").unwrap();
 
         let content = fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            content,
-            "- [Role](user_role.md) \u{2014} user role info\n"
-        );
+        assert_eq!(content, "- [Role](user_role.md) \u{2014} user role info\n");
     }
 
     #[test]
