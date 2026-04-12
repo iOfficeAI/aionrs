@@ -8,7 +8,10 @@ Project-specific rules and conventions for AI assistants and contributors.
 cargo build            # Build
 cargo test             # Run all tests
 cargo clippy           # Lint
+cargo fmt --all        # Format (CI enforces this)
 ```
+
+Before pushing, always run `cargo fmt --all` — CI will reject unformatted code.
 
 ## Architecture Principles
 
