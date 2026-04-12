@@ -312,8 +312,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn validate_rejects_traversal() {
-        let err =
-            validate_memory_path(Path::new("C:\\tmp\\..\\..\\..\\etc\\passwd")).unwrap_err();
+        let err = validate_memory_path(Path::new("C:\\tmp\\..\\..\\..\\etc\\passwd")).unwrap_err();
         assert!(matches!(err, MemoryError::PathValidation(_)));
         assert!(err.to_string().contains("traversal"));
     }
@@ -331,10 +330,7 @@ mod tests {
     fn validate_accepts_normal_absolute_path() {
         let result = validate_memory_path(Path::new("C:\\tmp\\memory\\test.md"));
         assert!(result.is_ok());
-        assert_eq!(
-            result.unwrap(),
-            PathBuf::from("C:\\tmp\\memory\\test.md")
-        );
+        assert_eq!(result.unwrap(), PathBuf::from("C:\\tmp\\memory\\test.md"));
     }
 
     // -- memory_entrypoint ----------------------------------------------------
