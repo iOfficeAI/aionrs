@@ -64,7 +64,7 @@ lru = "0.12"
 chrono = { version = "0.4", features = ["serde"] }
 
 # TOML config parsing
-toml = "0.9"
+toml = "1.0"
 
 # YAML frontmatter parsing (for skill files)
 serde_yaml = "0.9"
@@ -91,7 +91,7 @@ aws-config           = { version = "1", features = ["behavior-version-latest"] }
 aws-sdk-sts          = "1"
 
 # JWT creation (for Vertex GCP service account auth)
-jsonwebtoken = "9"
+jsonwebtoken = "10"
 
 # Base64 encoding
 base64 = "0.22"
