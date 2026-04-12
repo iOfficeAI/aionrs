@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn trigger_roundtrip() {
         for trigger in [CompactTrigger::Auto, CompactTrigger::Manual] {
-            let json = serde_json::to_value(&trigger).unwrap();
+            let json = serde_json::to_value(trigger).unwrap();
             let back: CompactTrigger = serde_json::from_value(json).unwrap();
             assert_eq!(back, trigger);
         }
