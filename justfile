@@ -46,6 +46,18 @@ test-e2e-anthropic:
 test-e2e-openai:
     vx cargo nextest run -p aion-agent --profile e2e --test e2e -E 'test(openai)'
 
+# ── Acceptance Tests (evolution feature validation) ───────────────────────
+# Requires env vars: OPENAI_API_KEY and/or AWS_PROFILE + CLAUDE_CODE_USE_BEDROCK=1
+# Reuses the e2e nextest profile (sequential, long timeout, no retry)
+test-acceptance:
+    vx cargo nextest run -p aion-agent --profile e2e --test acceptance
+
+test-acceptance-memory:
+    vx cargo nextest run -p aion-agent --profile e2e --test acceptance -E 'test(memory)'
+
+test-acceptance-compact:
+    vx cargo nextest run -p aion-agent --profile e2e --test acceptance -E 'test(compact)'
+
 # ── Lint / Format ─────────────────────────────────────────────────────────
 lint:
     vx cargo clippy --workspace --all-targets -- -D warnings

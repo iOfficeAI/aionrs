@@ -45,3 +45,8 @@ name = "e2e"
 path = "tests/e2e/mod.rs"
 # E2E tests require real API keys; run via: cargo nextest run --profile e2e --test e2e
 
+[[test]]
+name = "acceptance"
+path = "tests/acceptance/mod.rs"
+# Acceptance tests for evolution features; run via: cargo nextest run --profile e2e --test acceptance
+
