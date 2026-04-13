@@ -226,16 +226,65 @@ impl AgentEngine {
         self.plan_active_flag = Some(flag);
     }
 
+    /// Default thinking budget when "enabled" is requested without a specific budget.
+    const DEFAULT_THINKING_BUDGET: u32 = 10_000;
+
     /// Apply a runtime config update received from the protocol layer.
     ///
     /// Returns a list of human-readable change descriptions for the Info event.
     /// Empty list means no fields were changed.
-    pub fn apply_config_update(&mut self, model: Option<String>) -> Vec<String> {
+    pub fn apply_config_update(
+        &mut self,
+        model: Option<String>,
+        thinking: Option<String>,
+        thinking_budget: Option<u32>,
+        effort: Option<String>,
+    ) -> Vec<String> {
         let mut changes = Vec::new();
+
         if let Some(new_model) = model {
             let old = std::mem::replace(&mut self.model, new_model.clone());
             changes.push(format!("model: {old} → {new_model}"));
         }
+
+        if let Some(thinking_str) = thinking {
+            match thinking_str.as_str() {
+                "enabled" => {
+                    let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
+                    self.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
+                        budget_tokens: budget,
+                    });
+                    changes.push(format!("thinking: enabled (budget: {budget})"));
+                }
+                "disabled" => {
+                    self.thinking = Some(aion_types::llm::ThinkingConfig::Disabled);
+                    changes.push("thinking: disabled".to_string());
+                }
+                other => {
+                    changes.push(format!("thinking: ignored invalid value \"{other}\""));
+                }
+            }
+        } else if let Some(new_budget) = thinking_budget
+            && let Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) =
+                &mut self.thinking
+        {
+            *budget_tokens = new_budget;
+            changes.push(format!("thinking budget: {new_budget}"));
+        }
+
+        if let Some(new_effort) = effort {
+            if new_effort.is_empty() {
+                self.current_reasoning_effort = None;
+                changes.push("effort: cleared".to_string());
+            } else {
+                let old = self
+                    .current_reasoning_effort
+                    .replace(new_effort.clone())
+                    .unwrap_or_else(|| "none".to_string());
+                changes.push(format!("effort: {old} → {new_effort}"));
+            }
+        }
+
         changes
     }
 
@@ -638,10 +687,12 @@ mod set_config_tests {
         }
     }
 
+    // --- Cycle 1 tests (updated signature) ---
+
     #[test]
     fn set_config_changes_model() {
         let mut engine = make_engine("old-model");
-        let changes = engine.apply_config_update(Some("new-model".into()));
+        let changes = engine.apply_config_update(Some("new-model".into()), None, None, None);
         assert_eq!(engine.model, "new-model");
         assert_eq!(changes.len(), 1);
         assert!(changes[0].contains("old-model"));
@@ -651,7 +702,7 @@ mod set_config_tests {
     #[test]
     fn set_config_none_model_no_change() {
         let mut engine = make_engine("current");
-        let changes = engine.apply_config_update(None);
+        let changes = engine.apply_config_update(None, None, None, None);
         assert_eq!(engine.model, "current");
         assert!(changes.is_empty());
     }
@@ -659,14 +710,14 @@ mod set_config_tests {
     #[test]
     fn set_config_same_model_still_reports_change() {
         let mut engine = make_engine("same");
-        let changes = engine.apply_config_update(Some("same".into()));
+        let changes = engine.apply_config_update(Some("same".into()), None, None, None);
         assert_eq!(changes.len(), 1);
     }
 
     #[test]
     fn set_config_empty_string_model_accepted() {
         let mut engine = make_engine("real-model");
-        engine.apply_config_update(Some(String::new()));
+        engine.apply_config_update(Some(String::new()), None, None, None);
         assert_eq!(engine.model, "");
     }
 
@@ -674,9 +725,154 @@ mod set_config_tests {
     fn set_config_model_does_not_affect_other_state() {
         let mut engine = make_engine("m");
         engine.current_reasoning_effort = Some("high".into());
-        engine.apply_config_update(Some("new-m".into()));
+        engine.apply_config_update(Some("new-m".into()), None, None, None);
         assert_eq!(engine.model, "new-m");
         assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
+    }
+
+    // --- Cycle 2: Effort config tests ---
+
+    #[test]
+    fn set_config_changes_effort() {
+        let mut engine = make_engine("m");
+        assert!(engine.current_reasoning_effort.is_none());
+        let changes = engine.apply_config_update(None, None, None, Some("high".into()));
+        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(changes.len(), 1);
+        assert!(changes[0].contains("high"));
+    }
+
+    #[test]
+    fn set_config_clears_effort_with_empty_string() {
+        let mut engine = make_engine("m");
+        engine.current_reasoning_effort = Some("high".into());
+        let changes = engine.apply_config_update(None, None, None, Some(String::new()));
+        assert!(engine.current_reasoning_effort.is_none());
+        assert_eq!(changes.len(), 1);
+    }
+
+    // --- Cycle 2: Thinking config tests ---
+
+    #[test]
+    fn set_config_enables_thinking() {
+        let mut engine = make_engine("m");
+        let changes = engine.apply_config_update(None, Some("enabled".into()), Some(16000), None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert_eq!(*budget_tokens, 16000);
+            }
+            other => panic!("expected Enabled, got: {other:?}"),
+        }
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn set_config_disables_thinking() {
+        let mut engine = make_engine("m");
+        engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
+            budget_tokens: 8000,
+        });
+        let changes = engine.apply_config_update(None, Some("disabled".into()), None, None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Disabled) => {}
+            other => panic!("expected Disabled, got: {other:?}"),
+        }
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn set_config_thinking_enabled_default_budget() {
+        let mut engine = make_engine("m");
+        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert!(*budget_tokens > 0);
+            }
+            other => panic!("expected Enabled with default budget, got: {other:?}"),
+        }
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn set_config_invalid_thinking_ignored() {
+        let mut engine = make_engine("m");
+        engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
+            budget_tokens: 8000,
+        });
+        let changes = engine.apply_config_update(None, Some("invalid_value".into()), None, None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert_eq!(*budget_tokens, 8000);
+            }
+            other => panic!("expected Enabled unchanged, got: {other:?}"),
+        }
+        assert_eq!(changes.len(), 1);
+        assert!(changes[0].contains("invalid") || changes[0].contains("ignored"));
+    }
+
+    // --- Cycle 2: Combined fields test ---
+
+    #[test]
+    fn set_config_all_fields_at_once() {
+        let mut engine = make_engine("old-model");
+        let changes = engine.apply_config_update(
+            Some("new-model".into()),
+            Some("enabled".into()),
+            Some(12000),
+            Some("low".into()),
+        );
+        assert_eq!(engine.model, "new-model");
+        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("low"));
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert_eq!(*budget_tokens, 12000);
+            }
+            other => panic!("expected Enabled, got: {other:?}"),
+        }
+        assert_eq!(changes.len(), 3);
+    }
+
+    // --- Cycle 2: White-box edge case tests ---
+
+    #[test]
+    fn set_config_thinking_budget_only_updates_existing_enabled() {
+        let mut engine = make_engine("m");
+        engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
+            budget_tokens: 5000,
+        });
+        let changes = engine.apply_config_update(None, None, Some(20000), None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert_eq!(*budget_tokens, 20000);
+            }
+            other => panic!("expected Enabled with 20000, got: {other:?}"),
+        }
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn set_config_thinking_budget_ignored_when_disabled() {
+        let mut engine = make_engine("m");
+        engine.thinking = Some(aion_types::llm::ThinkingConfig::Disabled);
+        let changes = engine.apply_config_update(None, None, Some(20000), None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Disabled) => {}
+            other => panic!("expected Disabled unchanged, got: {other:?}"),
+        }
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn set_config_effort_valid_values() {
+        for value in ["low", "medium", "high", "max"] {
+            let mut engine = make_engine("m");
+            engine.apply_config_update(None, None, None, Some(value.to_string()));
+            assert_eq!(
+                engine.current_reasoning_effort.as_deref(),
+                Some(value),
+                "effort should be set to {value}"
+            );
+        }
     }
 }
 

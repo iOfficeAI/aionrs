@@ -31,6 +31,12 @@ pub enum ProtocolCommand {
     SetConfig {
         #[serde(default)]
         model: Option<String>,
+        #[serde(default)]
+        thinking: Option<String>,
+        #[serde(default)]
+        thinking_budget: Option<u32>,
+        #[serde(default)]
+        effort: Option<String>,
     },
 }
 
@@ -58,6 +64,9 @@ mod tests {
     fn set_config_debug_format() {
         let cmd = ProtocolCommand::SetConfig {
             model: Some("test-model".into()),
+            thinking: None,
+            thinking_budget: None,
+            effort: None,
         };
         let dbg = format!("{cmd:?}");
         assert!(dbg.contains("SetConfig"));
@@ -68,13 +77,53 @@ mod tests {
     fn set_config_equality() {
         let a = ProtocolCommand::SetConfig {
             model: Some("m".into()),
+            thinking: None,
+            thinking_budget: None,
+            effort: None,
         };
         let b = ProtocolCommand::SetConfig {
             model: Some("m".into()),
+            thinking: None,
+            thinking_budget: None,
+            effort: None,
         };
         assert_eq!(a, b);
 
-        let c = ProtocolCommand::SetConfig { model: None };
+        let c = ProtocolCommand::SetConfig {
+            model: None,
+            thinking: None,
+            thinking_budget: None,
+            effort: None,
+        };
         assert_ne!(a, c);
+    }
+
+    #[test]
+    fn set_config_with_all_fields_equality() {
+        let a = ProtocolCommand::SetConfig {
+            model: Some("m".into()),
+            thinking: Some("enabled".into()),
+            thinking_budget: Some(8000),
+            effort: Some("high".into()),
+        };
+        let b = ProtocolCommand::SetConfig {
+            model: Some("m".into()),
+            thinking: Some("enabled".into()),
+            thinking_budget: Some(8000),
+            effort: Some("high".into()),
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn set_config_all_none_fields() {
+        let cmd = ProtocolCommand::SetConfig {
+            model: None,
+            thinking: None,
+            thinking_budget: None,
+            effort: None,
+        };
+        let dbg = format!("{cmd:?}");
+        assert!(dbg.contains("SetConfig"));
     }
 }
