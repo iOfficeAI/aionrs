@@ -11,7 +11,9 @@ cargo clippy           # Lint
 cargo fmt --all        # Format (CI enforces this)
 ```
 
-Before pushing, always run `cargo fmt --all` — CI will reject unformatted code.
+**Pushing code: always use `just push` instead of `git push`.**
+It runs fmt → clippy → test before pushing, preventing CI failures.
+Supports the same arguments as `git push` (e.g. `just push -u origin branch`).
 
 ## Architecture Principles
 

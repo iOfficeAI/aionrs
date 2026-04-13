@@ -93,5 +93,12 @@ version:
 clean:
     vx cargo clean
 
+# ── Pre-push gate (format, lint, test, then push) ────────────────────────
+push *ARGS:
+    vx cargo fmt --all
+    vx cargo clippy --workspace --all-targets -- -D warnings
+    vx cargo test --workspace
+    git push {{ ARGS }}
+
 # ── All checks (mirrors CI exactly) ───────────────────────────────────────
 check-all: fmt-check lint test-ci hakari-verify audit
