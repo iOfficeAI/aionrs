@@ -482,47 +482,69 @@ async fn run_json_stream_mode(
                 input,
                 files: _,
             } => {
-                let engine_fut = engine.run(&input, &msg_id);
-                tokio::pin!(engine_fut);
-
                 let mut stopped = false;
-                loop {
-                    tokio::select! {
-                        result = &mut engine_fut => {
-                            match result {
-                                Ok(result) => {
-                                    output.emit_stream_end(
-                                        &msg_id,
-                                        result.turns,
-                                        result.usage.input_tokens,
-                                        result.usage.output_tokens,
-                                        result.usage.cache_creation_tokens,
-                                        result.usage.cache_read_tokens,
-                                    );
+                let mut pending_config_model: Option<Option<String>> = None;
+
+                {
+                    let engine_fut = engine.run(&input, &msg_id);
+                    tokio::pin!(engine_fut);
+
+                    loop {
+                        tokio::select! {
+                            result = &mut engine_fut => {
+                                match result {
+                                    Ok(result) => {
+                                        output.emit_stream_end(
+                                            &msg_id,
+                                            result.turns,
+                                            result.usage.input_tokens,
+                                            result.usage.output_tokens,
+                                            result.usage.cache_creation_tokens,
+                                            result.usage.cache_read_tokens,
+                                        );
+                                    }
+                                    Err(e) => {
+                                        output.emit_error(&e.to_string());
+                                    }
                                 }
-                                Err(e) => {
-                                    output.emit_error(&e.to_string());
+                                break;
+                            }
+                            Some(sub_cmd) = cmd_rx.recv() => {
+                                match sub_cmd {
+                                    ProtocolCommand::ToolApprove { call_id, scope: _ } => {
+                                        approval_manager.resolve(&call_id, ToolApprovalResult::Approved);
+                                    }
+                                    ProtocolCommand::ToolDeny { call_id, reason } => {
+                                        approval_manager.resolve(&call_id, ToolApprovalResult::Denied { reason });
+                                    }
+                                    ProtocolCommand::Stop => {
+                                        stopped = true;
+                                        break;
+                                    }
+                                    ProtocolCommand::SetConfig { model } => {
+                                        pending_config_model = Some(model);
+                                        let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
+                                            msg_id: String::new(),
+                                            message: "set_config: queued, will apply after current response".to_string(),
+                                        });
+                                    }
+                                    _ => {
+                                        eprintln!("[protocol] Ignoring command during active message processing");
+                                    }
                                 }
                             }
-                            break;
                         }
-                        Some(sub_cmd) = cmd_rx.recv() => {
-                            match sub_cmd {
-                                ProtocolCommand::ToolApprove { call_id, scope: _ } => {
-                                    approval_manager.resolve(&call_id, ToolApprovalResult::Approved);
-                                }
-                                ProtocolCommand::ToolDeny { call_id, reason } => {
-                                    approval_manager.resolve(&call_id, ToolApprovalResult::Denied { reason });
-                                }
-                                ProtocolCommand::Stop => {
-                                    stopped = true;
-                                    break;
-                                }
-                                _ => {
-                                    eprintln!("[protocol] Ignoring command during active message processing");
-                                }
-                            }
-                        }
+                    }
+                } // engine_fut dropped here, releasing mutable borrow
+
+                // Apply any config changes that arrived during processing
+                if let Some(model) = pending_config_model.take() {
+                    let changes = engine.apply_config_update(model);
+                    if !changes.is_empty() {
+                        let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
+                            msg_id: String::new(),
+                            message: format!("config applied: {}", changes.join(", ")),
+                        });
                     }
                 }
                 if stopped {
@@ -545,7 +567,19 @@ async fn run_json_stream_mode(
                 eprintln!("[protocol] InitHistory received: {} chars", text.len());
             }
             ProtocolCommand::SetMode { mode: _ } => {
-                eprintln!("[protocol] SetMode received");
+                eprintln!("[protocol] SetMode received (not yet implemented)");
+            }
+            ProtocolCommand::SetConfig { model } => {
+                let changes = engine.apply_config_update(model);
+                let message = if changes.is_empty() {
+                    "set_config: no changes".to_string()
+                } else {
+                    format!("config updated: {}", changes.join(", "))
+                };
+                let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
+                    msg_id: String::new(),
+                    message,
+                });
             }
         }
     }

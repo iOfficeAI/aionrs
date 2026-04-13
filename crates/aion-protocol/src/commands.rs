@@ -28,6 +28,10 @@ pub enum ProtocolCommand {
     SetMode {
         mode: SessionMode,
     },
+    SetConfig {
+        #[serde(default)]
+        model: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Eq)]
@@ -44,4 +48,33 @@ pub enum SessionMode {
     Default,
     AutoEdit,
     Yolo,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_config_debug_format() {
+        let cmd = ProtocolCommand::SetConfig {
+            model: Some("test-model".into()),
+        };
+        let dbg = format!("{cmd:?}");
+        assert!(dbg.contains("SetConfig"));
+        assert!(dbg.contains("test-model"));
+    }
+
+    #[test]
+    fn set_config_equality() {
+        let a = ProtocolCommand::SetConfig {
+            model: Some("m".into()),
+        };
+        let b = ProtocolCommand::SetConfig {
+            model: Some("m".into()),
+        };
+        assert_eq!(a, b);
+
+        let c = ProtocolCommand::SetConfig { model: None };
+        assert_ne!(a, c);
+    }
 }

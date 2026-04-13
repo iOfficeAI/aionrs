@@ -226,6 +226,19 @@ impl AgentEngine {
         self.plan_active_flag = Some(flag);
     }
 
+    /// Apply a runtime config update received from the protocol layer.
+    ///
+    /// Returns a list of human-readable change descriptions for the Info event.
+    /// Empty list means no fields were changed.
+    pub fn apply_config_update(&mut self, model: Option<String>) -> Vec<String> {
+        let mut changes = Vec::new();
+        if let Some(new_model) = model {
+            let old = std::mem::replace(&mut self.model, new_model.clone());
+            changes.push(format!("model: {old} → {new_model}"));
+        }
+        changes
+    }
+
     /// Run the agent loop with user input
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
         self.current_msg_id = msg_id.to_string();
@@ -555,6 +568,115 @@ impl AgentEngine {
                     .emit_error(&format!("Failed to update session index: {}", e));
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// set_config tests — apply_config_update()
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod set_config_tests {
+    use std::sync::{Arc, Mutex};
+
+    use aion_providers::{LlmProvider, ProviderError};
+    use aion_tools::registry::ToolRegistry;
+    use aion_types::llm::{LlmEvent, LlmRequest};
+
+    use crate::confirm::ToolConfirmer;
+    use crate::output::OutputSink;
+
+    struct NullOutput;
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+    #[async_trait::async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(
+            &self,
+            _: &LlmRequest,
+        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    fn make_engine(model: &str) -> super::AgentEngine {
+        super::AgentEngine {
+            provider: Arc::new(NullProvider),
+            tools: ToolRegistry::new(),
+            messages: vec![],
+            system_prompt: String::new(),
+            model: model.to_string(),
+            max_tokens: 4096,
+            max_turns: 10,
+            total_usage: Default::default(),
+            thinking: None,
+            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
+            hooks: None,
+            session_manager: None,
+            current_session: None,
+            output: Arc::new(NullOutput),
+            current_msg_id: String::new(),
+            approval_manager: None,
+            protocol_writer: None,
+            allow_list: vec![],
+            current_reasoning_effort: None,
+            compact_config: aion_config::compact::CompactConfig::default(),
+            compact_state: super::CompactState::new(),
+            plan_state: Default::default(),
+            plan_active_flag: None,
+        }
+    }
+
+    #[test]
+    fn set_config_changes_model() {
+        let mut engine = make_engine("old-model");
+        let changes = engine.apply_config_update(Some("new-model".into()));
+        assert_eq!(engine.model, "new-model");
+        assert_eq!(changes.len(), 1);
+        assert!(changes[0].contains("old-model"));
+        assert!(changes[0].contains("new-model"));
+    }
+
+    #[test]
+    fn set_config_none_model_no_change() {
+        let mut engine = make_engine("current");
+        let changes = engine.apply_config_update(None);
+        assert_eq!(engine.model, "current");
+        assert!(changes.is_empty());
+    }
+
+    #[test]
+    fn set_config_same_model_still_reports_change() {
+        let mut engine = make_engine("same");
+        let changes = engine.apply_config_update(Some("same".into()));
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn set_config_empty_string_model_accepted() {
+        let mut engine = make_engine("real-model");
+        engine.apply_config_update(Some(String::new()));
+        assert_eq!(engine.model, "");
+    }
+
+    #[test]
+    fn set_config_model_does_not_affect_other_state() {
+        let mut engine = make_engine("m");
+        engine.current_reasoning_effort = Some("high".into());
+        engine.apply_config_update(Some("new-m".into()));
+        assert_eq!(engine.model, "new-m");
+        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
     }
 }
 
