@@ -138,6 +138,22 @@ Every test must verify a meaningful behavior or edge case.
 No trivial tests that just assert the happy path without checking boundaries,
 error conditions, or non-obvious logic.
 
+## Cross-Platform Path Handling
+
+CI runs on macOS, Linux, **and Windows**. `#[cfg(windows)]` code cannot
+be tested locally on Unix — only CI catches failures.
+
+Rules:
+- Never hardcode platform paths (`/tmp/...`, `C:\...`) in production code.
+  Use `Path::join()`, `dirs::config_dir()`, `tempfile::tempdir()`, etc.
+- In tests, hardcoded Unix paths (`Path::new("/foo/...")`) are fine for
+  pure string operations (join, display) or nonexistent-path error handling.
+  Only add `#[cfg(unix)]` / `#[cfg(windows)]` variants when the path is
+  passed to `is_absolute()`, `validate_memory_path()`, or similar
+  platform-sensitive checks.
+- Use `std::path::Component::Normal` (not byte length) when checking
+  path depth — prefix/root components differ across platforms.
+
 ## Code Style
 
 - Rust 2021 edition, stable toolchain
