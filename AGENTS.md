@@ -140,8 +140,9 @@ error conditions, or non-obvious logic.
 
 ## Cross-Platform Path Handling
 
-CI runs on macOS, Linux, **and Windows**. `#[cfg(windows)]` code cannot
-be tested locally on Unix — only CI catches failures.
+CI runs on macOS, Linux, **and Windows**. Local dev can only test the
+current platform's `#[cfg(...)]` code — other platform branches are
+verified by CI alone.
 
 Rules:
 - Never hardcode platform paths (`/tmp/...`, `C:\...`) in production code.
