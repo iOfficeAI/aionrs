@@ -377,11 +377,7 @@ fn truncate_display(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         // Find a char boundary to avoid panicking on multi-byte characters
-        let end = s
-            .char_indices()
-            .nth(max)
-            .map(|(i, _)| i)
-            .unwrap_or(s.len());
+        let end = s.char_indices().nth(max).map(|(i, _)| i).unwrap_or(s.len());
         format!("{}...", &s[..end])
     }
 }
