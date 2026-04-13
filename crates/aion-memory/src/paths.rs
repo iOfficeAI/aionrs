@@ -6,7 +6,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use crate::error::{MemoryError, Result};
 
@@ -118,7 +118,13 @@ pub fn validate_memory_path(path: &Path) -> Result<PathBuf> {
         return Err(MemoryError::PathValidation("path must be absolute".into()));
     }
 
-    if path_str.len() < 3 {
+    // Count only Normal segments (skip Prefix, RootDir) so the threshold is
+    // consistent across platforms: Unix `/a` → 1 Normal, Windows `C:\a` → 1 Normal.
+    let depth = path
+        .components()
+        .filter(|c| matches!(c, Component::Normal(_)))
+        .count();
+    if depth < 2 {
         return Err(MemoryError::PathValidation("path is too short".into()));
     }
 
