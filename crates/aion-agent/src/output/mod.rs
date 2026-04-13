@@ -208,7 +208,13 @@ fn truncate_display(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        // Find a char boundary to avoid panicking on multi-byte characters
+        let end = s
+            .char_indices()
+            .nth(max)
+            .map(|(i, _)| i)
+            .unwrap_or(s.len());
+        format!("{}...", &s[..end])
     }
 }
 
@@ -253,5 +259,21 @@ mod tests {
         formatter.turn_stats(1, 100, 50, 0, 0);
         formatter.turn_stats(5, 1000, 500, 200, 300);
         formatter.turn_stats(0, 0, 0, 0, 0);
+    }
+
+    #[test]
+    fn test_text_truncation_cjk_does_not_panic() {
+        // Each CJK char is 3 bytes; byte-based slicing at max=200 would land
+        // mid-character and panic without the char_indices fix.
+        let cjk: String = "你好世界测试".chars().cycle().take(200).collect();
+        let result = truncate_display(&cjk, 50);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_text_truncation_mixed_cjk_ascii_does_not_panic() {
+        let mixed = "abc你好def世界ghi测试".repeat(20);
+        let result = truncate_display(&mixed, 30);
+        assert!(result.ends_with("..."));
     }
 }

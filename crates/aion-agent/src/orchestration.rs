@@ -350,8 +350,20 @@ fn truncate_result(content: &str, max_chars: usize) -> String {
         return content.to_string();
     }
     let half = max_chars / 2;
-    let head = &content[..half];
-    let tail = &content[content.len() - half..];
+    // Find char boundaries to avoid panicking on multi-byte characters
+    let head_end = content
+        .char_indices()
+        .nth(half)
+        .map(|(i, _)| i)
+        .unwrap_or(content.len());
+    let tail_start = content
+        .char_indices()
+        .rev()
+        .nth(half - 1)
+        .map(|(i, _)| i)
+        .unwrap_or(0);
+    let head = &content[..head_end];
+    let tail = &content[tail_start..];
     format!(
         "{}\n\n... [truncated {} chars] ...\n\n{}",
         head,
@@ -364,7 +376,13 @@ fn truncate_display(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}...", &s[..max])
+        // Find a char boundary to avoid panicking on multi-byte characters
+        let end = s
+            .char_indices()
+            .nth(max)
+            .map(|(i, _)| i)
+            .unwrap_or(s.len());
+        format!("{}...", &s[..end])
     }
 }
 
@@ -399,4 +417,60 @@ fn partition<'a>(registry: &ToolRegistry, calls: &'a [ContentBlock]) -> Vec<Batc
     }
 
     batches
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -- truncate_display -----------------------------------------------------
+
+    #[test]
+    fn truncate_display_ascii_short_unchanged() {
+        assert_eq!(truncate_display("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_display_ascii_truncated() {
+        let result = truncate_display("hello world", 5);
+        assert!(result.ends_with("..."));
+        assert!(result.len() <= 20);
+    }
+
+    #[test]
+    fn truncate_display_cjk_does_not_panic() {
+        // 200 CJK chars: each is 3 bytes, so byte index 200 falls mid-character
+        let cjk: String = "你好世界测试".chars().cycle().take(200).collect();
+        let result = truncate_display(&cjk, 50);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn truncate_display_mixed_cjk_ascii_does_not_panic() {
+        let mixed = "abc你好def世界ghi测试".repeat(20);
+        let result = truncate_display(&mixed, 30);
+        assert!(result.ends_with("..."));
+    }
+
+    // -- truncate_result ------------------------------------------------------
+
+    #[test]
+    fn truncate_result_short_unchanged() {
+        let s = "short content";
+        assert_eq!(truncate_result(s, 1000), s);
+    }
+
+    #[test]
+    fn truncate_result_cjk_does_not_panic() {
+        let cjk: String = "这是一段较长的中文内容用于测试截断功能".repeat(50);
+        let result = truncate_result(&cjk, 100);
+        assert!(result.contains("truncated"));
+    }
+
+    #[test]
+    fn truncate_result_mixed_cjk_ascii_does_not_panic() {
+        let mixed = "Hello你好World世界Test测试".repeat(100);
+        let result = truncate_result(&mixed, 200);
+        assert!(result.contains("truncated"));
+    }
 }
