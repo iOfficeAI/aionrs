@@ -1,3 +1,4 @@
+pub mod null_sink;
 pub mod protocol_sink;
 pub mod terminal;
 

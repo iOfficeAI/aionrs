@@ -15,12 +15,17 @@ use aion_types::message::TokenUsage;
 
 use crate::engine::AgentEngine;
 use crate::output::OutputSink;
-use crate::output::terminal::TerminalSink;
+use crate::output::null_sink::NullSink;
 
 // Re-export from aion-types — single source of truth
 pub use aion_types::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
 
 /// Spawns independent child agents that share the parent's LLM provider.
+///
+/// Sub-agents use a [`NullSink`] so their streaming output is silently
+/// discarded.  Results are collected via `engine.run()` and returned to the
+/// parent which emits them as a single `tool_result` event — matching the
+/// Claude Code pattern where only the parent writes to stdout.
 pub struct AgentSpawner {
     provider: Arc<dyn LlmProvider>,
     base_config: Config,
@@ -46,7 +51,7 @@ impl AgentSpawner {
         config.tools.auto_approve = true;
 
         let tools = build_tool_registry(&[]);
-        let output: Arc<dyn OutputSink> = Arc::new(TerminalSink::new(true));
+        let output: Arc<dyn OutputSink> = Arc::new(NullSink);
         let mut engine =
             AgentEngine::new_with_provider(self.provider.clone(), config, tools, output);
 
@@ -122,7 +127,7 @@ impl Spawner for AgentSpawner {
         }
 
         let tools = build_tool_registry(&overrides.allowed_tools);
-        let output: Arc<dyn OutputSink> = Arc::new(TerminalSink::new(true));
+        let output: Arc<dyn OutputSink> = Arc::new(NullSink);
         let mut engine =
             AgentEngine::new_with_provider(self.provider.clone(), config, tools, output);
         engine.set_initial_reasoning_effort(overrides.effort.clone());
