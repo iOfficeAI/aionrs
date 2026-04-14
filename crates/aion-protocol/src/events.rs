@@ -74,6 +74,7 @@ pub struct Capabilities {
     pub effort: bool,
     pub effort_levels: Vec<String>,
     pub modes: Vec<String>,
+    pub current_mode: String,
     pub mcp: bool,
 }
 
@@ -153,6 +154,7 @@ mod tests {
                 effort: false,
                 effort_levels: vec![],
                 modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+                current_mode: "default".into(),
                 mcp: false,
             },
         };
@@ -172,6 +174,7 @@ mod tests {
                 effort: false,
                 effort_levels: vec![],
                 modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+                current_mode: "default".into(),
                 mcp: false,
             },
         };
@@ -277,6 +280,7 @@ mod tests {
                 effort: true,
                 effort_levels: vec!["low".into(), "medium".into(), "high".into()],
                 modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+                current_mode: "default".into(),
                 mcp: false,
             },
         };
@@ -296,6 +300,7 @@ mod tests {
                 effort: true,
                 effort_levels: vec!["low".into(), "medium".into(), "high".into()],
                 modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+                current_mode: "default".into(),
                 mcp: true,
             },
         };

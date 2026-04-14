@@ -8,6 +8,7 @@ fn capabilities_serialize_with_all_fields() {
         effort: false,
         effort_levels: vec![],
         modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+        current_mode: "default".into(),
         mcp: true,
     };
     let event = ProtocolEvent::Ready {
@@ -28,6 +29,7 @@ fn capabilities_serialize_with_all_fields() {
             .is_empty()
     );
     assert_eq!(parsed["capabilities"]["modes"].as_array().unwrap().len(), 3);
+    assert_eq!(parsed["capabilities"]["current_mode"], "default");
 }
 
 #[test]
@@ -38,6 +40,7 @@ fn config_changed_event_serializes_correctly() {
         effort: true,
         effort_levels: vec!["low".into(), "medium".into(), "high".into()],
         modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+        current_mode: "default".into(),
         mcp: false,
     };
     let event = ProtocolEvent::ConfigChanged { capabilities: caps };
@@ -56,6 +59,7 @@ fn capabilities_with_effort_levels_roundtrip() {
         effort: true,
         effort_levels: vec!["low".into(), "medium".into(), "high".into()],
         modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+        current_mode: "default".into(),
         mcp: true,
     };
     let event = ProtocolEvent::Ready {

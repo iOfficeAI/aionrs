@@ -26,6 +26,18 @@ use rstest::rstest;
     }
 )]
 #[case(
+    r#"{"type":"set_mode","mode":"default"}"#,
+    ProtocolCommand::SetMode {
+        mode: SessionMode::Default,
+    }
+)]
+#[case(
+    r#"{"type":"set_mode","mode":"auto_edit"}"#,
+    ProtocolCommand::SetMode {
+        mode: SessionMode::AutoEdit,
+    }
+)]
+#[case(
     r#"{"type":"set_mode","mode":"yolo"}"#,
     ProtocolCommand::SetMode {
         mode: SessionMode::Yolo,

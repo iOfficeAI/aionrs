@@ -472,7 +472,12 @@ async fn run_json_stream_mode(
     engine.set_plan_active_flag(plan_active_flag);
 
     let sid = engine.current_session_id();
-    protocol_sink.emit_ready(engine.compat(), has_mcp, sid);
+    protocol_sink.emit_ready(
+        engine.compat(),
+        has_mcp,
+        sid,
+        &approval_manager.current_mode(),
+    );
 
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer.clone());
@@ -488,6 +493,7 @@ async fn run_json_stream_mode(
             } => {
                 let mut stopped = false;
                 let mut pending_config: Option<PendingConfig> = None;
+                let mut mode_changed = false;
 
                 {
                     let engine_fut = engine.run(&input, &msg_id);
@@ -532,6 +538,14 @@ async fn run_json_stream_mode(
                                             message: "set_config: queued, will apply after current response".to_string(),
                                         });
                                     }
+                                    ProtocolCommand::SetMode { mode } => {
+                                        approval_manager.set_mode(mode);
+                                        mode_changed = true;
+                                        let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
+                                            msg_id: String::new(),
+                                            message: format!("mode updated: {}", approval_manager.current_mode()),
+                                        });
+                                    }
                                     _ => {
                                         eprintln!("[protocol] Ignoring command during active message processing");
                                     }
@@ -551,7 +565,18 @@ async fn run_json_stream_mode(
                             message: format!("config applied: {}", changes.join(", ")),
                         });
                     }
-                    protocol_sink.emit_config_changed(engine.compat(), has_mcp);
+                    // config_changed covers both config and mode updates
+                    protocol_sink.emit_config_changed(
+                        engine.compat(),
+                        has_mcp,
+                        &approval_manager.current_mode(),
+                    );
+                } else if mode_changed {
+                    protocol_sink.emit_config_changed(
+                        engine.compat(),
+                        has_mcp,
+                        &approval_manager.current_mode(),
+                    );
                 }
                 if stopped {
                     break;
@@ -572,8 +597,19 @@ async fn run_json_stream_mode(
             ProtocolCommand::InitHistory { text } => {
                 eprintln!("[protocol] InitHistory received: {} chars", text.len());
             }
-            ProtocolCommand::SetMode { mode: _ } => {
-                eprintln!("[protocol] SetMode received (not yet implemented)");
+            ProtocolCommand::SetMode { mode } => {
+                let mode_str = format!("{mode:?}").to_lowercase();
+                approval_manager.set_mode(mode);
+                let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
+                    msg_id: String::new(),
+                    message: format!("mode updated: {}", approval_manager.current_mode()),
+                });
+                protocol_sink.emit_config_changed(
+                    engine.compat(),
+                    has_mcp,
+                    &approval_manager.current_mode(),
+                );
+                eprintln!("[protocol] SetMode applied: {mode_str}");
             }
             ProtocolCommand::SetConfig {
                 model,
@@ -591,7 +627,11 @@ async fn run_json_stream_mode(
                     msg_id: String::new(),
                     message,
                 });
-                protocol_sink.emit_config_changed(engine.compat(), has_mcp);
+                protocol_sink.emit_config_changed(
+                    engine.compat(),
+                    has_mcp,
+                    &approval_manager.current_mode(),
+                );
             }
         }
     }
