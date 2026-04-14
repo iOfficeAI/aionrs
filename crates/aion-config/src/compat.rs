@@ -49,6 +49,18 @@ pub struct ProviderCompat {
     /// Override to "/chat/completions" for providers like Gemini that include
     /// version prefix in the base URL itself.
     pub api_path: Option<String>,
+
+    /// Whether this provider supports extended thinking (Anthropic-style).
+    /// Default: true for anthropic/bedrock/vertex, false for openai.
+    pub supports_thinking: Option<bool>,
+
+    /// Whether this provider supports reasoning_effort (OpenAI-style).
+    /// Default: false for anthropic/bedrock/vertex, true for openai.
+    pub supports_effort: Option<bool>,
+
+    /// Available effort levels for this provider (e.g., ["low", "medium", "high"]).
+    /// Only meaningful when supports_effort is true.
+    pub effort_levels: Option<Vec<String>>,
 }
 
 impl ProviderCompat {
@@ -58,6 +70,8 @@ impl ProviderCompat {
             ensure_alternation: Some(true),
             merge_same_role: Some(true),
             auto_tool_id: Some(true),
+            supports_thinking: Some(true),
+            supports_effort: Some(false),
             ..Default::default()
         }
     }
@@ -69,6 +83,8 @@ impl ProviderCompat {
             merge_same_role: Some(true),
             auto_tool_id: Some(true),
             sanitize_schema: Some(true),
+            supports_thinking: Some(true),
+            supports_effort: Some(false),
             ..Default::default()
         }
     }
@@ -80,6 +96,9 @@ impl ProviderCompat {
             merge_assistant_messages: Some(true),
             clean_orphan_tool_calls: Some(true),
             dedup_tool_results: Some(true),
+            supports_thinking: Some(false),
+            supports_effort: Some(true),
+            effort_levels: Some(vec!["low".into(), "medium".into(), "high".into()]),
             ..Default::default()
         }
     }
@@ -101,6 +120,9 @@ impl ProviderCompat {
             strip_patterns: user.strip_patterns.or(defaults.strip_patterns),
             auto_tool_id: user.auto_tool_id.or(defaults.auto_tool_id),
             api_path: user.api_path.or(defaults.api_path),
+            supports_thinking: user.supports_thinking.or(defaults.supports_thinking),
+            supports_effort: user.supports_effort.or(defaults.supports_effort),
+            effort_levels: user.effort_levels.or(defaults.effort_levels),
         }
     }
 
@@ -136,6 +158,18 @@ impl ProviderCompat {
 
     pub fn api_path(&self) -> &str {
         self.api_path.as_deref().unwrap_or("/v1/chat/completions")
+    }
+
+    pub fn supports_thinking(&self) -> bool {
+        self.supports_thinking.unwrap_or(false)
+    }
+
+    pub fn supports_effort(&self) -> bool {
+        self.supports_effort.unwrap_or(false)
+    }
+
+    pub fn effort_levels(&self) -> &[String] {
+        self.effort_levels.as_deref().unwrap_or(&[])
     }
 }
 
@@ -314,6 +348,57 @@ mod tests {
 
         assert_eq!(sanitized["type"], "object");
         assert_eq!(sanitized["properties"]["cmd"]["type"], "string");
+    }
+
+    #[test]
+    fn test_anthropic_defaults_capability_fields() {
+        let compat = ProviderCompat::anthropic_defaults();
+        assert_eq!(compat.supports_thinking, Some(true));
+        assert_eq!(compat.supports_effort, Some(false));
+        assert!(compat.effort_levels.is_none());
+    }
+
+    #[test]
+    fn test_openai_defaults_capability_fields() {
+        let compat = ProviderCompat::openai_defaults();
+        assert_eq!(compat.supports_thinking, Some(false));
+        assert_eq!(compat.supports_effort, Some(true));
+        assert_eq!(
+            compat.effort_levels,
+            Some(vec!["low".to_string(), "medium".to_string(), "high".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_bedrock_defaults_capability_fields() {
+        let compat = ProviderCompat::bedrock_defaults();
+        assert_eq!(compat.supports_thinking, Some(true));
+        assert_eq!(compat.supports_effort, Some(false));
+    }
+
+    #[test]
+    fn test_merge_capability_fields_user_overrides() {
+        let defaults = ProviderCompat::openai_defaults();
+        let user = ProviderCompat {
+            supports_thinking: Some(true),
+            ..Default::default()
+        };
+        let merged = ProviderCompat::merge(defaults, user);
+        assert_eq!(merged.supports_thinking, Some(true));
+        assert_eq!(merged.supports_effort, Some(true));
+    }
+
+    #[test]
+    fn test_capability_accessors() {
+        let compat = ProviderCompat::anthropic_defaults();
+        assert!(compat.supports_thinking());
+        assert!(!compat.supports_effort());
+        assert!(compat.effort_levels().is_empty());
+
+        let compat2 = ProviderCompat::openai_defaults();
+        assert!(!compat2.supports_thinking());
+        assert!(compat2.supports_effort());
+        assert_eq!(compat2.effort_levels(), &["low", "medium", "high"]);
     }
 
     #[test]
