@@ -30,11 +30,14 @@ Emitted once after initialization completes. Client MUST wait for this before se
 ```json
 {
   "type": "ready",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "session_id": "a1b2c3",
   "capabilities": {
     "tool_approval": true,
     "thinking": true,
+    "effort": false,
+    "effort_levels": [],
+    "modes": ["default", "auto_edit", "yolo"],
     "mcp": true
   }
 }
@@ -45,7 +48,10 @@ Emitted once after initialization completes. Client MUST wait for this before se
 | `version` | string | Protocol version (semver) |
 | `session_id` | string? | Session ID (omitted when sessions are disabled in config) |
 | `capabilities.tool_approval` | bool | Whether agent supports pause-and-wait tool approval |
-| `capabilities.thinking` | bool | Whether agent emits thinking events |
+| `capabilities.thinking` | bool | Whether current provider supports extended thinking |
+| `capabilities.effort` | bool | Whether current provider supports reasoning_effort |
+| `capabilities.effort_levels` | string[] | Valid effort values (e.g., `["low", "medium", "high"]`). Empty when effort is false |
+| `capabilities.modes` | string[] | Available approval modes for `set_mode` command |
 | `capabilities.mcp` | bool | Whether MCP tools are available |
 
 ### 1.2 `stream_start`
@@ -245,6 +251,26 @@ Informational message (non-critical, for display only).
 }
 ```
 
+### 1.12 `config_changed`
+
+Emitted after a `set_config` command is processed. Contains the updated capabilities snapshot reflecting the current provider/model configuration.
+
+```json
+{
+  "type": "config_changed",
+  "capabilities": {
+    "tool_approval": true,
+    "thinking": false,
+    "effort": true,
+    "effort_levels": ["low", "medium", "high"],
+    "modes": ["default", "auto_edit", "yolo"],
+    "mcp": true
+  }
+}
+```
+
+Clients should update their UI controls (e.g., enable/disable thinking toggle, populate effort dropdown) based on the new capabilities.
+
 ## 2. Client → Agent Commands (stdin)
 
 Every line is a JSON object with a `type` field.
@@ -348,6 +374,31 @@ Change the agent's approval mode for the session.
 | `"default"` | All tools need approval (except allow-listed) |
 | `"auto_edit"` | `info` and `edit` auto-approved; `exec` and `mcp` need approval |
 | `"yolo"` | All tools auto-approved |
+
+### 2.7 `set_config`
+
+Update model, thinking, or effort configuration at runtime.
+
+```json
+{
+  "type": "set_config",
+  "model": "claude-opus-4",
+  "thinking": "enabled",
+  "thinking_budget": 16000,
+  "effort": "high"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string | no | Switch to a different model |
+| `thinking` | string | no | `"enabled"` or `"disabled"` |
+| `thinking_budget` | number | no | Token budget for thinking (default: 10000) |
+| `effort` | string | no | Reasoning effort level (e.g., `"low"`, `"medium"`, `"high"`) |
+
+All fields are optional. Only provided fields are updated.
+
+> **Validation**: The agent validates `thinking` and `effort` values against the current provider's capabilities. If the provider does not support a feature, the change is rejected with a descriptive message in the `info` event. After processing, a `config_changed` event is always emitted with the updated capabilities.
 
 ## 3. Lifecycle
 
@@ -509,4 +560,4 @@ The `ready` event includes a `version` field. Clients should check version compa
 - **Minor version bump**: New optional event types or fields added (backward compatible)
 - **Major version bump**: Breaking changes to existing events/commands
 
-Current version: `0.1.0`
+Current version: `0.2.0`
