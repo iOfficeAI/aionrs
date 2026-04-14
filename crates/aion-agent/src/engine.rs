@@ -32,6 +32,8 @@ pub struct AgentEngine {
     max_turns: usize,
     total_usage: TokenUsage,
     thinking: Option<aion_types::llm::ThinkingConfig>,
+    /// Resolved provider compat settings (for capability validation)
+    compat: aion_config::compat::ProviderCompat,
     confirmer: Arc<Mutex<ToolConfirmer>>,
     hooks: Option<HookEngine>,
     session_manager: Option<SessionManager>,
@@ -94,6 +96,7 @@ impl AgentEngine {
             max_turns: config.max_turns,
             total_usage: TokenUsage::default(),
             thinking: config.thinking,
+            compat: config.compat.clone(),
             confirmer: Arc::new(Mutex::new(confirmer)),
             // Always initialise Some so that skill-declared hooks can be merged in
             // even when the global config has no static hooks configured.
@@ -158,6 +161,7 @@ impl AgentEngine {
             max_turns: config.max_turns,
             total_usage: session.total_usage.clone(),
             thinking: config.thinking,
+            compat: config.compat.clone(),
             confirmer: Arc::new(Mutex::new(confirmer)),
             hooks: Some(HookEngine::new(config.hooks.clone())),
             session_manager,
@@ -178,6 +182,11 @@ impl AgentEngine {
     /// Get a reference to the shared provider
     pub fn provider(&self) -> &Arc<dyn LlmProvider> {
         &self.provider
+    }
+
+    /// Get a reference to the resolved compat settings
+    pub fn compat(&self) -> &aion_config::compat::ProviderCompat {
+        &self.compat
     }
 
     /// Initialize a new session for this engine run
@@ -248,20 +257,24 @@ impl AgentEngine {
         }
 
         if let Some(thinking_str) = thinking {
-            match thinking_str.as_str() {
-                "enabled" => {
-                    let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
-                    self.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
-                        budget_tokens: budget,
-                    });
-                    changes.push(format!("thinking: enabled (budget: {budget})"));
-                }
-                "disabled" => {
-                    self.thinking = Some(aion_types::llm::ThinkingConfig::Disabled);
-                    changes.push("thinking: disabled".to_string());
-                }
-                other => {
-                    changes.push(format!("thinking: ignored invalid value \"{other}\""));
+            if !self.compat.supports_thinking() {
+                changes.push("thinking: not supported by current provider".to_string());
+            } else {
+                match thinking_str.as_str() {
+                    "enabled" => {
+                        let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
+                        self.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
+                            budget_tokens: budget,
+                        });
+                        changes.push(format!("thinking: enabled (budget: {budget})"));
+                    }
+                    "disabled" => {
+                        self.thinking = Some(aion_types::llm::ThinkingConfig::Disabled);
+                        changes.push("thinking: disabled".to_string());
+                    }
+                    other => {
+                        changes.push(format!("thinking: ignored invalid value \"{other}\""));
+                    }
                 }
             }
         } else if let Some(new_budget) = thinking_budget
@@ -276,12 +289,23 @@ impl AgentEngine {
             if new_effort.is_empty() {
                 self.current_reasoning_effort = None;
                 changes.push("effort: cleared".to_string());
+            } else if !self.compat.supports_effort() {
+                changes.push("effort: not supported by current provider".to_string());
             } else {
-                let old = self
-                    .current_reasoning_effort
-                    .replace(new_effort.clone())
-                    .unwrap_or_else(|| "none".to_string());
-                changes.push(format!("effort: {old} → {new_effort}"));
+                let levels = self.compat.effort_levels();
+                if !levels.is_empty() && !levels.iter().any(|l| l == &new_effort) {
+                    changes.push(format!(
+                        "effort: invalid level \"{}\" (valid: {})",
+                        new_effort,
+                        levels.join(", ")
+                    ));
+                } else {
+                    let old = self
+                        .current_reasoning_effort
+                        .replace(new_effort.clone())
+                        .unwrap_or_else(|| "none".to_string());
+                    changes.push(format!("effort: {old} → {new_effort}"));
+                }
             }
         }
 
@@ -670,6 +694,7 @@ mod set_config_tests {
             max_turns: 10,
             total_usage: Default::default(),
             thinking: None,
+            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
             hooks: None,
             session_manager: None,
@@ -685,6 +710,15 @@ mod set_config_tests {
             plan_state: Default::default(),
             plan_active_flag: None,
         }
+    }
+
+    fn make_engine_with_compat(
+        model: &str,
+        compat: aion_config::compat::ProviderCompat,
+    ) -> super::AgentEngine {
+        let mut engine = make_engine(model);
+        engine.compat = compat;
+        engine
     }
 
     // --- Cycle 1 tests (updated signature) ---
@@ -734,7 +768,8 @@ mod set_config_tests {
 
     #[test]
     fn set_config_changes_effort() {
-        let mut engine = make_engine("m");
+        let mut engine =
+            make_engine_with_compat("m", aion_config::compat::ProviderCompat::openai_defaults());
         assert!(engine.current_reasoning_effort.is_none());
         let changes = engine.apply_config_update(None, None, None, Some("high".into()));
         assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
@@ -814,7 +849,13 @@ mod set_config_tests {
 
     #[test]
     fn set_config_all_fields_at_once() {
-        let mut engine = make_engine("old-model");
+        let compat = aion_config::compat::ProviderCompat {
+            supports_thinking: Some(true),
+            supports_effort: Some(true),
+            effort_levels: Some(vec!["low".into()]),
+            ..Default::default()
+        };
+        let mut engine = make_engine_with_compat("old-model", compat);
         let changes = engine.apply_config_update(
             Some("new-model".into()),
             Some("enabled".into()),
@@ -864,8 +905,18 @@ mod set_config_tests {
 
     #[test]
     fn set_config_effort_valid_values() {
+        let compat = aion_config::compat::ProviderCompat {
+            supports_effort: Some(true),
+            effort_levels: Some(vec![
+                "low".into(),
+                "medium".into(),
+                "high".into(),
+                "max".into(),
+            ]),
+            ..Default::default()
+        };
         for value in ["low", "medium", "high", "max"] {
-            let mut engine = make_engine("m");
+            let mut engine = make_engine_with_compat("m", compat.clone());
             engine.apply_config_update(None, None, None, Some(value.to_string()));
             assert_eq!(
                 engine.current_reasoning_effort.as_deref(),
@@ -873,6 +924,47 @@ mod set_config_tests {
                 "effort should be set to {value}"
             );
         }
+    }
+
+    // --- Capability validation tests ---
+
+    #[test]
+    fn set_config_thinking_rejected_when_unsupported() {
+        let mut engine = make_engine_with_compat(
+            "m",
+            aion_config::compat::ProviderCompat::openai_defaults(),
+        );
+        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None);
+        assert!(changes.iter().any(|c| c.contains("not supported")));
+        assert!(engine.thinking.is_none());
+    }
+
+    #[test]
+    fn set_config_effort_rejected_when_unsupported() {
+        let mut engine = make_engine("m"); // anthropic defaults: supports_effort = false
+        let changes = engine.apply_config_update(None, None, None, Some("high".into()));
+        assert!(changes.iter().any(|c| c.contains("not supported")));
+        assert!(engine.current_reasoning_effort.is_none());
+    }
+
+    #[test]
+    fn set_config_effort_rejected_invalid_level() {
+        let mut engine = make_engine_with_compat(
+            "m",
+            aion_config::compat::ProviderCompat::openai_defaults(),
+        );
+        let changes = engine.apply_config_update(None, None, None, Some("max".into()));
+        assert!(changes.iter().any(|c| c.contains("invalid")));
+        assert!(engine.current_reasoning_effort.is_none());
+    }
+
+    #[test]
+    fn set_config_effort_clear_always_works() {
+        let mut engine = make_engine("m"); // anthropic defaults: supports_effort = false
+        engine.current_reasoning_effort = Some("high".into());
+        let changes = engine.apply_config_update(None, None, None, Some(String::new()));
+        assert!(engine.current_reasoning_effort.is_none());
+        assert!(changes.iter().any(|c| c.contains("cleared")));
     }
 }
 
@@ -927,6 +1019,7 @@ mod phase6_tests {
             max_turns: 10,
             total_usage: Default::default(),
             thinking: None,
+            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
             hooks: None,
             session_manager: None,
@@ -1125,6 +1218,7 @@ mod compact_tests {
             max_turns: 10,
             total_usage: Default::default(),
             thinking: None,
+            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
             hooks: None,
             session_manager: None,
@@ -1386,6 +1480,7 @@ mod plan_mode_tests {
             max_turns: 10,
             total_usage: Default::default(),
             thinking: None,
+            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
             hooks: None,
             session_manager: None,
