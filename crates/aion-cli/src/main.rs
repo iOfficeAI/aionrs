@@ -254,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
     let system_prompt = context::build_system_prompt(
         config.system_prompt.as_deref(),
         &cwd,
+        &config.model,
         &skills,
         None,
         memory_dir.as_deref(),

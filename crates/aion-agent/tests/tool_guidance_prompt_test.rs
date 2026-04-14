@@ -42,7 +42,7 @@ fn make_skill(name: &str, description: &str) -> SkillMetadata {
 
 #[test]
 fn tc_4_3_01_tool_guidance_section_exists() {
-    let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
     assert!(
         result.contains("# Using your tools"),
         "system prompt should contain the tool guidance section heading"
@@ -55,7 +55,7 @@ fn tc_4_3_01_tool_guidance_section_exists() {
 
 #[test]
 fn tc_4_3_02_bash_prohibition_list() {
-    let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
 
     // Glob replaces find/ls
     assert!(
@@ -90,7 +90,7 @@ fn tc_4_3_02_bash_prohibition_list() {
 
 #[test]
 fn tc_4_3_03_parallel_call_guidance() {
-    let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
     assert!(
         result.contains("parallel"),
         "should contain parallel call guidance"
@@ -107,7 +107,7 @@ fn tc_4_3_03_parallel_call_guidance() {
 
 #[test]
 fn tc_4_3_04_edit_write_read_rules() {
-    let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
     assert!(
         result.contains("Prefer Edit over Write"),
         "should contain Edit-over-Write preference"
@@ -124,7 +124,15 @@ fn tc_4_3_04_edit_write_read_rules() {
 
 #[test]
 fn tc_4_3_05_order_after_intro_before_custom() {
-    let result = build_system_prompt(Some("CUSTOM_PROMPT_MARKER"), "/tmp", &[], None, None, false);
+    let result = build_system_prompt(
+        Some("CUSTOM_PROMPT_MARKER"),
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        None,
+        false,
+    );
 
     let intro_pos = result
         .find("Working directory")
@@ -153,7 +161,7 @@ fn tc_4_3_05_order_after_intro_before_custom() {
 #[test]
 fn tc_4_3_06_order_before_skills() {
     let skills = vec![make_skill("order-test-skill", "Order test")];
-    let result = build_system_prompt(None, "/tmp", &skills, None, None, false);
+    let result = build_system_prompt(None, "/tmp", "test-model", &skills, None, None, false);
 
     let guidance_pos = result
         .find("# Using your tools")
@@ -179,7 +187,7 @@ fn tc_4_3_06_order_before_memory() {
     )
     .unwrap();
 
-    let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
     let guidance_pos = result
         .find("# Using your tools")
@@ -220,6 +228,7 @@ fn tc_4_3_07_all_sections_coexist() {
     let result = build_system_prompt(
         Some("CUSTOM_COEXIST"),
         &cwd.to_string_lossy(),
+        "test-model",
         &skills,
         None,
         Some(&mem_dir),
@@ -270,7 +279,7 @@ fn tc_4_3_07_all_sections_coexist() {
 
 #[test]
 fn tc_4_3_08_guidance_in_plan_mode() {
-    let result = build_system_prompt(None, "/tmp", &[], None, None, true);
+    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, true);
     assert!(
         result.contains("# Using your tools"),
         "tool guidance should be present even in plan mode"

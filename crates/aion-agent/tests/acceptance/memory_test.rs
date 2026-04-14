@@ -36,7 +36,7 @@ fn memory_injection_into_system_prompt() {
     )
     .unwrap();
 
-    let prompt = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+    let prompt = build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
     // Behavioral instructions must be present
     assert!(
@@ -108,7 +108,8 @@ fn memory_full_lifecycle() {
 
     // -- Phase 3: Verify system prompt includes the memory content ------------
 
-    let prompt_with_memory = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+    let prompt_with_memory =
+        build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
     assert!(
         prompt_with_memory.contains("auto memory"),
@@ -147,7 +148,8 @@ fn memory_full_lifecycle() {
 
     // -- Phase 6: Verify the content is gone from the system prompt -----------
 
-    let prompt_after_delete = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+    let prompt_after_delete =
+        build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
     assert!(
         !prompt_after_delete.contains(&entry_filename),

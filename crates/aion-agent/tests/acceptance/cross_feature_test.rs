@@ -34,6 +34,7 @@ async fn tc_ax_01_multi_feature_collaboration() {
     let system_prompt = build_system_prompt(
         None,
         "/tmp",
+        "test-model",
         &[],
         None,
         Some(&mem_dir),

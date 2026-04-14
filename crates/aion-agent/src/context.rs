@@ -34,7 +34,7 @@ the diff, which is easier to review.
 /// Build the system prompt from config and environment.
 ///
 /// Sections are assembled in this order:
-/// 1. Base intro (role, working directory, date)
+/// 1. Base intro (role, model identity, working directory, date)
 /// 2. Tool usage guidance (dedicated tools, parallel calls, etc.)
 /// 3. Custom prompt (user config)
 /// 4. AGENTS.md (project instructions)
@@ -44,6 +44,7 @@ the diff, which is easier to review.
 pub fn build_system_prompt(
     custom_prompt: Option<&str>,
     cwd: &str,
+    model: &str,
     skills: &[SkillMetadata],
     context_window_tokens: Option<usize>,
     memory_dir: Option<&Path>,
@@ -53,6 +54,7 @@ pub fn build_system_prompt(
 
     parts.push(format!(
         "You are an AI assistant that can use tools to help with tasks.\n\
+         You are powered by the model {model}.\n\
          Working directory: {cwd}\n\
          Current date: {}",
         chrono::Local::now().format("%Y-%m-%d")
@@ -186,15 +188,29 @@ mod tests {
     fn test_build_system_prompt_includes_cwd() {
         // Verify that the returned prompt contains the provided working directory path
         let cwd = "/some/test/path";
-        let prompt = build_system_prompt(None, cwd, &[], None, None, false);
+        let prompt = build_system_prompt(None, cwd, "test-model", &[], None, None, false);
         assert!(prompt.contains(cwd), "system prompt should contain the cwd");
+    }
+
+    #[test]
+    fn test_build_system_prompt_includes_model_name() {
+        let prompt = build_system_prompt(None, "/tmp", "deepseek-chat", &[], None, None, false);
+        assert!(
+            prompt.contains("deepseek-chat"),
+            "system prompt should contain the model name"
+        );
+        assert!(
+            prompt.contains("You are powered by the model deepseek-chat"),
+            "system prompt should contain the model identity line"
+        );
     }
 
     #[test]
     fn test_build_system_prompt_with_custom_instructions() {
         // Verify that custom instructions are included in the returned prompt
         let custom = "Always respond in haiku.";
-        let prompt = build_system_prompt(Some(custom), "/tmp", &[], None, None, false);
+        let prompt =
+            build_system_prompt(Some(custom), "/tmp", "test-model", &[], None, None, false);
         assert!(
             prompt.contains(custom),
             "system prompt should contain the custom instructions"
@@ -314,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_no_skills_no_reminder() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
         assert!(
             !result.contains("The following skills are available"),
             "empty skills should not inject skill reminder"
@@ -327,7 +343,7 @@ mod tests {
             make_test_skill("skill-one", "Does one", false, false),
             make_test_skill("skill-two", "Does two", false, false),
         ];
-        let result = build_system_prompt(None, "/tmp", &skills, None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &skills, None, None, false);
         assert!(
             result.contains("<system-reminder>"),
             "result should contain <system-reminder>"
@@ -350,7 +366,7 @@ mod tests {
             make_test_skill("visible-skill", "Visible", false, false),
             make_test_skill("hidden-skill", "Hidden", false, true),
         ];
-        let result = build_system_prompt(None, "/tmp", &skills, None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &skills, None, None, false);
         assert!(
             result.contains("visible-skill"),
             "visible skill should appear"
@@ -367,7 +383,7 @@ mod tests {
             make_test_skill("hidden-a", "Hidden A", false, true),
             make_test_skill("hidden-b", "Hidden B", false, true),
         ];
-        let result = build_system_prompt(None, "/tmp", &skills, None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &skills, None, None, false);
         assert!(
             !result.contains("The following skills are available"),
             "all-hidden skills should not inject reminder"
@@ -380,6 +396,7 @@ mod tests {
         let result = build_system_prompt(
             Some("Custom instructions here"),
             "/tmp",
+            "test-model",
             &skills,
             None,
             None,
@@ -398,7 +415,15 @@ mod tests {
     #[test]
     fn test_build_system_prompt_skills_reminder_after_custom_prompt() {
         let skills = vec![make_test_skill("my-skill", "My desc", false, false)];
-        let result = build_system_prompt(Some("Custom text"), "/tmp", &skills, None, None, false);
+        let result = build_system_prompt(
+            Some("Custom text"),
+            "/tmp",
+            "test-model",
+            &skills,
+            None,
+            None,
+            false,
+        );
         let custom_pos = result.find("Custom text").unwrap();
         let reminder_pos = result.rfind("<system-reminder>").unwrap();
         assert!(
@@ -411,7 +436,8 @@ mod tests {
     fn test_build_system_prompt_small_budget_triggers_minimal_mode() {
         // context_window_tokens = 50 → budget = 2 chars, triggers minimal mode for non-bundled
         let skill = make_test_skill("nb-skill", &"x".repeat(100), false, false);
-        let result = build_system_prompt(None, "/tmp", &[skill], Some(50), None, false);
+        let result =
+            build_system_prompt(None, "/tmp", "test-model", &[skill], Some(50), None, false);
         // Minimal mode: skill appears as name only, no ': '
         assert!(
             result.contains("- nb-skill"),
@@ -425,7 +451,15 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_cwd_in_prompt() {
-        let result = build_system_prompt(None, "/workspace/my-project", &[], None, None, false);
+        let result = build_system_prompt(
+            None,
+            "/workspace/my-project",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("/workspace/my-project"),
             "cwd should appear in the system prompt"
@@ -441,7 +475,15 @@ mod tests {
         std::fs::write(cwd.join("AGENTS.md"), "AGENTS_CONTENT_HERE").unwrap();
         std::fs::write(cwd.join("CLAUDE.md"), "CLAUDE_CONTENT_HERE").unwrap();
 
-        let result = build_system_prompt(None, &cwd.to_string_lossy(), &[], None, None, false);
+        let result = build_system_prompt(
+            None,
+            &cwd.to_string_lossy(),
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
 
         assert!(
             result.contains("AGENTS_CONTENT_HERE"),
@@ -465,7 +507,15 @@ mod tests {
         // Only CLAUDE.md exists, no AGENTS.md
         std::fs::write(cwd.join("CLAUDE.md"), "SHOULD_NOT_APPEAR").unwrap();
 
-        let result = build_system_prompt(None, &cwd.to_string_lossy(), &[], None, None, false);
+        let result = build_system_prompt(
+            None,
+            &cwd.to_string_lossy(),
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
 
         assert!(
             !result.contains("SHOULD_NOT_APPEAR"),
@@ -481,7 +531,7 @@ mod tests {
 
     #[test]
     fn memory_none_dir_no_injection() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
         assert!(
             !result.contains("auto memory"),
             "no memory content when memory_dir is None"
@@ -499,7 +549,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+        let result =
+            build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
         assert!(
             result.contains("auto memory"),
@@ -520,6 +571,7 @@ mod tests {
         let result = build_system_prompt(
             None,
             "/tmp",
+            "test-model",
             &[],
             None,
             Some(Path::new("/nonexistent/memory/dir")),
@@ -540,7 +592,8 @@ mod tests {
         std::fs::create_dir_all(&mem_dir).unwrap();
         // No MEMORY.md
 
-        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+        let result =
+            build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
         assert!(
             result.contains("currently empty"),
@@ -566,6 +619,7 @@ mod tests {
         let result = build_system_prompt(
             None,
             &cwd.to_string_lossy(),
+            "test-model",
             &skills,
             None,
             Some(&mem_dir),
@@ -597,7 +651,8 @@ mod tests {
         )
         .unwrap();
 
-        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+        let result =
+            build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
         assert!(
             !result.contains("~/.claude"),
@@ -613,7 +668,7 @@ mod tests {
 
     #[test]
     fn tool_guidance_section_exists() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
         assert!(
             result.contains("# Using your tools"),
             "system prompt should contain the tool guidance heading"
@@ -622,7 +677,7 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_bash_prohibition_list() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
         assert!(
             result.contains("Glob"),
             "should mention Glob as find/ls replacement"
@@ -647,7 +702,7 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_parallel_call_rules() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
         assert!(
             result.contains("parallel"),
             "should contain parallel call guidance"
@@ -660,7 +715,7 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_edit_over_write_preference() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
         assert!(
             result.contains("Prefer Edit over Write"),
             "should contain Edit-over-Write preference"
@@ -669,7 +724,7 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_read_before_edit_rule() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
         assert!(
             result.contains("Read a file before editing"),
             "should contain Read-before-Edit rule"
@@ -678,7 +733,15 @@ mod tests {
 
     #[test]
     fn tool_guidance_after_intro_before_custom_prompt() {
-        let result = build_system_prompt(Some("CUSTOM_MARKER_43"), "/tmp", &[], None, None, false);
+        let result = build_system_prompt(
+            Some("CUSTOM_MARKER_43"),
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         let intro_pos = result.find("Working directory").unwrap();
         let guidance_pos = result.find("# Using your tools").unwrap();
         let custom_pos = result.find("CUSTOM_MARKER_43").unwrap();
@@ -695,7 +758,7 @@ mod tests {
     #[test]
     fn tool_guidance_before_skills_reminder() {
         let skills = vec![make_test_skill("guide-test-skill", "A skill", false, false)];
-        let result = build_system_prompt(None, "/tmp", &skills, None, None, false);
+        let result = build_system_prompt(None, "/tmp", "test-model", &skills, None, None, false);
         let guidance_pos = result.find("# Using your tools").unwrap();
         let skills_pos = result.find("guide-test-skill").unwrap();
         assert!(
@@ -706,7 +769,7 @@ mod tests {
 
     #[test]
     fn tool_guidance_present_in_plan_mode() {
-        let result = build_system_prompt(None, "/tmp", &[], None, None, true);
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, true);
         assert!(
             result.contains("# Using your tools"),
             "tool guidance should be present in plan mode"
@@ -720,7 +783,8 @@ mod tests {
         std::fs::create_dir_all(&mem_dir).unwrap();
         std::fs::write(mem_dir.join("MEMORY.md"), "- [X](x.md) \u{2014} test\n").unwrap();
 
-        let result = build_system_prompt(None, "/tmp", &[], None, Some(&mem_dir), false);
+        let result =
+            build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
         let guidance_pos = result.find("# Using your tools").unwrap();
         let memory_pos = result.find("auto memory").unwrap();
         assert!(
