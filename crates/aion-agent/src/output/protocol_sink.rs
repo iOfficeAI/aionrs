@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use aion_config::compat::ProviderCompat;
 use aion_protocol::events::{Capabilities, ErrorInfo, ProtocolEvent, Usage};
 use aion_protocol::writer::ProtocolWriter;
 
@@ -16,24 +17,35 @@ impl ProtocolSink {
     }
 
     /// Emit the ready event at session start
-    pub fn emit_ready(&self, has_mcp: bool, session_id: Option<String>) {
+    pub fn emit_ready(&self, compat: &ProviderCompat, has_mcp: bool, session_id: Option<String>) {
         let _ = self.writer.emit(&ProtocolEvent::Ready {
             version: env!("CARGO_PKG_VERSION").to_string(),
             session_id,
-            capabilities: Capabilities {
-                tool_approval: true,
-                thinking: true,
-                effort: false,
-                effort_levels: vec![],
-                modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
-                mcp: has_mcp,
-            },
+            capabilities: Self::build_capabilities(compat, has_mcp),
+        });
+    }
+
+    /// Emit a config_changed event after set_config updates
+    pub fn emit_config_changed(&self, compat: &ProviderCompat, has_mcp: bool) {
+        let _ = self.writer.emit(&ProtocolEvent::ConfigChanged {
+            capabilities: Self::build_capabilities(compat, has_mcp),
         });
     }
 
     /// Access the underlying writer for custom events
     pub fn writer(&self) -> &Arc<ProtocolWriter> {
         &self.writer
+    }
+
+    fn build_capabilities(compat: &ProviderCompat, has_mcp: bool) -> Capabilities {
+        Capabilities {
+            tool_approval: true,
+            thinking: compat.supports_thinking(),
+            effort: compat.supports_effort(),
+            effort_levels: compat.effort_levels().to_vec(),
+            modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+            mcp: has_mcp,
+        }
     }
 }
 
