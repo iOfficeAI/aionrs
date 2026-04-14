@@ -35,3 +35,7 @@
 tarpaulin-report.html
 lcov.info
 coverage/
+
+# Superpowers brainstorm tool (runtime files, session data)
+.superpowers/
+docs/superpowers/
