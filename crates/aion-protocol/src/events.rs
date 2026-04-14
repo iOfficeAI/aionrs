@@ -62,12 +62,18 @@ pub enum ProtocolEvent {
         msg_id: String,
         message: String,
     },
+    ConfigChanged {
+        capabilities: Capabilities,
+    },
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Capabilities {
     pub tool_approval: bool,
     pub thinking: bool,
+    pub effort: bool,
+    pub effort_levels: Vec<String>,
+    pub modes: Vec<String>,
     pub mcp: bool,
 }
 
@@ -144,6 +150,9 @@ mod tests {
             capabilities: Capabilities {
                 tool_approval: true,
                 thinking: true,
+                effort: false,
+                effort_levels: vec![],
+                modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
                 mcp: false,
             },
         };
@@ -160,6 +169,9 @@ mod tests {
             capabilities: Capabilities {
                 tool_approval: true,
                 thinking: true,
+                effort: false,
+                effort_levels: vec![],
+                modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
                 mcp: false,
             },
         };
@@ -252,5 +264,44 @@ mod tests {
         assert_eq!(ToolCategory::Edit.to_string(), "edit");
         assert_eq!(ToolCategory::Exec.to_string(), "exec");
         assert_eq!(ToolCategory::Mcp.to_string(), "mcp");
+    }
+
+    #[test]
+    fn test_ready_event_with_expanded_capabilities() {
+        let event = ProtocolEvent::Ready {
+            version: "0.2.0".to_string(),
+            session_id: Some("abc".to_string()),
+            capabilities: Capabilities {
+                tool_approval: true,
+                thinking: true,
+                effort: true,
+                effort_levels: vec!["low".into(), "medium".into(), "high".into()],
+                modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+                mcp: false,
+            },
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["capabilities"]["thinking"], true);
+        assert_eq!(json["capabilities"]["effort"], true);
+        assert_eq!(json["capabilities"]["effort_levels"][0], "low");
+        assert_eq!(json["capabilities"]["modes"][2], "yolo");
+    }
+
+    #[test]
+    fn test_config_changed_event_serialization() {
+        let event = ProtocolEvent::ConfigChanged {
+            capabilities: Capabilities {
+                tool_approval: true,
+                thinking: false,
+                effort: true,
+                effort_levels: vec!["low".into(), "medium".into(), "high".into()],
+                modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
+                mcp: true,
+            },
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "config_changed");
+        assert_eq!(json["capabilities"]["thinking"], false);
+        assert_eq!(json["capabilities"]["effort"], true);
     }
 }

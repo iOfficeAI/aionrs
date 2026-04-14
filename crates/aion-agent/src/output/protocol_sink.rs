@@ -23,6 +23,9 @@ impl ProtocolSink {
             capabilities: Capabilities {
                 tool_approval: true,
                 thinking: true,
+                effort: false,
+                effort_levels: vec![],
+                modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
                 mcp: has_mcp,
             },
         });
