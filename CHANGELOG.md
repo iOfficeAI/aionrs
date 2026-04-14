@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.1.8](https://github.com/iOfficeAI/aionrs/compare/v0.1.7...v0.1.8) (2026-04-14)
+
+
+### Features
+
+* agent evolution - memory, compaction, plan mode, tool enhancement & file cache ([#32](https://github.com/iOfficeAI/aionrs/issues/32)) ([0b2a486](https://github.com/iOfficeAI/aionrs/commit/0b2a486e4e921d3b005307675c102a68d4b8f7ed))
+* runtime config and capability discovery ([#36](https://github.com/iOfficeAI/aionrs/issues/36)) ([9539b54](https://github.com/iOfficeAI/aionrs/commit/9539b540c64f30ce6afcbfef65a078ab88913f50))
+
+
+### Bug Fixes
+
+* isolate sub-agent stdout to prevent JSON stream corruption ([#34](https://github.com/iOfficeAI/aionrs/issues/34)) ([6a7584a](https://github.com/iOfficeAI/aionrs/commit/6a7584abe9d0f5c85c36c01858d503cc72d9facd))
+
+
+### Code Refactoring
+
+* centralize platform-specific paths via app_config_dir() ([ad87748](https://github.com/iOfficeAI/aionrs/commit/ad87748edb299ff488c839630f065ccafc6e28dc))
+
+
+### Documentation
+
+* refactor AGENTS.md to focus on rules and conventions ([0f81cbc](https://github.com/iOfficeAI/aionrs/commit/0f81cbc644f8c9ed3cbe6af690bc23434feb6c0a))
+* update file paths to reflect multi-crate workspace structure ([51b6cc7](https://github.com/iOfficeAI/aionrs/commit/51b6cc7bd29a51af7ad57aa8f87901e85005da42))
+
 ## [0.1.7](https://github.com/iOfficeAI/aionrs/compare/v0.1.6...v0.1.7) (2026-04-09)
 
 
