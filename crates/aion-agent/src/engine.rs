@@ -930,10 +930,8 @@ mod set_config_tests {
 
     #[test]
     fn set_config_thinking_rejected_when_unsupported() {
-        let mut engine = make_engine_with_compat(
-            "m",
-            aion_config::compat::ProviderCompat::openai_defaults(),
-        );
+        let mut engine =
+            make_engine_with_compat("m", aion_config::compat::ProviderCompat::openai_defaults());
         let changes = engine.apply_config_update(None, Some("enabled".into()), None, None);
         assert!(changes.iter().any(|c| c.contains("not supported")));
         assert!(engine.thinking.is_none());
@@ -949,10 +947,8 @@ mod set_config_tests {
 
     #[test]
     fn set_config_effort_rejected_invalid_level() {
-        let mut engine = make_engine_with_compat(
-            "m",
-            aion_config::compat::ProviderCompat::openai_defaults(),
-        );
+        let mut engine =
+            make_engine_with_compat("m", aion_config::compat::ProviderCompat::openai_defaults());
         let changes = engine.apply_config_update(None, None, None, Some("max".into()));
         assert!(changes.iter().any(|c| c.contains("invalid")));
         assert!(engine.current_reasoning_effort.is_none());

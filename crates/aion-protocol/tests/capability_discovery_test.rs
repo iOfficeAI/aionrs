@@ -21,14 +21,13 @@ fn capabilities_serialize_with_all_fields() {
     assert_eq!(parsed["type"], "ready");
     assert_eq!(parsed["capabilities"]["thinking"], true);
     assert_eq!(parsed["capabilities"]["effort"], false);
-    assert!(parsed["capabilities"]["effort_levels"]
-        .as_array()
-        .unwrap()
-        .is_empty());
-    assert_eq!(
-        parsed["capabilities"]["modes"].as_array().unwrap().len(),
-        3
+    assert!(
+        parsed["capabilities"]["effort_levels"]
+            .as_array()
+            .unwrap()
+            .is_empty()
     );
+    assert_eq!(parsed["capabilities"]["modes"].as_array().unwrap().len(), 3);
 }
 
 #[test]
@@ -41,9 +40,7 @@ fn config_changed_event_serializes_correctly() {
         modes: vec!["default".into(), "auto_edit".into(), "yolo".into()],
         mcp: false,
     };
-    let event = ProtocolEvent::ConfigChanged {
-        capabilities: caps,
-    };
+    let event = ProtocolEvent::ConfigChanged { capabilities: caps };
     let json = serde_json::to_string(&event).unwrap();
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 

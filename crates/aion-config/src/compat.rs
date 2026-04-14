@@ -365,7 +365,11 @@ mod tests {
         assert_eq!(compat.supports_effort, Some(true));
         assert_eq!(
             compat.effort_levels,
-            Some(vec!["low".to_string(), "medium".to_string(), "high".to_string()])
+            Some(vec![
+                "low".to_string(),
+                "medium".to_string(),
+                "high".to_string()
+            ])
         );
     }
 
