@@ -471,7 +471,7 @@ async fn run_json_stream_mode(
     engine.set_plan_active_flag(plan_active_flag);
 
     let sid = engine.current_session_id();
-    protocol_sink.emit_ready(has_mcp, sid);
+    protocol_sink.emit_ready(engine.compat(), has_mcp, sid);
 
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer.clone());
@@ -550,6 +550,7 @@ async fn run_json_stream_mode(
                             message: format!("config applied: {}", changes.join(", ")),
                         });
                     }
+                    protocol_sink.emit_config_changed(engine.compat(), has_mcp);
                 }
                 if stopped {
                     break;
@@ -589,6 +590,7 @@ async fn run_json_stream_mode(
                     msg_id: String::new(),
                     message,
                 });
+                protocol_sink.emit_config_changed(engine.compat(), has_mcp);
             }
         }
     }
