@@ -11,6 +11,7 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 
+use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::compact::state::CompactState;
 use crate::compact::{auto, emergency, micro};
 use crate::confirm::ToolConfirmer;
@@ -55,6 +56,8 @@ pub struct AgentEngine {
     /// Shared flag read by EnterPlanMode/ExitPlanMode tools to validate transitions.
     /// Updated by the engine when processing PlanModeTransition modifiers.
     plan_active_flag: Option<Arc<AtomicBool>>,
+    /// Prompt cache break detector for diagnostics.
+    cache_detector: CacheBreakDetector,
 }
 
 impl AgentEngine {
@@ -113,6 +116,7 @@ impl AgentEngine {
             compact_state: CompactState::new(),
             plan_state: PlanState::default(),
             plan_active_flag: None,
+            cache_detector: CacheBreakDetector::new(),
         }
     }
 
@@ -176,6 +180,7 @@ impl AgentEngine {
             compact_state: CompactState::new(),
             plan_state: PlanState::default(),
             plan_active_flag: None,
+            cache_detector: CacheBreakDetector::new(),
         }
     }
 
@@ -352,6 +357,9 @@ impl AgentEngine {
                 self.system_prompt.clone()
             };
 
+            // Record prompt state for cache diagnostics
+            self.cache_detector.record_request(&system, &tools);
+
             let request = LlmRequest {
                 model: self.model.clone(),
                 system,
@@ -404,6 +412,35 @@ impl AgentEngine {
 
             // Track per-turn input tokens for compaction watermark
             self.compact_state.last_input_tokens = turn_usage.input_tokens;
+
+            // Cache break detection
+            let cache_stats = CacheStats {
+                input_tokens: turn_usage.input_tokens,
+                cache_read_tokens: turn_usage.cache_read_tokens,
+                cache_creation_tokens: turn_usage.cache_creation_tokens,
+            };
+            if let Some(diagnostic) = self.cache_detector.check_response(cache_stats) {
+                match &diagnostic {
+                    CacheDiagnostic::FullMiss { cause } => {
+                        self.output
+                            .emit_error(&format!("Cache full miss: {cause:?}"));
+                    }
+                    CacheDiagnostic::PartialMiss { hit_rate, cause } => {
+                        if self.compact_config.cache_diagnostics {
+                            self.output.emit_info(&format!(
+                                "Cache: {:.0}% hit rate (cause: {cause:?})",
+                                hit_rate * 100.0
+                            ));
+                        }
+                    }
+                    CacheDiagnostic::Healthy { hit_rate } => {
+                        if self.compact_config.cache_diagnostics {
+                            self.output
+                                .emit_info(&format!("Cache: {:.0}% hit rate", hit_rate * 100.0));
+                        }
+                    }
+                }
+            }
 
             let mut assistant_content: Vec<ContentBlock> = Vec::new();
             if !thinking_text.is_empty() {
@@ -709,6 +746,7 @@ mod set_config_tests {
             compact_state: super::CompactState::new(),
             plan_state: Default::default(),
             plan_active_flag: None,
+            cache_detector: super::CacheBreakDetector::new(),
         }
     }
 
@@ -1030,6 +1068,7 @@ mod phase6_tests {
             compact_state: super::CompactState::new(),
             plan_state: Default::default(),
             plan_active_flag: None,
+            cache_detector: super::CacheBreakDetector::new(),
         }
     }
 
@@ -1229,6 +1268,7 @@ mod compact_tests {
             compact_state,
             plan_state: Default::default(),
             plan_active_flag: None,
+            cache_detector: super::CacheBreakDetector::new(),
         }
     }
 
@@ -1491,6 +1531,7 @@ mod plan_mode_tests {
             compact_state: CompactState::new(),
             plan_state: PlanState::default(),
             plan_active_flag: Some(flag),
+            cache_detector: super::CacheBreakDetector::new(),
         }
     }
 
