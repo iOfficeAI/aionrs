@@ -5,6 +5,7 @@ pub mod glob;
 pub mod grep;
 pub mod read;
 pub mod registry;
+pub mod tool_search;
 pub mod write;
 
 use async_trait::async_trait;
