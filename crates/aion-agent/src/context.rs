@@ -28,7 +28,9 @@ dependencies between them, make all independent calls in parallel. \
 However, if one call depends on a previous result, run them sequentially.
  - Prefer Edit over Write for modifying existing files — Edit sends only \
 the diff, which is easier to review.
- - Always Read a file before editing it."
+ - Always Read a file before editing it.
+ - Some tools are deferred — only their names are visible. Before calling \
+a deferred tool, use ToolSearch to load its full schema first."
 }
 
 /// Build the system prompt from config and environment.
@@ -773,6 +775,19 @@ mod tests {
         assert!(
             result.contains("# Using your tools"),
             "tool guidance should be present in plan mode"
+        );
+    }
+
+    #[test]
+    fn tool_guidance_contains_deferred_instruction() {
+        let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
+        assert!(
+            result.contains("deferred"),
+            "tool guidance should mention deferred tools"
+        );
+        assert!(
+            result.contains("ToolSearch"),
+            "tool guidance should mention ToolSearch"
         );
     }
 
