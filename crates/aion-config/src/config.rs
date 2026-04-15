@@ -59,6 +59,10 @@ pub struct McpServerConfig {
     pub url: Option<String>,
     /// HTTP headers for SSE/HTTP transports
     pub headers: Option<HashMap<String, String>>,
+    /// Whether tools from this server should be deferred (name-only stub sent to LLM).
+    /// Defaults to true when omitted — MCP tools are deferred by default to reduce
+    /// input token usage. Set to `false` to send full schemas eagerly.
+    pub deferred: Option<bool>,
 }
 
 /// Collection of MCP server configurations

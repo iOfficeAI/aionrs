@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use aion_memory::prompt::build_memory_prompt;
+use aion_memory::prompt::build_memory_prompt_minimal;
 use aion_skills::prompt::format_skills_within_budget;
 use aion_skills::types::SkillMetadata;
 use aion_types::message::{ContentBlock, Message, Role};
@@ -154,11 +154,13 @@ pub fn build_system_prompt(
     }
 
     // Section: memory (cached, event-invalidated)
+    // Uses the minimal prompt to save ~2,500 tokens — omits full type taxonomy
+    // and examples. The full instructions are available via build_memory_prompt().
     if let Some(dir) = memory_dir {
         let memory_section = cache
             .sections
             .entry("memory")
-            .or_insert_with(|| build_memory_prompt(dir));
+            .or_insert_with(|| build_memory_prompt_minimal(dir));
         if !memory_section.is_empty() {
             parts.push(memory_section.clone());
         }
@@ -740,8 +742,8 @@ mod tests {
             "should contain memory system display name"
         );
         assert!(
-            result.contains("Types of memory"),
-            "should contain type definitions"
+            result.contains("Memory types:"),
+            "should contain compact memory type summary"
         );
         assert!(
             result.contains("user_role.md"),
@@ -1115,7 +1117,7 @@ mod tests {
 
         cache.invalidate("memory");
 
-        assert!(cache.sections.get("memory").is_none());
+        assert!(!cache.sections.contains_key("memory"));
         assert!(cache.joined.is_none());
         // Other sections preserved
         assert_eq!(cache.sections.get("intro").unwrap(), "Hello");

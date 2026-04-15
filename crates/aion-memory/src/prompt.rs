@@ -190,9 +190,73 @@ Memory is one of several persistence mechanisms available to you as you assist t
 - When to use or update a plan instead of memory: If you are about to start a non-trivial implementation task and would like to reach alignment with the user on your approach you should use a Plan rather than saving this information to memory. Similarly, if you already have a plan within the conversation and you have changed your approach persist that change by updating the plan rather than saving a memory.
 - When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory. Tasks are great for persisting information about the work that needs to be done in the current conversation, but memory should be reserved for information that will be useful in future conversations.";
 
+// ---------------------------------------------------------------------------
+// Minimal memory prompt (lazy — saves ~2,500 tokens)
+// ---------------------------------------------------------------------------
+
+/// Compact summary of the memory system rules, without the full type taxonomy,
+/// examples, or detailed save/access instructions. Enough for the LLM to
+/// read existing memories and know the system exists; the full instructions
+/// are injected on-demand when the LLM first writes to the memory directory.
+const MINIMAL_RULES: &str = "\
+You should build up this memory system over time so that future conversations \
+can have a complete picture of who the user is, how they'd like to collaborate \
+with you, what behaviors to avoid or repeat, and the context behind the work \
+the user gives you.
+
+If the user explicitly asks you to remember something, save it immediately. \
+If they ask you to forget something, find and remove the relevant entry.
+
+Memory types: user, feedback, project, reference. Each memory is a Markdown file \
+with YAML frontmatter (name, description, type). MEMORY.md is the index — one \
+line per entry, never write content directly into it.
+
+Before saving, read existing memories to avoid duplicates. \
+Verify file/function names from memory still exist before recommending them.";
+
 // ===========================================================================
 // Public API
 // ===========================================================================
+
+/// Build a minimal memory prompt with just the path, compact rules,
+/// and MEMORY.md index content. Omits the full type taxonomy and examples
+/// to save ~2,500 tokens on the first turn.
+pub fn build_memory_prompt_minimal(memory_dir: &Path) -> String {
+    let dir_display = memory_dir.display();
+
+    let mut parts = vec![
+        format!("# {DISPLAY_NAME}"),
+        String::new(),
+        format!(
+            "You have a persistent, file-based memory system at `{dir_display}`. \
+             {DIR_EXISTS_GUIDANCE}"
+        ),
+        String::new(),
+        MINIMAL_RULES.to_owned(),
+        String::new(),
+    ];
+
+    // Append MEMORY.md index (same logic as the full version)
+    let entrypoint = memory_dir.join(ENTRYPOINT_NAME);
+    let raw = read_index(&entrypoint);
+    let trimmed = raw.trim();
+
+    if trimmed.is_empty() {
+        parts.push(format!("## {ENTRYPOINT_NAME}"));
+        parts.push(String::new());
+        parts.push(format!(
+            "Your {ENTRYPOINT_NAME} is currently empty. \
+             When you save new memories, they will appear here."
+        ));
+    } else {
+        let truncation = truncate_index(&raw);
+        parts.push(format!("## {ENTRYPOINT_NAME}"));
+        parts.push(String::new());
+        parts.push(truncation.content);
+    }
+
+    parts.join("\n")
+}
 
 /// Build the complete memory system prompt including behavioral instructions
 /// AND the current MEMORY.md content (or an empty-state message).
@@ -483,6 +547,120 @@ mod tests {
 
         let result = build_memory_prompt(&mem_dir);
         assert!(result.contains("WARNING"));
+    }
+
+    // -- build_memory_prompt_minimal -------------------------------------------
+
+    #[test]
+    fn minimal_prompt_contains_display_name() {
+        let result = build_memory_prompt_minimal(Path::new("/test/memory"));
+        assert!(result.contains(DISPLAY_NAME));
+    }
+
+    #[test]
+    fn minimal_prompt_contains_dir_path() {
+        let result = build_memory_prompt_minimal(Path::new("/custom/path/memory"));
+        assert!(result.contains("/custom/path/memory"));
+    }
+
+    #[test]
+    fn minimal_prompt_contains_compact_rules() {
+        let result = build_memory_prompt_minimal(Path::new("/test/memory"));
+        assert!(
+            result.contains("Memory types:"),
+            "should list memory types compactly"
+        );
+        assert!(
+            result.contains("MEMORY.md is the index"),
+            "should mention MEMORY.md role"
+        );
+    }
+
+    #[test]
+    fn minimal_prompt_omits_full_type_taxonomy() {
+        let result = build_memory_prompt_minimal(Path::new("/test/memory"));
+        assert!(
+            !result.contains("## Types of memory"),
+            "minimal prompt should NOT contain full type taxonomy heading"
+        );
+        assert!(
+            !result.contains("<types>"),
+            "minimal prompt should NOT contain XML type definitions"
+        );
+        assert!(
+            !result.contains("## What NOT to save"),
+            "minimal prompt should NOT contain what-not-to-save section"
+        );
+        assert!(
+            !result.contains("## How to save memories"),
+            "minimal prompt should NOT contain detailed save instructions"
+        );
+    }
+
+    #[test]
+    fn minimal_prompt_nonexistent_dir_shows_empty_state() {
+        let result = build_memory_prompt_minimal(Path::new("/nonexistent/memory/dir"));
+        assert!(result.contains("currently empty"));
+    }
+
+    #[test]
+    fn minimal_prompt_with_existing_index() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mem_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&mem_dir).unwrap();
+        std::fs::write(
+            mem_dir.join(ENTRYPOINT_NAME),
+            "- [Role](user_role.md) \u{2014} senior engineer\n",
+        )
+        .unwrap();
+
+        let result = build_memory_prompt_minimal(&mem_dir);
+        assert!(result.contains("user_role.md"));
+        assert!(result.contains("senior engineer"));
+        assert!(!result.contains("currently empty"));
+    }
+
+    #[test]
+    fn minimal_prompt_much_shorter_than_full() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mem_dir = tmp.path().join("memory");
+        std::fs::create_dir_all(&mem_dir).unwrap();
+        std::fs::write(
+            mem_dir.join(ENTRYPOINT_NAME),
+            "- [A](a.md) \u{2014} test\n",
+        )
+        .unwrap();
+
+        let full = build_memory_prompt(&mem_dir);
+        let minimal = build_memory_prompt_minimal(&mem_dir);
+
+        assert!(
+            minimal.len() < full.len() / 2,
+            "minimal ({} chars) should be less than half of full ({} chars)",
+            minimal.len(),
+            full.len()
+        );
+    }
+
+    #[test]
+    fn full_prompt_contains_full_taxonomy() {
+        let result = build_memory_prompt(Path::new("/test/memory"));
+        assert!(
+            result.contains("## Types of memory"),
+            "full prompt should contain type taxonomy"
+        );
+        assert!(
+            result.contains("<types>"),
+            "full prompt should contain XML type definitions"
+        );
+        assert!(
+            result.contains("## What NOT to save"),
+            "full prompt should contain what-not-to-save"
+        );
+        assert!(
+            result.contains("## How to save memories"),
+            "full prompt should contain save instructions"
+        );
     }
 
     // -- no hardcoded platform paths -----------------------------------------

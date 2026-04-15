@@ -34,26 +34,18 @@ fn tc_7_1_memory_dir_with_content_injects_prompt() {
         false,
     );
 
-    // Should contain memory system sections
+    // Should contain minimal memory system sections
     assert!(
         result.contains("auto memory"),
         "should contain memory system display name"
     );
     assert!(
-        result.contains("Types of memory"),
-        "should contain type definitions"
+        result.contains("Memory types:"),
+        "should contain compact type summary"
     );
     assert!(
-        result.contains("What NOT to save"),
-        "should contain what-not-to-save section"
-    );
-    assert!(
-        result.contains("How to save memories"),
-        "should contain save instructions"
-    );
-    assert!(
-        result.contains("When to access memories"),
-        "should contain access guidance"
+        result.contains("MEMORY.md is the index"),
+        "should contain compact save guidance"
     );
 
     // Should contain MEMORY.md content

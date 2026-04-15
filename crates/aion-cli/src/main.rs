@@ -236,7 +236,7 @@ async fn main() -> anyhow::Result<()> {
         match McpManager::connect_all(&config.mcp.servers).await {
             Ok(mgr) => {
                 let mgr = Arc::new(mgr);
-                register_mcp_tools(&mut registry, &mgr, &builtin_names);
+                register_mcp_tools(&mut registry, &mgr, &builtin_names, &config.mcp.servers);
                 Some(mgr)
             }
             Err(e) => {

@@ -13,8 +13,7 @@ use aion_memory::types::{MemoryEntry, MemoryType};
 ///
 /// Verifies that when a memory directory exists with an index file and a
 /// memory entry, `build_system_prompt()` produces output containing both
-/// the behavioral instructions (type taxonomy, guidance) and the MEMORY.md
-/// index content.
+/// the compact behavioral instructions and the MEMORY.md index content.
 #[test]
 fn memory_injection_into_system_prompt() {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -53,8 +52,8 @@ fn memory_injection_into_system_prompt() {
         "system prompt should contain the memory display name"
     );
     assert!(
-        prompt.contains("Types of memory"),
-        "system prompt should contain the memory type taxonomy"
+        prompt.contains("Memory types:"),
+        "system prompt should contain the compact memory type summary"
     );
 
     // MEMORY.md content must be injected
@@ -133,8 +132,8 @@ fn memory_full_lifecycle() {
         "prompt should contain behavioral instructions"
     );
     assert!(
-        prompt_with_memory.contains("Types of memory"),
-        "prompt should contain memory type taxonomy"
+        prompt_with_memory.contains("Memory types:"),
+        "prompt should contain compact memory type summary"
     );
     assert!(
         prompt_with_memory.contains(&entry_filename),

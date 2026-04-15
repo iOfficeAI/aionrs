@@ -64,7 +64,10 @@ dump_request_path = "/tmp/aion_request.json"
             dump_request_path: Some("/tmp/project.json".into()),
         };
         let merged = DebugConfig::merge(global, project);
-        assert_eq!(merged.dump_request_path.as_deref(), Some("/tmp/project.json"));
+        assert_eq!(
+            merged.dump_request_path.as_deref(),
+            Some("/tmp/project.json")
+        );
     }
 
     #[test]
@@ -74,6 +77,9 @@ dump_request_path = "/tmp/aion_request.json"
         };
         let project = DebugConfig::default();
         let merged = DebugConfig::merge(global, project);
-        assert_eq!(merged.dump_request_path.as_deref(), Some("/tmp/global.json"));
+        assert_eq!(
+            merged.dump_request_path.as_deref(),
+            Some("/tmp/global.json")
+        );
     }
 }

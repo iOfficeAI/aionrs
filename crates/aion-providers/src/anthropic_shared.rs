@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 
 use aion_types::llm::LlmEvent;
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
-use aion_types::tool::ToolDef;
+use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use super::ProviderError;
 use aion_config::compat::ProviderCompat;
@@ -160,11 +160,11 @@ pub fn build_tools(tools: &[ToolDef]) -> Vec<Value> {
         .iter()
         .map(|t| {
             if t.deferred {
+                let short_desc = truncate_deferred_description(&t.description);
                 json!({
                     "name": t.name,
                     "description": format!(
-                        "(Deferred) {} — Use ToolSearch to load full schema before calling.",
-                        t.description
+                        "(Deferred) {short_desc} — Use ToolSearch to load full schema before calling."
                     ),
                     "input_schema": {
                         "type": "object",

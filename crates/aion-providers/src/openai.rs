@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
-use aion_types::tool::ToolDef;
+use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use crate::{LlmProvider, ProviderError, dump_request_body};
 use aion_config::compat::ProviderCompat;
@@ -210,13 +210,13 @@ impl OpenAIProvider {
             .iter()
             .map(|t| {
                 if t.deferred {
+                    let short_desc = truncate_deferred_description(&t.description);
                     json!({
                         "type": "function",
                         "function": {
                             "name": t.name,
                             "description": format!(
-                                "(Deferred) {} — Use ToolSearch to load full schema before calling.",
-                                t.description
+                                "(Deferred) {short_desc} — Use ToolSearch to load full schema before calling."
                             ),
                             "parameters": {
                                 "type": "object",
