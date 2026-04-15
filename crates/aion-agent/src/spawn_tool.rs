@@ -70,6 +70,10 @@ impl Tool for SpawnTool {
         false // manages its own concurrency
     }
 
+    fn is_deferred(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, input: Value) -> ToolResult {
         let tasks = match parse_tasks(&input) {
             Ok(tasks) => tasks,

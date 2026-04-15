@@ -54,6 +54,10 @@ impl Tool for EnterPlanModeTool {
         true
     }
 
+    fn is_deferred(&self) -> bool {
+        true
+    }
+
     async fn execute(&self, _input: Value) -> ToolResult {
         if self.plan_active.load(Ordering::Acquire) {
             return ToolResult {
@@ -127,6 +131,10 @@ impl Tool for ExitPlanModeTool {
     }
 
     fn is_concurrency_safe(&self, _input: &Value) -> bool {
+        true
+    }
+
+    fn is_deferred(&self) -> bool {
         true
     }
 
