@@ -9,6 +9,8 @@ pub struct ToolDef {
     pub name: String,
     pub description: String,
     pub input_schema: JsonSchema,
+    /// Whether this tool's full schema is deferred (only name + stub sent to LLM).
+    pub deferred: bool,
 }
 
 /// Result from executing a tool
@@ -40,6 +42,7 @@ mod tests {
             name: "bash".to_string(),
             description: "Run a shell command".to_string(),
             input_schema: schema.clone(),
+            deferred: false,
         };
         // assert
         assert_eq!(tool.name, "bash");
@@ -54,6 +57,7 @@ mod tests {
             name: "noop".to_string(),
             description: "Does nothing".to_string(),
             input_schema: json!({}),
+            deferred: false,
         };
         // assert
         assert_eq!(tool.input_schema, json!({}));
@@ -97,5 +101,27 @@ mod tests {
         // assert
         assert!(result.content.is_empty());
         assert!(result.is_error);
+    }
+
+    #[test]
+    fn test_tool_def_deferred_defaults_to_false() {
+        let tool = ToolDef {
+            name: "test".to_string(),
+            description: "desc".to_string(),
+            input_schema: json!({}),
+            deferred: false,
+        };
+        assert!(!tool.deferred);
+    }
+
+    #[test]
+    fn test_tool_def_deferred_true() {
+        let tool = ToolDef {
+            name: "spawn".to_string(),
+            description: "desc".to_string(),
+            input_schema: json!({}),
+            deferred: true,
+        };
+        assert!(tool.deferred);
     }
 }

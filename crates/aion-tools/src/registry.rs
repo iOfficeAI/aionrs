@@ -41,6 +41,7 @@ impl ToolRegistry {
                 name: t.name().to_string(),
                 description: t.description().to_string(),
                 input_schema: t.input_schema(),
+                deferred: false,
             })
             .collect()
     }
@@ -59,6 +60,7 @@ impl ToolRegistry {
                 name: t.name().to_string(),
                 description: t.description().to_string(),
                 input_schema: t.input_schema(),
+                deferred: false,
             })
             .collect()
     }

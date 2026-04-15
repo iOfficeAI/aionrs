@@ -566,6 +566,7 @@ mod tests {
             name: "bash".to_string(),
             description: "Run a shell command".to_string(),
             input_schema: schema.clone(),
+            deferred: false,
         }];
         // act
         let result = build_tools(&tools);
