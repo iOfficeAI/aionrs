@@ -47,6 +47,12 @@ pub struct CompactConfig {
     /// (emergency truncation still applies).
     #[serde(default = "default_true")]
     pub enabled: bool,
+
+    /// Enable prompt cache diagnostics output to user.
+    /// When true, cache hit/miss info is shown via OutputSink.
+    /// Default: false.
+    #[serde(default)]
+    pub cache_diagnostics: bool,
 }
 
 impl Default for CompactConfig {
@@ -61,6 +67,7 @@ impl Default for CompactConfig {
             micro_gap_seconds: default_micro_gap_seconds(),
             compactable_tools: default_compactable_tools(),
             enabled: default_true(),
+            cache_diagnostics: false,
         }
     }
 }
@@ -177,6 +184,21 @@ context_window = 128000
         assert_eq!(cfg.micro_keep_recent, default.micro_keep_recent);
         assert_eq!(cfg.micro_gap_seconds, default.micro_gap_seconds);
         assert_eq!(cfg.enabled, default.enabled);
+    }
+
+    #[test]
+    fn cache_diagnostics_defaults_to_false() {
+        let cfg = CompactConfig::default();
+        assert!(!cfg.cache_diagnostics);
+    }
+
+    #[test]
+    fn toml_cache_diagnostics_override() {
+        let toml_str = r#"
+cache_diagnostics = true
+"#;
+        let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.cache_diagnostics);
     }
 
     #[test]
