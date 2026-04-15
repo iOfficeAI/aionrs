@@ -41,7 +41,7 @@ impl ToolRegistry {
                 name: t.name().to_string(),
                 description: t.description().to_string(),
                 input_schema: t.input_schema(),
-                deferred: false,
+                deferred: t.is_deferred(),
             })
             .collect()
     }
@@ -60,7 +60,7 @@ impl ToolRegistry {
                 name: t.name().to_string(),
                 description: t.description().to_string(),
                 input_schema: t.input_schema(),
-                deferred: false,
+                deferred: t.is_deferred(),
             })
             .collect()
     }
@@ -278,5 +278,64 @@ mod tests {
         let registry = ToolRegistry::new();
         let defs = registry.to_tool_defs_filtered(|_| true);
         assert!(defs.is_empty());
+    }
+
+    // --- deferred flag tests ---
+
+    /// A minimal Tool that overrides is_deferred() to return true
+    struct DeferredMockTool {
+        tool_name: String,
+    }
+
+    #[async_trait]
+    impl Tool for DeferredMockTool {
+        fn name(&self) -> &str {
+            &self.tool_name
+        }
+
+        fn description(&self) -> &str {
+            "a deferred tool"
+        }
+
+        fn input_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object", "properties": {"x": {"type": "string"}}})
+        }
+
+        fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool {
+            true
+        }
+
+        fn is_deferred(&self) -> bool {
+            true
+        }
+
+        async fn execute(&self, _input: serde_json::Value) -> ToolResult {
+            ToolResult {
+                content: "ok".to_string(),
+                is_error: false,
+            }
+        }
+
+        fn category(&self) -> ToolCategory {
+            ToolCategory::Info
+        }
+    }
+
+    #[test]
+    fn to_tool_defs_includes_deferred_flag() {
+        let mut registry = ToolRegistry::new();
+        registry.register(make_tool("core_tool", "a core tool"));
+        let defs = registry.to_tool_defs();
+        assert!(!defs[0].deferred, "default tools should not be deferred");
+    }
+
+    #[test]
+    fn to_tool_defs_deferred_tool_flagged() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(DeferredMockTool {
+            tool_name: "lazy_tool".to_string(),
+        }));
+        let defs = registry.to_tool_defs();
+        assert!(defs[0].deferred, "deferred tool should have deferred=true");
     }
 }
