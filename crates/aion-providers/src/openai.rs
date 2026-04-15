@@ -206,14 +206,31 @@ impl OpenAIProvider {
         tools
             .iter()
             .map(|t| {
-                json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.input_schema
-                    }
-                })
+                if t.deferred {
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": format!(
+                                "(Deferred) {} — Use ToolSearch to load full schema before calling.",
+                                t.description
+                            ),
+                            "parameters": {
+                                "type": "object",
+                                "properties": {}
+                            }
+                        }
+                    })
+                } else {
+                    json!({
+                        "type": "function",
+                        "function": {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.input_schema
+                        }
+                    })
+                }
             })
             .collect()
     }
@@ -871,5 +888,34 @@ mod tests {
             }
             other => panic!("expected Done, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_build_tools_deferred_has_empty_parameters() {
+        let tools = vec![
+            ToolDef {
+                name: "Read".into(),
+                description: "Read a file".into(),
+                input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "SpawnTool".into(),
+                description: "Spawn sub-agents".into(),
+                input_schema: json!({"type": "object", "properties": {"agents": {"type": "array"}}}),
+                deferred: true,
+            },
+        ];
+        let result = OpenAIProvider::build_tools(&tools);
+
+        // Core tool has full parameters
+        let read_params = &result[0]["function"]["parameters"];
+        assert!(read_params["properties"].get("path").is_some());
+
+        // Deferred tool has empty parameters and modified description
+        let spawn_params = &result[1]["function"]["parameters"];
+        assert!(spawn_params["properties"].as_object().unwrap().is_empty());
+        let spawn_desc = result[1]["function"]["description"].as_str().unwrap();
+        assert!(spawn_desc.contains("ToolSearch"));
     }
 }
