@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/iOfficeAI/aionrs/compare/v0.1.8...v0.1.9) (2026-04-15)
+
+
+### Features
+
+* input token optimization — deferred tools, description truncation, prompt caching ([#41](https://github.com/iOfficeAI/aionrs/issues/41)) ([b20ce58](https://github.com/iOfficeAI/aionrs/commit/b20ce5813c94fa8c6a682ae8d88c7f17f42ec05a))
+
 ## [0.1.8](https://github.com/iOfficeAI/aionrs/compare/v0.1.7...v0.1.8) (2026-04-14)
 
 
