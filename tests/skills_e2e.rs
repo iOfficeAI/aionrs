@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use aionrs::context::build_system_prompt;
+use aionrs::context::{SystemPromptCache, build_system_prompt};
 use aionrs::skills::loader::load_all_skills;
 use aionrs::skills::permissions::SkillPermissionChecker;
 use aionrs::skills::types::SkillMetadata;
@@ -210,7 +210,7 @@ async fn e7_system_prompt_injection() {
     let cwd = root.to_string_lossy().to_string();
     let skills = load_all_skills(&root, &[], false, None).await;
 
-    let prompt = build_system_prompt(None, &cwd, "test-model", &skills, None, None, false);
+    let prompt = build_system_prompt(&mut SystemPromptCache::new(), None, &cwd, "test-model", &skills, None, None, false);
     assert!(prompt.contains("greet"), "E7 FAIL: 'greet' not in system prompt");
     assert!(prompt.contains("db:migrate"), "E7 FAIL: 'db:migrate' not in system prompt");
     assert!(prompt.contains("system-reminder"), "E7 FAIL: missing <system-reminder> wrapper");

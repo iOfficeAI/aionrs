@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::Path;
 
-use aion_agent::context::build_system_prompt;
+use aion_agent::context::{SystemPromptCache, build_system_prompt};
 use aion_agent::plan::file::{plan_file_path, read_plan, write_plan};
 use aion_agent::plan::prompt::plan_mode_instructions;
 
@@ -62,7 +62,7 @@ fn tc_3_4_01_instructions_forbid_writes() {
 
 #[test]
 fn tc_3_4_03_system_prompt_includes_plan_instructions_when_active() {
-    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, true);
+    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, true);
 
     // Should contain plan mode instructions
     assert!(
@@ -85,7 +85,7 @@ fn tc_3_4_03_system_prompt_includes_plan_instructions_when_active() {
 
 #[test]
 fn tc_3_4_04_system_prompt_excludes_plan_instructions_when_inactive() {
-    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
+    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
 
     // Should NOT contain plan mode instructions
     assert!(
@@ -197,7 +197,7 @@ fn plan_instructions_appear_after_memory_before_skills() {
     std::fs::create_dir_all(&mem_dir).unwrap();
     std::fs::write(mem_dir.join("MEMORY.md"), "- [A](a.md) \u{2014} test\n").unwrap();
 
-    let result = build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), true);
+    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), true);
 
     let memory_pos = result
         .find("auto memory")

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-use aion_agent::context::build_system_prompt;
+use aion_agent::context::{SystemPromptCache, build_system_prompt};
 use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
 use aion_protocol::events::ToolCategory;
 use aion_tools::Tool;
@@ -158,7 +158,7 @@ fn tc_a3_01_plan_mode_tool_filtering() {
 #[test]
 fn tc_a3_02_plan_mode_system_prompt_injection() {
     // --- Plan mode active: prompt should contain plan mode instructions ---
-    let active_prompt = build_system_prompt(None, "/tmp", "test-model", &[], None, None, true);
+    let active_prompt = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, true);
 
     assert!(
         active_prompt.contains("# Plan Mode"),
@@ -190,7 +190,7 @@ fn tc_a3_02_plan_mode_system_prompt_injection() {
     );
 
     // --- Plan mode inactive: prompt should NOT contain plan mode instructions ---
-    let inactive_prompt = build_system_prompt(None, "/tmp", "test-model", &[], None, None, false);
+    let inactive_prompt = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
 
     assert!(
         !inactive_prompt.contains("# Plan Mode"),

@@ -3,7 +3,7 @@
 // These tests verify that the memory system's file I/O, index management,
 // and prompt building work together correctly. No LLM API calls are needed.
 
-use aion_agent::context::build_system_prompt;
+use aion_agent::context::{SystemPromptCache, build_system_prompt};
 use aion_memory::index::{append_index_entry, remove_index_entry};
 use aion_memory::paths::ENTRYPOINT_NAME;
 use aion_memory::store::{delete_memory, write_memory};
@@ -36,7 +36,7 @@ fn memory_injection_into_system_prompt() {
     )
     .unwrap();
 
-    let prompt = build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+    let prompt = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
     // Behavioral instructions must be present
     assert!(
@@ -109,7 +109,7 @@ fn memory_full_lifecycle() {
     // -- Phase 3: Verify system prompt includes the memory content ------------
 
     let prompt_with_memory =
-        build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+        build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
     assert!(
         prompt_with_memory.contains("auto memory"),
@@ -149,7 +149,7 @@ fn memory_full_lifecycle() {
     // -- Phase 6: Verify the content is gone from the system prompt -----------
 
     let prompt_after_delete =
-        build_system_prompt(None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+        build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
 
     assert!(
         !prompt_after_delete.contains(&entry_filename),

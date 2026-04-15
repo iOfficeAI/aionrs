@@ -252,7 +252,9 @@ async fn main() -> anyhow::Result<()> {
     let skills = load_all_skills(cwd_path, &[], false, mcp_manager.as_deref()).await;
 
     // Build system prompt with loaded skills
+    let mut prompt_cache = aion_agent::context::SystemPromptCache::new();
     let system_prompt = context::build_system_prompt(
+        &mut prompt_cache,
         config.system_prompt.as_deref(),
         &cwd,
         &config.model,

@@ -3,7 +3,7 @@
 // Exercises memory + compression + file cache + tool description all at once.
 
 use aion_agent::compact::micro::{CLEARED_TOOL_RESULT, microcompact};
-use aion_agent::context::build_system_prompt;
+use aion_agent::context::{SystemPromptCache, build_system_prompt};
 use aion_config::compact::CompactConfig;
 use aion_config::file_cache::FileCacheConfig;
 use aion_tools::Tool;
@@ -32,6 +32,7 @@ async fn tc_ax_01_multi_feature_collaboration() {
 
     // ── Step 2: Build system prompt with memory ──
     let system_prompt = build_system_prompt(
+        &mut SystemPromptCache::new(),
         None,
         "/tmp",
         "test-model",

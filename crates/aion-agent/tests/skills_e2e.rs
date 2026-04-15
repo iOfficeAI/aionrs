@@ -11,7 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use aion_agent::context::build_system_prompt;
+use aion_agent::context::{SystemPromptCache, build_system_prompt};
 use aion_agent::skill_tool::SkillTool;
 use aion_agent::skills::loader::load_all_skills;
 use aion_agent::skills::permissions::SkillPermissionChecker;
@@ -219,7 +219,7 @@ async fn e7_system_prompt_injection() {
     let cwd = root.to_string_lossy().to_string();
     let skills = load_all_skills(&root, &[], false, None).await;
 
-    let prompt = build_system_prompt(None, &cwd, "test-model", &skills, None, None, false);
+    let prompt = build_system_prompt(&mut SystemPromptCache::new(), None, &cwd, "test-model", &skills, None, None, false);
     assert!(
         prompt.contains("greet"),
         "E7 FAIL: 'greet' not in system prompt"
