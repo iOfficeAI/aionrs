@@ -58,7 +58,7 @@ anyhow    = "1"
 glob = "0.3"
 
 # LRU cache (for file state tracking)
-lru = "0.16"
+lru = "0.17"
 
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }

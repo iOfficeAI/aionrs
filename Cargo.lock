@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "aion-agent"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-config",
  "aion-mcp",
@@ -45,7 +45,7 @@ dependencies = [
 
 [[package]]
 name = "aion-cli"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-agent",
  "aion-config",
@@ -63,7 +63,7 @@ dependencies = [
 
 [[package]]
 name = "aion-config"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-types",
  "anyhow",
@@ -84,7 +84,7 @@ dependencies = [
 
 [[package]]
 name = "aion-mcp"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-config",
  "aion-protocol",
@@ -103,7 +103,7 @@ dependencies = [
 
 [[package]]
 name = "aion-memory"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-config",
  "chrono",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "aion-protocol"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-types",
  "rstest",
@@ -130,7 +130,7 @@ dependencies = [
 
 [[package]]
 name = "aion-providers"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-config",
  "aion-types",
@@ -158,7 +158,7 @@ dependencies = [
 
 [[package]]
 name = "aion-skills"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-config",
  "aion-mcp",
@@ -185,7 +185,7 @@ dependencies = [
 
 [[package]]
 name = "aion-tools"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "aion-config",
  "aion-protocol",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "aion-types"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1304,6 +1304,12 @@ name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "841d1cc9bed7f9236f321df977030373f4a4163ae1a7dbfe1a51a2c1a51d9100"
+
+[[package]]
+name = "hashbrown"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f467dd6dccf739c208452f8014c75c18bb8301b050ad1cfb27153803edb0f51"
 dependencies = [
  "allocator-api2",
  "equivalent",
@@ -1830,11 +1836,11 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lru"
-version = "0.16.4"
+version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f66e8d5d03f609abc3a39e6f08e4164ebf1447a732906d39eb9b99b7919ef39"
+checksum = "0e0b564323a0fb6d54b864f625ae139de9612e27edb944dda37c109f05aac531"
 dependencies = [
- "hashbrown 0.16.1",
+ "hashbrown 0.17.0",
 ]
 
 [[package]]
