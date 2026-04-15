@@ -73,7 +73,7 @@ jobs:
 
       - name: Setup vx (installs Rust from vx.toml)
         if: steps.filter.outputs.run == 'true'
-        uses: loonghao/vx@v0.8.25
+        uses: loonghao/vx@v0.8.27
         with:
           setup: 'true'
           cache: 'true'
