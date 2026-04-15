@@ -31,6 +31,7 @@ use aion_tools::glob::GlobTool;
 use aion_tools::grep::GrepTool;
 use aion_tools::read::ReadTool;
 use aion_tools::registry::ToolRegistry;
+use aion_tools::tool_search::ToolSearchTool;
 use aion_tools::write::WriteTool;
 
 #[derive(Parser)]
@@ -292,6 +293,10 @@ async fn main() -> anyhow::Result<()> {
             &plan_active_flag,
         ))));
     }
+
+    // Register ToolSearch (must be after all other tools to capture full snapshot)
+    let tool_defs_snapshot = registry.to_tool_defs();
+    registry.register(Box::new(ToolSearchTool::new(tool_defs_snapshot)));
 
     if cli.json_stream {
         return run_json_stream_mode(

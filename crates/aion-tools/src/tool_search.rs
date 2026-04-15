@@ -1,23 +1,21 @@
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use aion_protocol::events::ToolCategory;
-use aion_types::tool::{JsonSchema, ToolResult};
+use aion_types::tool::{JsonSchema, ToolDef, ToolResult};
 
 use crate::Tool;
-use crate::registry::ToolRegistry;
 
 /// Built-in tool that searches for deferred tools and loads their full schema.
 /// Core tool (never deferred itself) — always available to the LLM.
 pub struct ToolSearchTool {
-    registry: Arc<ToolRegistry>,
+    /// Snapshot of all tool definitions (taken at construction time).
+    tool_defs: Vec<ToolDef>,
 }
 
 impl ToolSearchTool {
-    pub fn new(registry: Arc<ToolRegistry>) -> Self {
-        Self { registry }
+    pub fn new(tool_defs: Vec<ToolDef>) -> Self {
+        Self { tool_defs }
     }
 }
 
@@ -59,8 +57,8 @@ impl Tool for ToolSearchTool {
         }
 
         let query_lower = query.to_lowercase();
-        let defs = self.registry.to_tool_defs();
-        let matches: Vec<Value> = defs
+        let matches: Vec<Value> = self
+            .tool_defs
             .iter()
             .filter(|d| d.deferred)
             .filter(|d| {
@@ -98,50 +96,32 @@ impl Tool for ToolSearchTool {
 mod tests {
     use super::*;
 
-    struct MockDeferred {
-        tool_name: String,
-        tool_description: String,
-        deferred: bool,
-    }
-
-    #[async_trait]
-    impl Tool for MockDeferred {
-        fn name(&self) -> &str { &self.tool_name }
-        fn description(&self) -> &str { &self.tool_description }
-        fn input_schema(&self) -> JsonSchema {
-            json!({"type": "object", "properties": {"x": {"type": "string"}}})
-        }
-        fn is_concurrency_safe(&self, _input: &Value) -> bool { true }
-        fn is_deferred(&self) -> bool { self.deferred }
-        async fn execute(&self, _input: Value) -> ToolResult {
-            ToolResult { content: "ok".into(), is_error: false }
-        }
-        fn category(&self) -> ToolCategory { ToolCategory::Info }
-    }
-
-    fn build_registry() -> Arc<ToolRegistry> {
-        let mut reg = ToolRegistry::new();
-        reg.register(Box::new(MockDeferred {
-            tool_name: "Read".into(),
-            tool_description: "Read a file".into(),
-            deferred: false,
-        }));
-        reg.register(Box::new(MockDeferred {
-            tool_name: "SpawnTool".into(),
-            tool_description: "Spawn sub-agents".into(),
-            deferred: true,
-        }));
-        reg.register(Box::new(MockDeferred {
-            tool_name: "EnterPlanMode".into(),
-            tool_description: "Enter plan mode".into(),
-            deferred: true,
-        }));
-        Arc::new(reg)
+    fn build_tool_defs() -> Vec<ToolDef> {
+        vec![
+            ToolDef {
+                name: "Read".into(),
+                description: "Read a file".into(),
+                input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "SpawnTool".into(),
+                description: "Spawn sub-agents".into(),
+                input_schema: json!({"type": "object", "properties": {"agents": {"type": "array"}}}),
+                deferred: true,
+            },
+            ToolDef {
+                name: "EnterPlanMode".into(),
+                description: "Enter plan mode".into(),
+                input_schema: json!({"type": "object", "properties": {}}),
+                deferred: true,
+            },
+        ]
     }
 
     #[tokio::test]
     async fn search_by_exact_name() {
-        let tool = ToolSearchTool::new(build_registry());
+        let tool = ToolSearchTool::new(build_tool_defs());
         let result = tool.execute(json!({"query": "SpawnTool"})).await;
         assert!(!result.is_error);
         assert!(result.content.contains("SpawnTool"));
@@ -151,7 +131,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_case_insensitive() {
-        let tool = ToolSearchTool::new(build_registry());
+        let tool = ToolSearchTool::new(build_tool_defs());
         let result = tool.execute(json!({"query": "spawntool"})).await;
         assert!(!result.is_error);
         assert!(result.content.contains("SpawnTool"));
@@ -159,7 +139,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_by_description_keyword() {
-        let tool = ToolSearchTool::new(build_registry());
+        let tool = ToolSearchTool::new(build_tool_defs());
         let result = tool.execute(json!({"query": "plan"})).await;
         assert!(!result.is_error);
         assert!(result.content.contains("EnterPlanMode"));
@@ -167,7 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_excludes_non_deferred() {
-        let tool = ToolSearchTool::new(build_registry());
+        let tool = ToolSearchTool::new(build_tool_defs());
         let result = tool.execute(json!({"query": "Read"})).await;
         // "Read" is not deferred, should not appear in results
         assert!(
@@ -178,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_no_match() {
-        let tool = ToolSearchTool::new(build_registry());
+        let tool = ToolSearchTool::new(build_tool_defs());
         let result = tool.execute(json!({"query": "nonexistent"})).await;
         assert!(!result.is_error);
         assert!(result.content.contains("No deferred tools"));
@@ -186,7 +166,7 @@ mod tests {
 
     #[tokio::test]
     async fn search_empty_query_returns_error() {
-        let tool = ToolSearchTool::new(build_registry());
+        let tool = ToolSearchTool::new(build_tool_defs());
         let result = tool.execute(json!({"query": ""})).await;
         assert!(result.is_error);
     }
