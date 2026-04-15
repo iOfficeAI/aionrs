@@ -56,6 +56,12 @@ pub trait Tool: Send + Sync {
     /// Tool category for protocol classification
     fn category(&self) -> ToolCategory;
 
+    /// Whether this tool's schema should be deferred (sent as name-only stub).
+    /// Override to `true` for tools with large schemas or infrequent use.
+    fn is_deferred(&self) -> bool {
+        false
+    }
+
     /// Human-readable description of what the tool will do with the given input
     fn describe(&self, input: &Value) -> String {
         format!(
