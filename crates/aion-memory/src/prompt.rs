@@ -625,11 +625,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let mem_dir = tmp.path().join("memory");
         std::fs::create_dir_all(&mem_dir).unwrap();
-        std::fs::write(
-            mem_dir.join(ENTRYPOINT_NAME),
-            "- [A](a.md) \u{2014} test\n",
-        )
-        .unwrap();
+        std::fs::write(mem_dir.join(ENTRYPOINT_NAME), "- [A](a.md) \u{2014} test\n").unwrap();
 
         let full = build_memory_prompt(&mem_dir);
         let minimal = build_memory_prompt_minimal(&mem_dir);
