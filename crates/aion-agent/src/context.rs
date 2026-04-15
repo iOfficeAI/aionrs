@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use aion_memory::prompt::build_memory_prompt;
@@ -6,6 +7,49 @@ use aion_skills::types::SkillMetadata;
 use aion_types::message::{ContentBlock, Message, Role};
 
 use crate::plan::prompt as plan_prompt;
+
+/// Session-scoped cache for system prompt sections.
+///
+/// Each section (intro, tool guidance, AGENTS.md, memory, skills) is cached
+/// independently. The `joined` field holds the pre-joined full prompt string
+/// and is invalidated whenever any section changes.
+#[allow(dead_code)]
+pub struct SystemPromptCache {
+    /// Cached section strings, keyed by section name.
+    pub(crate) sections: HashMap<&'static str, String>,
+    /// Pre-joined full prompt. Invalidated on any section change.
+    pub(crate) joined: Option<String>,
+    /// Track last plan_mode_active value to detect changes.
+    pub(crate) last_plan_mode: bool,
+}
+
+impl SystemPromptCache {
+    pub fn new() -> Self {
+        Self {
+            sections: HashMap::new(),
+            joined: None,
+            last_plan_mode: false,
+        }
+    }
+
+    /// Invalidate a specific section by name.
+    pub fn invalidate(&mut self, section: &str) {
+        self.sections.remove(section);
+        self.joined = None;
+    }
+
+    /// Invalidate all cached sections (e.g., on /compact).
+    pub fn invalidate_all(&mut self) {
+        self.sections.clear();
+        self.joined = None;
+    }
+}
+
+impl Default for SystemPromptCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Return the tool-usage guidance section for the system prompt.
 ///
@@ -806,5 +850,62 @@ mod tests {
             guidance_pos < memory_pos,
             "tool guidance should appear before memory section"
         );
+    }
+
+    // --- SystemPromptCache tests ---
+
+    #[test]
+    fn cache_new_is_empty() {
+        let cache = SystemPromptCache::new();
+        assert!(cache.joined.is_none());
+        assert!(cache.sections.is_empty());
+    }
+
+    #[test]
+    fn cache_stores_and_retrieves_section() {
+        let mut cache = SystemPromptCache::new();
+        cache.sections.insert("intro", "Hello world".to_string());
+        assert_eq!(cache.sections.get("intro").unwrap(), "Hello world");
+    }
+
+    #[test]
+    fn cache_invalidate_removes_section_and_joined() {
+        let mut cache = SystemPromptCache::new();
+        cache.sections.insert("intro", "Hello".to_string());
+        cache.sections.insert("memory", "Memory content".to_string());
+        cache.joined = Some("Hello\n\nMemory content".to_string());
+
+        cache.invalidate("memory");
+
+        assert!(cache.sections.get("memory").is_none());
+        assert!(cache.joined.is_none());
+        // Other sections preserved
+        assert_eq!(cache.sections.get("intro").unwrap(), "Hello");
+    }
+
+    #[test]
+    fn cache_invalidate_all_clears_everything() {
+        let mut cache = SystemPromptCache::new();
+        cache.sections.insert("intro", "Hello".to_string());
+        cache.sections.insert("memory", "Mem".to_string());
+        cache.joined = Some("joined".to_string());
+
+        cache.invalidate_all();
+
+        assert!(cache.sections.is_empty());
+        assert!(cache.joined.is_none());
+    }
+
+    #[test]
+    fn cache_invalidate_nonexistent_key_is_noop() {
+        let mut cache = SystemPromptCache::new();
+        cache.sections.insert("intro", "Hello".to_string());
+        cache.joined = Some("joined".to_string());
+
+        cache.invalidate("nonexistent");
+
+        // joined is still invalidated (conservative behavior)
+        assert!(cache.joined.is_none());
+        assert_eq!(cache.sections.get("intro").unwrap(), "Hello");
     }
 }
