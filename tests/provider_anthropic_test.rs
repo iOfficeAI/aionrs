@@ -5,6 +5,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use aionrs::provider::anthropic::AnthropicProvider;
 use aionrs::provider::compat::ProviderCompat;
+use aionrs::provider::debug::DebugConfig;
 use aionrs::provider::{LlmProvider, ProviderError};
 use aionrs::types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aionrs::types::message::{ContentBlock, Message, Role, StopReason};
@@ -77,7 +78,7 @@ async fn test_anthropic_stream_text_response() {
         .await;
 
     let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -148,7 +149,7 @@ data: {\"type\":\"message_stop\"}\n\n";
         .await;
 
     let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -228,7 +229,7 @@ data: {\"type\":\"message_stop\"}\n\n";
     request.thinking = Some(ThinkingConfig::Enabled { budget_tokens: 5000 });
 
     let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(false);
 
     // Act
     let rx = provider.stream(&request).await.expect("stream should succeed");
@@ -273,7 +274,7 @@ async fn test_anthropic_auth_error() {
         .await;
 
     let provider =
-        AnthropicProvider::new("bad-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+        AnthropicProvider::new("bad-api-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -311,7 +312,7 @@ async fn test_anthropic_rate_limit_retryable() {
         .await;
 
     let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -353,7 +354,7 @@ async fn test_anthropic_request_headers() {
         .await;
 
     let provider =
-        AnthropicProvider::new("my-secret-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+        AnthropicProvider::new("my-secret-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(false);
     let request = minimal_request();
 
     // Act — should succeed because the headers are correct
@@ -393,7 +394,7 @@ async fn test_anthropic_prompt_caching_header() {
 
     // with_cache(true) — default, but explicit here for clarity
     let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(true);
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(true);
     let request = minimal_request();
 
     let result = provider.stream(&request).await;
@@ -429,7 +430,7 @@ async fn test_anthropic_no_prompt_caching_header_when_disabled() {
         .await;
 
     let provider =
-        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults(), DebugConfig::default()).with_cache(false);
     let request = minimal_request();
 
     let result = provider.stream(&request).await;

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::auth::{AuthConfig, OAuthManager};
 use crate::compact::CompactConfig;
 use crate::compat::ProviderCompat;
+use crate::debug::DebugConfig;
 use crate::file_cache::FileCacheConfig;
 use crate::hooks::HooksConfig;
 use crate::plan::PlanConfig;
@@ -103,6 +104,9 @@ pub struct ConfigFile {
 
     #[serde(default)]
     pub mcp: McpConfig,
+
+    #[serde(default)]
+    pub debug: DebugConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -258,6 +262,7 @@ pub struct Config {
     pub bedrock: Option<BedrockConfig>,
     pub vertex: Option<VertexConfig>,
     pub mcp: McpConfig,
+    pub debug: DebugConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -395,6 +400,7 @@ impl Config {
             bedrock: merged.bedrock,
             vertex: merged.vertex,
             mcp: merged.mcp,
+            debug: merged.debug,
         })
     }
 }
@@ -684,6 +690,8 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         global.compact
     };
 
+    let debug = DebugConfig::merge(global.debug, project.debug);
+
     ConfigFile {
         default,
         providers,
@@ -698,6 +706,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         vertex,
         auth,
         mcp,
+        debug,
     }
 }
 

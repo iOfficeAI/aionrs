@@ -6,8 +6,9 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError};
+use crate::{LlmProvider, ProviderError, dump_request_body};
 use aion_config::compat::ProviderCompat;
+use aion_config::debug::DebugConfig;
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -15,16 +16,18 @@ pub struct AnthropicProvider {
     base_url: String,
     cache_enabled: bool,
     compat: ProviderCompat,
+    debug: DebugConfig,
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat) -> Self {
+    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat, debug: DebugConfig) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key: api_key.to_string(),
             base_url: base_url.to_string(),
             cache_enabled: true,
             compat,
+            debug,
         }
     }
 
@@ -97,6 +100,8 @@ impl LlmProvider for AnthropicProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = format!("{}/v1/messages", self.base_url);
         let body = self.build_request_body(request);
+
+        dump_request_body(&self.debug, &body);
 
         let response = self
             .client

@@ -265,6 +265,7 @@ pub fn test_config() -> Config {
         bedrock: None,
         vertex: None,
         mcp: McpConfig::default(),
+        debug: aion_config::debug::DebugConfig::default(),
     }
 }
 

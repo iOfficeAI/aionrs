@@ -13,8 +13,9 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError};
+use crate::{LlmProvider, ProviderError, dump_request_body};
 use aion_config::compat::ProviderCompat;
+use aion_config::debug::DebugConfig;
 
 pub struct VertexProvider {
     client: reqwest::Client,
@@ -23,6 +24,7 @@ pub struct VertexProvider {
     auth: GcpAuth,
     cache_enabled: bool,
     compat: ProviderCompat,
+    debug: DebugConfig,
     /// Cached access token
     cached_token: Mutex<Option<CachedToken>>,
 }
@@ -46,6 +48,7 @@ impl VertexProvider {
         auth: GcpAuth,
         cache_enabled: bool,
         compat: ProviderCompat,
+        debug: DebugConfig,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -54,6 +57,7 @@ impl VertexProvider {
             auth,
             cache_enabled,
             compat,
+            debug,
             cached_token: Mutex::new(None),
         }
     }
@@ -258,6 +262,9 @@ impl LlmProvider for VertexProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request);
+
+        dump_request_body(&self.debug, &body);
+
         let access_token = self.get_access_token().await?;
 
         let mut headers = HeaderMap::new();

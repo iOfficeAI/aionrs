@@ -18,8 +18,9 @@ use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{StopReason, TokenUsage};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError};
+use crate::{LlmProvider, ProviderError, dump_request_body};
 use aion_config::compat::{self, ProviderCompat};
+use aion_config::debug::DebugConfig;
 
 pub struct BedrockProvider {
     client: reqwest::Client,
@@ -27,6 +28,7 @@ pub struct BedrockProvider {
     credentials: AwsCredentials,
     cache_enabled: bool,
     compat: ProviderCompat,
+    debug: DebugConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -46,6 +48,7 @@ impl BedrockProvider {
         credentials: AwsCredentials,
         cache_enabled: bool,
         compat: ProviderCompat,
+        debug: DebugConfig,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -53,6 +56,7 @@ impl BedrockProvider {
             credentials,
             cache_enabled,
             compat,
+            debug,
         }
     }
 
@@ -247,6 +251,9 @@ impl LlmProvider for BedrockProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request);
+
+        dump_request_body(&self.debug, &body);
+
         let body_bytes = serde_json::to_vec(&body)
             .map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))?;
 

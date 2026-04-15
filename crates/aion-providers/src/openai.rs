@@ -7,23 +7,26 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::ToolDef;
 
-use crate::{LlmProvider, ProviderError};
+use crate::{LlmProvider, ProviderError, dump_request_body};
 use aion_config::compat::ProviderCompat;
+use aion_config::debug::DebugConfig;
 
 pub struct OpenAIProvider {
     client: reqwest::Client,
     api_key: String,
     base_url: String,
     compat: ProviderCompat,
+    debug: DebugConfig,
 }
 
 impl OpenAIProvider {
-    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat) -> Self {
+    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat, debug: DebugConfig) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key: api_key.to_string(),
             base_url: base_url.to_string(),
             compat,
+            debug,
         }
     }
 
@@ -450,6 +453,8 @@ impl LlmProvider for OpenAIProvider {
         let url = format!("{}{}", self.base_url, self.compat.api_path());
         let body = self.build_request_body(request);
 
+        dump_request_body(&self.debug, &body);
+
         let response = self
             .client
             .post(&url)
@@ -629,6 +634,7 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aion_config::debug::DebugConfig;
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -642,7 +648,12 @@ mod tests {
 
     #[test]
     fn test_max_tokens_field_default() {
-        let provider = OpenAIProvider::new("key", "http://localhost", openai_compat());
+        let provider = OpenAIProvider::new(
+            "key",
+            "http://localhost",
+            openai_compat(),
+            DebugConfig::default(),
+        );
         let req = LlmRequest {
             model: "gpt-4o".into(),
             system: String::new(),
@@ -663,7 +674,8 @@ mod tests {
             max_tokens_field: Some("max_completion_tokens".into()),
             ..Default::default()
         };
-        let provider = OpenAIProvider::new("key", "http://localhost", compat);
+        let provider =
+            OpenAIProvider::new("key", "http://localhost", compat, DebugConfig::default());
         let req = LlmRequest {
             model: "gpt-4o".into(),
             system: String::new(),

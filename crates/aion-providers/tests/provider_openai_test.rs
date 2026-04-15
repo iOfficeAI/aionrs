@@ -1,4 +1,5 @@
 use aion_config::compat::ProviderCompat;
+use aion_config::debug::DebugConfig;
 use aion_providers::LlmProvider;
 use aion_providers::openai::OpenAIProvider;
 use aion_types::llm::{LlmEvent, LlmRequest};
@@ -111,8 +112,12 @@ async fn test_openai_stream_text_response() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "test-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -215,8 +220,12 @@ async fn test_openai_stream_tool_call_aggregation() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "test-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -320,8 +329,12 @@ async fn test_openai_multiple_tool_calls() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "test-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -411,8 +424,12 @@ async fn test_openai_stream_state_transitions() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "test-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -453,7 +470,12 @@ async fn test_openai_api_error_non_success_status() {
         .mount(&server)
         .await;
 
-    let provider = OpenAIProvider::new("bad-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "bad-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
@@ -480,8 +502,12 @@ async fn test_openai_rate_limited() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "test-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
@@ -536,8 +562,12 @@ async fn test_openai_stream_max_tokens_stop_reason() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "test-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -606,8 +636,12 @@ async fn test_openai_stream_empty_content_delta_skipped() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new(
+        "test-key",
+        &server.uri(),
+        ProviderCompat::openai_defaults(),
+        DebugConfig::default(),
+    );
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 

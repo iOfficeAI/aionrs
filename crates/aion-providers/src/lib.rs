@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 use aion_config::config::{Config, ProviderType};
+use aion_config::debug::DebugConfig;
 use aion_types::llm::{LlmEvent, LlmRequest};
 
 /// Unified interface for LLM API providers
@@ -45,19 +46,32 @@ impl ProviderError {
     }
 }
 
+/// Write the request body to the configured dump path (if set).
+///
+/// This is a shared helper called by each provider's `stream()` method.
+/// Errors are silently ignored — debug output must never break requests.
+pub fn dump_request_body(debug: &DebugConfig, body: &serde_json::Value) {
+    if let Some(path) = &debug.dump_request_path {
+        let pretty = serde_json::to_string_pretty(body).unwrap_or_default();
+        let _ = std::fs::write(path, &pretty);
+    }
+}
+
 /// Create a provider from resolved config
 pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
     let compat = config.compat.clone();
+    let debug = config.debug.clone();
 
     match config.provider {
         ProviderType::Anthropic => Arc::new(
-            anthropic::AnthropicProvider::new(&config.api_key, &config.base_url, compat)
+            anthropic::AnthropicProvider::new(&config.api_key, &config.base_url, compat, debug)
                 .with_cache(config.prompt_caching),
         ),
         ProviderType::OpenAI => Arc::new(openai::OpenAIProvider::new(
             &config.api_key,
             &config.base_url,
             compat,
+            debug,
         )),
         ProviderType::Bedrock => {
             let bc = config.bedrock.clone().unwrap_or_default();
@@ -73,6 +87,7 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
                 credentials,
                 config.prompt_caching,
                 compat,
+                debug,
             ))
         }
         ProviderType::Vertex => {
@@ -89,6 +104,7 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
                 auth,
                 config.prompt_caching,
                 compat,
+                debug,
             ))
         }
     }
