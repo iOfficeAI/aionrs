@@ -622,10 +622,19 @@ mod tests {
         let result = build_tools(&tools);
 
         // Core tool has full input_schema
-        assert!(result[0]["input_schema"]["properties"].get("path").is_some());
+        assert!(
+            result[0]["input_schema"]["properties"]
+                .get("path")
+                .is_some()
+        );
 
         // Deferred tool has empty input_schema and modified description
-        assert!(result[1]["input_schema"]["properties"].as_object().unwrap().is_empty());
+        assert!(
+            result[1]["input_schema"]["properties"]
+                .as_object()
+                .unwrap()
+                .is_empty()
+        );
         let desc = result[1]["description"].as_str().unwrap();
         assert!(desc.contains("ToolSearch"));
     }

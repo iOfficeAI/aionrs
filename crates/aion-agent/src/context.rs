@@ -279,13 +279,31 @@ mod tests {
     fn test_build_system_prompt_includes_cwd() {
         // Verify that the returned prompt contains the provided working directory path
         let cwd = "/some/test/path";
-        let prompt = build_system_prompt(&mut SystemPromptCache::new(), None, cwd, "test-model", &[], None, None, false);
+        let prompt = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            cwd,
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(prompt.contains(cwd), "system prompt should contain the cwd");
     }
 
     #[test]
     fn test_build_system_prompt_includes_model_name() {
-        let prompt = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "deepseek-chat", &[], None, None, false);
+        let prompt = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "deepseek-chat",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             prompt.contains("deepseek-chat"),
             "system prompt should contain the model name"
@@ -300,8 +318,16 @@ mod tests {
     fn test_build_system_prompt_with_custom_instructions() {
         // Verify that custom instructions are included in the returned prompt
         let custom = "Always respond in haiku.";
-        let prompt =
-            build_system_prompt(&mut SystemPromptCache::new(), Some(custom), "/tmp", "test-model", &[], None, None, false);
+        let prompt = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            Some(custom),
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             prompt.contains(custom),
             "system prompt should contain the custom instructions"
@@ -421,7 +447,16 @@ mod tests {
 
     #[test]
     fn test_build_system_prompt_no_skills_no_reminder() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             !result.contains("The following skills are available"),
             "empty skills should not inject skill reminder"
@@ -434,7 +469,16 @@ mod tests {
             make_test_skill("skill-one", "Does one", false, false),
             make_test_skill("skill-two", "Does two", false, false),
         ];
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &skills, None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &skills,
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("<system-reminder>"),
             "result should contain <system-reminder>"
@@ -457,7 +501,16 @@ mod tests {
             make_test_skill("visible-skill", "Visible", false, false),
             make_test_skill("hidden-skill", "Hidden", false, true),
         ];
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &skills, None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &skills,
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("visible-skill"),
             "visible skill should appear"
@@ -474,7 +527,16 @@ mod tests {
             make_test_skill("hidden-a", "Hidden A", false, true),
             make_test_skill("hidden-b", "Hidden B", false, true),
         ];
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &skills, None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &skills,
+            None,
+            None,
+            false,
+        );
         assert!(
             !result.contains("The following skills are available"),
             "all-hidden skills should not inject reminder"
@@ -529,8 +591,16 @@ mod tests {
     fn test_build_system_prompt_small_budget_triggers_minimal_mode() {
         // context_window_tokens = 50 → budget = 2 chars, triggers minimal mode for non-bundled
         let skill = make_test_skill("nb-skill", &"x".repeat(100), false, false);
-        let result =
-            build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[skill], Some(50), None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[skill],
+            Some(50),
+            None,
+            false,
+        );
         // Minimal mode: skill appears as name only, no ': '
         assert!(
             result.contains("- nb-skill"),
@@ -627,7 +697,16 @@ mod tests {
 
     #[test]
     fn memory_none_dir_no_injection() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             !result.contains("auto memory"),
             "no memory content when memory_dir is None"
@@ -645,8 +724,16 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            Some(&mem_dir),
+            false,
+        );
 
         assert!(
             result.contains("auto memory"),
@@ -689,8 +776,16 @@ mod tests {
         std::fs::create_dir_all(&mem_dir).unwrap();
         // No MEMORY.md
 
-        let result =
-            build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            Some(&mem_dir),
+            false,
+        );
 
         assert!(
             result.contains("currently empty"),
@@ -749,8 +844,16 @@ mod tests {
         )
         .unwrap();
 
-        let result =
-            build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            Some(&mem_dir),
+            false,
+        );
 
         assert!(
             !result.contains("~/.claude"),
@@ -766,7 +869,16 @@ mod tests {
 
     #[test]
     fn tool_guidance_section_exists() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("# Using your tools"),
             "system prompt should contain the tool guidance heading"
@@ -775,7 +887,16 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_bash_prohibition_list() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("Glob"),
             "should mention Glob as find/ls replacement"
@@ -800,7 +921,16 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_parallel_call_rules() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("parallel"),
             "should contain parallel call guidance"
@@ -813,7 +943,16 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_edit_over_write_preference() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("Prefer Edit over Write"),
             "should contain Edit-over-Write preference"
@@ -822,7 +961,16 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_read_before_edit_rule() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("Read a file before editing"),
             "should contain Read-before-Edit rule"
@@ -857,7 +1005,16 @@ mod tests {
     #[test]
     fn tool_guidance_before_skills_reminder() {
         let skills = vec![make_test_skill("guide-test-skill", "A skill", false, false)];
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &skills, None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &skills,
+            None,
+            None,
+            false,
+        );
         let guidance_pos = result.find("# Using your tools").unwrap();
         let skills_pos = result.find("guide-test-skill").unwrap();
         assert!(
@@ -868,7 +1025,16 @@ mod tests {
 
     #[test]
     fn tool_guidance_present_in_plan_mode() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, true);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            true,
+        );
         assert!(
             result.contains("# Using your tools"),
             "tool guidance should be present in plan mode"
@@ -877,7 +1043,16 @@ mod tests {
 
     #[test]
     fn tool_guidance_contains_deferred_instruction() {
-        let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
+        );
         assert!(
             result.contains("deferred"),
             "tool guidance should mention deferred tools"
@@ -895,8 +1070,16 @@ mod tests {
         std::fs::create_dir_all(&mem_dir).unwrap();
         std::fs::write(mem_dir.join("MEMORY.md"), "- [X](x.md) \u{2014} test\n").unwrap();
 
-        let result =
-            build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+        let result = build_system_prompt(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            Some(&mem_dir),
+            false,
+        );
         let guidance_pos = result.find("# Using your tools").unwrap();
         let memory_pos = result.find("auto memory").unwrap();
         assert!(
@@ -925,7 +1108,9 @@ mod tests {
     fn cache_invalidate_removes_section_and_joined() {
         let mut cache = SystemPromptCache::new();
         cache.sections.insert("intro", "Hello".to_string());
-        cache.sections.insert("memory", "Memory content".to_string());
+        cache
+            .sections
+            .insert("memory", "Memory content".to_string());
         cache.joined = Some("Hello\n\nMemory content".to_string());
 
         cache.invalidate("memory");
@@ -968,12 +1153,26 @@ mod tests {
     fn build_system_prompt_uses_cache_on_second_call() {
         let mut cache = SystemPromptCache::new();
         let first = build_system_prompt(
-            &mut cache, None, "/tmp", "test-model", &[], None, None, false,
+            &mut cache,
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
         );
         assert!(cache.joined.is_some());
 
         let second = build_system_prompt(
-            &mut cache, None, "/tmp", "test-model", &[], None, None, false,
+            &mut cache,
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
         );
         assert_eq!(first, second);
     }
@@ -982,10 +1181,24 @@ mod tests {
     fn build_system_prompt_plan_mode_change_rebuilds() {
         let mut cache = SystemPromptCache::new();
         let without_plan = build_system_prompt(
-            &mut cache, None, "/tmp", "test-model", &[], None, None, false,
+            &mut cache,
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            false,
         );
         let with_plan = build_system_prompt(
-            &mut cache, None, "/tmp", "test-model", &[], None, None, true,
+            &mut cache,
+            None,
+            "/tmp",
+            "test-model",
+            &[],
+            None,
+            None,
+            true,
         );
         assert_ne!(without_plan, with_plan);
     }

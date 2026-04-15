@@ -12,7 +12,16 @@ use aion_agent::context::{SystemPromptCache, build_system_prompt};
 /// Edit-over-Write preference, and Read-before-Edit rule.
 #[test]
 fn system_prompt_contains_tool_guidance() {
-    let prompt = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+    let prompt = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        None,
+        false,
+    );
 
     // 1. Heading
     assert!(

@@ -99,11 +99,7 @@ impl CacheBreakDetector {
         Some(diagnostic)
     }
 
-    fn compute_diagnostic(
-        &self,
-        current: &PromptSnapshot,
-        stats: &CacheStats,
-    ) -> CacheDiagnostic {
+    fn compute_diagnostic(&self, current: &PromptSnapshot, stats: &CacheStats) -> CacheDiagnostic {
         let Some(prev) = &self.prev_stats else {
             // First request — no previous data to compare
             return CacheDiagnostic::Healthy { hit_rate: 0.0 };
@@ -136,8 +132,7 @@ impl CacheBreakDetector {
 
         // Partial miss: cache_read dropped >5% compared to previous
         if prev.cache_read_tokens > 0 {
-            let drop_pct =
-                1.0 - (stats.cache_read_tokens as f64 / prev.cache_read_tokens as f64);
+            let drop_pct = 1.0 - (stats.cache_read_tokens as f64 / prev.cache_read_tokens as f64);
             if drop_pct > 0.05 {
                 let cause = self.attribute_cause(current);
                 return CacheDiagnostic::PartialMiss { hit_rate, cause };

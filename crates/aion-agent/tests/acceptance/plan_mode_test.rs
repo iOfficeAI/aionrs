@@ -158,7 +158,16 @@ fn tc_a3_01_plan_mode_tool_filtering() {
 #[test]
 fn tc_a3_02_plan_mode_system_prompt_injection() {
     // --- Plan mode active: prompt should contain plan mode instructions ---
-    let active_prompt = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, true);
+    let active_prompt = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        None,
+        true,
+    );
 
     assert!(
         active_prompt.contains("# Plan Mode"),
@@ -190,7 +199,16 @@ fn tc_a3_02_plan_mode_system_prompt_injection() {
     );
 
     // --- Plan mode inactive: prompt should NOT contain plan mode instructions ---
-    let inactive_prompt = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+    let inactive_prompt = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        None,
+        false,
+    );
 
     assert!(
         !inactive_prompt.contains("# Plan Mode"),

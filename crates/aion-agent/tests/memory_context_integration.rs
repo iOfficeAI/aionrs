@@ -23,7 +23,16 @@ fn tc_7_1_memory_dir_with_content_injects_prompt() {
     )
     .unwrap();
 
-    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+    let result = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        Some(&mem_dir),
+        false,
+    );
 
     // Should contain memory system sections
     assert!(
@@ -64,7 +73,16 @@ fn tc_7_1_memory_dir_with_content_injects_prompt() {
 
 #[test]
 fn tc_7_2_no_memory_dir_no_injection() {
-    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, None, false);
+    let result = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        None,
+        false,
+    );
 
     assert!(
         !result.contains("auto memory"),
@@ -197,7 +215,16 @@ fn tc_7_5_memory_md_content_injected() {
     )
     .unwrap();
 
-    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+    let result = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        Some(&mem_dir),
+        false,
+    );
 
     assert!(
         result.contains("user_role.md"),
@@ -228,7 +255,16 @@ fn tc_7_6_no_memory_md_shows_empty() {
     fs::create_dir_all(&mem_dir).unwrap();
     // No MEMORY.md created
 
-    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+    let result = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        Some(&mem_dir),
+        false,
+    );
 
     assert!(
         result.contains("currently empty"),
@@ -251,7 +287,16 @@ fn tc_7_7_no_bb_brand_in_integrated_prompt() {
     )
     .unwrap();
 
-    let result = build_system_prompt(&mut SystemPromptCache::new(), None, "/tmp", "test-model", &[], None, Some(&mem_dir), false);
+    let result = build_system_prompt(
+        &mut SystemPromptCache::new(),
+        None,
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        Some(&mem_dir),
+        false,
+    );
 
     assert!(
         !result.contains("~/.claude"),
