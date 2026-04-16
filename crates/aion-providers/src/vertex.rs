@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError, dump_request_body};
+use crate::{LlmProvider, ProviderError, dump_request_body, reset_response_dump};
 use aion_config::compat::ProviderCompat;
 use aion_config::debug::DebugConfig;
 
@@ -264,6 +264,7 @@ impl LlmProvider for VertexProvider {
         let body = self.build_request_body(request);
 
         dump_request_body(&self.debug, &body);
+        reset_response_dump(&self.debug);
 
         let access_token = self.get_access_token().await?;
 
@@ -298,10 +299,11 @@ impl LlmProvider for VertexProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
+        let debug = self.debug.clone();
 
         // Vertex uses standard SSE (same as Anthropic)
         tokio::spawn(async move {
-            if let Err(e) = anthropic_shared::process_sse_stream(response, &tx).await {
+            if let Err(e) = anthropic_shared::process_sse_stream(response, &tx, &debug).await {
                 let _ = tx.send(LlmEvent::Error(e.to_string())).await;
             }
         });

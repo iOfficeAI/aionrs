@@ -57,6 +57,23 @@ pub fn dump_request_body(debug: &DebugConfig, body: &serde_json::Value) {
     }
 }
 
+/// Truncate the response dump file at the start of a new request.
+pub fn reset_response_dump(debug: &DebugConfig) {
+    if let Some(path) = &debug.dump_response_path {
+        let _ = std::fs::write(path, "");
+    }
+}
+
+/// Append a raw SSE line to the response dump file.
+pub fn dump_response_chunk(debug: &DebugConfig, chunk: &str) {
+    if let Some(path) = &debug.dump_response_path {
+        use std::io::Write;
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(f, "{chunk}");
+        }
+    }
+}
+
 /// Create a provider from resolved config
 pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
     let compat = config.compat.clone();

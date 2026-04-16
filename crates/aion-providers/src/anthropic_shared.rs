@@ -9,7 +9,9 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use super::ProviderError;
+use crate::dump_response_chunk;
 use aion_config::compat::ProviderCompat;
+use aion_config::debug::DebugConfig;
 
 /// Convert internal Message format to Anthropic API message format.
 /// Compat flags control merging and alternation behavior.
@@ -227,6 +229,7 @@ impl StreamState {
 pub async fn process_sse_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
+    debug: &DebugConfig,
 ) -> Result<(), ProviderError> {
     use futures::StreamExt;
 
@@ -249,6 +252,7 @@ pub async fn process_sse_stream(
                 if let Some(event_type) = line.strip_prefix("event: ") {
                     current_event_type = event_type.to_string();
                 } else if let Some(data) = line.strip_prefix("data: ") {
+                    dump_response_chunk(debug, data);
                     let events = parse_sse_data(&current_event_type, data, &mut state);
                     for event in events {
                         if tx.send(event).await.is_err() {

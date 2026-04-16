@@ -15,6 +15,11 @@ pub struct DebugConfig {
     /// JSON) to this path.  Each request overwrites the previous one.
     #[serde(default)]
     pub dump_request_path: Option<String>,
+    /// When set, raw SSE chunks from the LLM response are appended to this
+    /// file.  The file is truncated at the start of each request so it only
+    /// contains the most recent exchange.
+    #[serde(default)]
+    pub dump_response_path: Option<String>,
 }
 
 impl DebugConfig {
@@ -23,6 +28,7 @@ impl DebugConfig {
     pub fn merge(global: Self, project: Self) -> Self {
         Self {
             dump_request_path: project.dump_request_path.or(global.dump_request_path),
+            dump_response_path: project.dump_response_path.or(global.dump_response_path),
         }
     }
 }
@@ -59,9 +65,11 @@ dump_request_path = "/tmp/aion_request.json"
     fn merge_project_overrides_global() {
         let global = DebugConfig {
             dump_request_path: Some("/tmp/global.json".into()),
+            ..Default::default()
         };
         let project = DebugConfig {
             dump_request_path: Some("/tmp/project.json".into()),
+            ..Default::default()
         };
         let merged = DebugConfig::merge(global, project);
         assert_eq!(
@@ -74,12 +82,42 @@ dump_request_path = "/tmp/aion_request.json"
     fn merge_falls_back_to_global() {
         let global = DebugConfig {
             dump_request_path: Some("/tmp/global.json".into()),
+            ..Default::default()
         };
         let project = DebugConfig::default();
         let merged = DebugConfig::merge(global, project);
         assert_eq!(
             merged.dump_request_path.as_deref(),
             Some("/tmp/global.json")
+        );
+    }
+
+    #[test]
+    fn merge_response_dump_path() {
+        let global = DebugConfig {
+            dump_response_path: Some("/tmp/global_resp.jsonl".into()),
+            ..Default::default()
+        };
+        let project = DebugConfig {
+            dump_response_path: Some("/tmp/project_resp.jsonl".into()),
+            ..Default::default()
+        };
+        let merged = DebugConfig::merge(global, project);
+        assert_eq!(
+            merged.dump_response_path.as_deref(),
+            Some("/tmp/project_resp.jsonl")
+        );
+    }
+
+    #[test]
+    fn toml_with_response_dump_path() {
+        let toml_str = r#"
+dump_response_path = "/tmp/aion_response.jsonl"
+"#;
+        let cfg: DebugConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(
+            cfg.dump_response_path.as_deref(),
+            Some("/tmp/aion_response.jsonl")
         );
     }
 }

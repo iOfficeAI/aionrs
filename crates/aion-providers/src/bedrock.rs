@@ -18,7 +18,7 @@ use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{StopReason, TokenUsage};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError, dump_request_body};
+use crate::{LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump};
 use aion_config::compat::{self, ProviderCompat};
 use aion_config::debug::DebugConfig;
 
@@ -253,6 +253,7 @@ impl LlmProvider for BedrockProvider {
         let body = self.build_request_body(request);
 
         dump_request_body(&self.debug, &body);
+        reset_response_dump(&self.debug);
 
         let body_bytes = serde_json::to_vec(&body)
             .map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))?;
@@ -289,10 +290,11 @@ impl LlmProvider for BedrockProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
+        let debug = self.debug.clone();
 
         // AWS event stream uses binary framing
         tokio::spawn(async move {
-            if let Err(e) = process_aws_event_stream(response, &tx).await {
+            if let Err(e) = process_aws_event_stream(response, &tx, &debug).await {
                 let _ = tx.send(LlmEvent::Error(e.to_string())).await;
             }
         });
@@ -305,6 +307,7 @@ impl LlmProvider for BedrockProvider {
 async fn process_aws_event_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
+    debug: &DebugConfig,
 ) -> Result<(), ProviderError> {
     use futures::StreamExt;
 
@@ -328,6 +331,7 @@ async fn process_aws_event_stream(
                         && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64)
                         && let Ok(inner) = String::from_utf8(decoded)
                     {
+                        dump_response_chunk(debug, &inner);
                         // Inner payload is JSON with event type hints
                         if let Ok(json_val) = serde_json::from_str::<Value>(&inner) {
                             let event_type = json_val["type"].as_str().unwrap_or("");
