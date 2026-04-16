@@ -68,7 +68,11 @@ pub fn reset_response_dump(debug: &DebugConfig) {
 pub fn dump_response_chunk(debug: &DebugConfig, chunk: &str) {
     if let Some(path) = &debug.dump_response_path {
         use std::io::Write;
-        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
             let _ = writeln!(f, "{chunk}");
         }
     }

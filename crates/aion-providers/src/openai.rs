@@ -7,7 +7,9 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
-use crate::{LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump};
+use crate::{
+    LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump,
+};
 use aion_config::compat::ProviderCompat;
 use aion_config::debug::DebugConfig;
 
@@ -589,10 +591,7 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
             }
             // Only overwrite when non-empty — some third-party APIs send `"name":""`
             // in every delta chunk which would erase the real name from the first chunk.
-            if let Some(name) = tc["function"]["name"]
-                .as_str()
-                .filter(|n| !n.is_empty())
-            {
+            if let Some(name) = tc["function"]["name"].as_str().filter(|n| !n.is_empty()) {
                 acc.name = name.to_string();
             }
             if let Some(args) = tc["function"]["arguments"].as_str() {

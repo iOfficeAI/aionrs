@@ -18,7 +18,9 @@ use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{StopReason, TokenUsage};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump};
+use crate::{
+    LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump,
+};
 use aion_config::compat::{self, ProviderCompat};
 use aion_config::debug::DebugConfig;
 
