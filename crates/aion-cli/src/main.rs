@@ -522,6 +522,9 @@ async fn run_json_stream_mode(
                                     }
                                     Err(e) => {
                                         output.emit_error(&e.to_string());
+                                        // Always emit stream_end so the client
+                                        // can leave the "running" state.
+                                        output.emit_stream_end(&msg_id, 0, 0, 0, 0, 0);
                                     }
                                 }
                                 break;
