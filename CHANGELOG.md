@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.10](https://github.com/iOfficeAI/aionrs/compare/v0.1.9...v0.1.10) (2026-04-16)
+
+
+### Bug Fixes
+
+* **openai:** handle empty function name in SSE deltas + add response dump ([#43](https://github.com/iOfficeAI/aionrs/issues/43)) ([d7ba0fa](https://github.com/iOfficeAI/aionrs/commit/d7ba0fabe48ea2a19cff42d8764ca5ccc1a3d608))
+
 ## [0.1.9](https://github.com/iOfficeAI/aionrs/compare/v0.1.8...v0.1.9) (2026-04-15)
 
 
