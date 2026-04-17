@@ -3,18 +3,18 @@ use rstest::rstest;
 
 #[rstest]
 #[case(
-    r#"{"type":"message","msg_id":"m1","input":"Hello"}"#,
+    r#"{"type":"message","msg_id":"m1","content":"Hello"}"#,
     ProtocolCommand::Message {
         msg_id: "m1".to_string(),
-        input: "Hello".to_string(),
+        content: "Hello".to_string(),
         files: vec![],
     }
 )]
 #[case(
-    r#"{"type":"message","msg_id":"m2","input":"Read this","files":["/tmp/a.rs"]}"#,
+    r#"{"type":"message","msg_id":"m2","content":"Read this","files":["/tmp/a.rs"]}"#,
     ProtocolCommand::Message {
         msg_id: "m2".to_string(),
-        input: "Read this".to_string(),
+        content: "Read this".to_string(),
         files: vec!["/tmp/a.rs".to_string()],
     }
 )]

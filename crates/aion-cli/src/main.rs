@@ -604,7 +604,7 @@ async fn run_json_stream_mode(
         match cmd {
             ProtocolCommand::Message {
                 msg_id,
-                input,
+                content,
                 files: _,
             } => {
                 let mut stopped = false;
@@ -612,7 +612,7 @@ async fn run_json_stream_mode(
                 let mut mode_changed = false;
 
                 {
-                    let engine_fut = engine.run(&input, &msg_id);
+                    let engine_fut = engine.run(&content, &msg_id);
                     tokio::pin!(engine_fut);
 
                     loop {

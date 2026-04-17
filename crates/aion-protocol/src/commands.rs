@@ -9,7 +9,7 @@ use serde::Deserialize;
 pub enum ProtocolCommand {
     Message {
         msg_id: String,
-        input: String,
+        content: String,
         #[serde(default)]
         files: Vec<String>,
     },
