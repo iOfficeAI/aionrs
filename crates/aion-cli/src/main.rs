@@ -535,7 +535,9 @@ async fn run_json_stream_mode(
                 url,
                 headers,
             } => {
-                eprintln!("[mcp] AddMcpServer received: name={name}, transport={transport}, command={command:?}");
+                eprintln!(
+                    "[mcp] AddMcpServer received: name={name}, transport={transport}, command={command:?}"
+                );
                 let config =
                     match to_mcp_server_config(&transport, command, args, env, url, headers) {
                         Ok(c) => c,
