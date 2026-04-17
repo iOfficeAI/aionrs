@@ -136,12 +136,6 @@ impl OpenAIProvider {
                         .join("");
                     let text = strip_patterns_from_text(&text, compat);
 
-                    if !text.is_empty() {
-                        msg_json["content"] = json!(text);
-                    } else {
-                        msg_json["content"] = Value::Null;
-                    }
-
                     let tool_calls: Vec<Value> = msg
                         .content
                         .iter()
@@ -160,6 +154,12 @@ impl OpenAIProvider {
                             }
                         })
                         .collect();
+
+                    if !text.is_empty() {
+                        msg_json["content"] = json!(text);
+                    } else if tool_calls.is_empty() {
+                        msg_json["content"] = json!("");
+                    }
 
                     if !tool_calls.is_empty() {
                         msg_json["tool_calls"] = json!(tool_calls);
