@@ -65,6 +65,10 @@ pub enum ProtocolEvent {
     ConfigChanged {
         capabilities: Capabilities,
     },
+    McpReady {
+        name: String,
+        tools: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -289,6 +293,20 @@ mod tests {
         assert_eq!(json["capabilities"]["effort"], true);
         assert_eq!(json["capabilities"]["effort_levels"][0], "low");
         assert_eq!(json["capabilities"]["modes"][2], "yolo");
+    }
+
+    #[test]
+    fn test_mcp_ready_event_serialization() {
+        let event = ProtocolEvent::McpReady {
+            name: "team-tools".to_string(),
+            tools: vec!["team_send_message".into(), "team_task_create".into()],
+        };
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "mcp_ready");
+        assert_eq!(json["name"], "team-tools");
+        assert_eq!(json["tools"][0], "team_send_message");
+        assert_eq!(json["tools"][1], "team_task_create");
+        assert_eq!(json["tools"].as_array().unwrap().len(), 2);
     }
 
     #[test]

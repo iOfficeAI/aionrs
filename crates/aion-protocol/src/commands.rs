@@ -1,7 +1,9 @@
+use std::collections::HashMap;
+
 use serde::Deserialize;
 
 /// Commands sent from the client to the agent (Client -> Agent)
-#[derive(Debug, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Deserialize, PartialEq)]
 #[serde(tag = "type")]
 #[serde(rename_all = "snake_case")]
 pub enum ProtocolCommand {
@@ -37,6 +39,20 @@ pub enum ProtocolCommand {
         thinking_budget: Option<u32>,
         #[serde(default)]
         effort: Option<String>,
+    },
+    AddMcpServer {
+        name: String,
+        transport: String,
+        #[serde(default)]
+        command: Option<String>,
+        #[serde(default)]
+        args: Option<Vec<String>>,
+        #[serde(default)]
+        env: Option<HashMap<String, String>>,
+        #[serde(default)]
+        url: Option<String>,
+        #[serde(default)]
+        headers: Option<HashMap<String, String>>,
     },
 }
 
@@ -125,5 +141,67 @@ mod tests {
         };
         let dbg = format!("{cmd:?}");
         assert!(dbg.contains("SetConfig"));
+    }
+
+    #[test]
+    fn add_mcp_server_stdio_deserialize() {
+        let json = r#"{
+            "type": "add_mcp_server",
+            "name": "team-tools",
+            "transport": "stdio",
+            "command": "node",
+            "args": ["bridge.js", "--port", "9000"],
+            "env": {"TOKEN": "abc123"}
+        }"#;
+        let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            ProtocolCommand::AddMcpServer {
+                name,
+                transport,
+                command,
+                args,
+                env,
+                url,
+                headers,
+            } => {
+                assert_eq!(name, "team-tools");
+                assert_eq!(transport, "stdio");
+                assert_eq!(command.unwrap(), "node");
+                assert_eq!(args.unwrap(), vec!["bridge.js", "--port", "9000"]);
+                assert_eq!(env.unwrap().get("TOKEN").unwrap(), "abc123");
+                assert!(url.is_none());
+                assert!(headers.is_none());
+            }
+            _ => panic!("expected AddMcpServer"),
+        }
+    }
+
+    #[test]
+    fn add_mcp_server_sse_deserialize() {
+        let json = r#"{
+            "type": "add_mcp_server",
+            "name": "remote-tools",
+            "transport": "sse",
+            "url": "http://localhost:8080/sse",
+            "headers": {"Authorization": "Bearer tok"}
+        }"#;
+        let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            ProtocolCommand::AddMcpServer {
+                name,
+                transport,
+                command,
+                url,
+                headers,
+                ..
+            } => {
+                assert_eq!(name, "remote-tools");
+                assert_eq!(transport, "sse");
+                assert!(command.is_none());
+                assert_eq!(url.unwrap(), "http://localhost:8080/sse");
+                assert_eq!(headers.unwrap().get("Authorization").unwrap(), "Bearer tok");
+            }
+            _ => panic!("expected AddMcpServer"),
+        }
     }
 }
