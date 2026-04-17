@@ -519,7 +519,9 @@ async fn run_json_stream_mode(
     let mut cmd_rx = spawn_stdin_reader();
 
     // --- Pre-message phase: accept AddMcpServer commands ---
-    let mut mcp_manager = mcp_manager;
+    // Dynamic servers get their own McpManager instances because the initial
+    // mcp_manager Arc may already be shared by tool proxies (Arc::get_mut fails).
+    let mut dynamic_managers: Vec<Arc<McpManager>> = Vec::new();
     let mut first_cmd: Option<ProtocolCommand> = None;
 
     while let Some(cmd) = cmd_rx.recv().await {
@@ -533,6 +535,7 @@ async fn run_json_stream_mode(
                 url,
                 headers,
             } => {
+                eprintln!("[mcp] AddMcpServer received: name={name}, transport={transport}, command={command:?}");
                 let config =
                     match to_mcp_server_config(&transport, command, args, env, url, headers) {
                         Ok(c) => c,
@@ -542,41 +545,35 @@ async fn run_json_stream_mode(
                         }
                     };
 
-                if mcp_manager.is_none() {
-                    match McpManager::connect_all(&HashMap::new()).await {
-                        Ok(m) => {
-                            mcp_manager = Some(Arc::new(m));
-                        }
-                        Err(e) => {
-                            output.emit_error(&format!("AddMcpServer '{name}': init failed: {e}"));
-                            continue;
-                        }
+                let mut single_configs = HashMap::new();
+                single_configs.insert(name.clone(), config.clone());
+                eprintln!("[mcp] Connecting to '{name}'...");
+                match McpManager::connect_all(&single_configs).await {
+                    Ok(mgr) => {
+                        let tool_names: Vec<String> = mgr
+                            .all_tools()
+                            .iter()
+                            .map(|(_, t)| t.name.clone())
+                            .collect();
+                        eprintln!("[mcp] Connected to '{name}': {} tools", tool_names.len());
+                        let mgr_arc = Arc::new(mgr);
+                        let builtin_names = engine.tool_names();
+                        register_single_server_tools(
+                            engine.registry_mut(),
+                            &mgr_arc,
+                            &name,
+                            &builtin_names,
+                            config.deferred.unwrap_or(true),
+                        );
+                        dynamic_managers.push(mgr_arc);
+                        let _ = writer.emit(&ProtocolEvent::McpReady {
+                            name,
+                            tools: tool_names,
+                        });
                     }
-                }
-
-                let mgr_arc = mcp_manager.as_mut().unwrap();
-                match Arc::get_mut(mgr_arc) {
-                    Some(mgr) => match mgr.connect_one(name.clone(), &config).await {
-                        Ok(tool_names) => {
-                            let builtin_names = engine.tool_names();
-                            register_single_server_tools(
-                                engine.registry_mut(),
-                                mgr_arc,
-                                &name,
-                                &builtin_names,
-                                config.deferred.unwrap_or(true),
-                            );
-                            let _ = writer.emit(&ProtocolEvent::McpReady {
-                                name,
-                                tools: tool_names,
-                            });
-                        }
-                        Err(e) => {
-                            output.emit_error(&format!("AddMcpServer '{name}' failed: {e}"));
-                        }
-                    },
-                    None => {
-                        output.emit_error("AddMcpServer: McpManager is shared, cannot add server");
+                    Err(e) => {
+                        eprintln!("[mcp] connect_one failed for '{name}': {e}");
+                        output.emit_error(&format!("AddMcpServer '{name}' failed: {e}"));
                     }
                 }
             }
@@ -588,7 +585,7 @@ async fn run_json_stream_mode(
         }
     }
 
-    let has_mcp = mcp_manager.is_some();
+    let has_mcp = mcp_manager.is_some() || !dynamic_managers.is_empty();
     let mut pending_cmd = first_cmd;
 
     loop {
@@ -762,6 +759,9 @@ async fn run_json_stream_mode(
 
     engine.run_stop_hooks().await;
     if let Some(mgr) = &mcp_manager {
+        mgr.shutdown().await;
+    }
+    for mgr in &dynamic_managers {
         mgr.shutdown().await;
     }
 
