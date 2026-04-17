@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -15,10 +16,11 @@ use aion_agent::skill_tool::SkillTool;
 use aion_agent::spawn_tool::SpawnTool;
 use aion_agent::spawner::AgentSpawner;
 use aion_config::auth;
-use aion_config::config::{self, CliArgs, Config};
+use aion_config::config::{self, CliArgs, Config, McpServerConfig, TransportType};
 use aion_mcp::manager::McpManager;
-use aion_mcp::tool_proxy::register_mcp_tools;
+use aion_mcp::tool_proxy::{register_mcp_tools, register_single_server_tools};
 use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
+use aion_protocol::events::ProtocolEvent;
 use aion_protocol::reader::spawn_stdin_reader;
 use aion_protocol::writer::ProtocolWriter;
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
@@ -443,6 +445,31 @@ fn print_skills_paths() {
     }
 }
 
+fn to_mcp_server_config(
+    transport: &str,
+    command: Option<String>,
+    args: Option<Vec<String>>,
+    env: Option<HashMap<String, String>>,
+    url: Option<String>,
+    headers: Option<HashMap<String, String>>,
+) -> Result<McpServerConfig, String> {
+    let transport_type = match transport {
+        "stdio" => TransportType::Stdio,
+        "sse" => TransportType::Sse,
+        "streamable-http" | "streamable_http" => TransportType::StreamableHttp,
+        other => return Err(format!("unknown transport: {other}")),
+    };
+    Ok(McpServerConfig {
+        transport: transport_type,
+        command,
+        args,
+        env,
+        url,
+        headers,
+        deferred: Some(false),
+    })
+}
+
 /// Pending config fields: (model, thinking, thinking_budget, effort)
 type PendingConfig = (Option<String>, Option<String>, Option<u32>, Option<String>);
 
@@ -459,7 +486,7 @@ async fn run_json_stream_mode(
     let protocol_sink = Arc::new(ProtocolSink::new(writer.clone()));
     let approval_manager = Arc::new(ToolApprovalManager::new());
     let output: Arc<dyn OutputSink> = protocol_sink.clone();
-    let has_mcp = mcp_manager.is_some();
+    let initial_has_mcp = mcp_manager.is_some();
 
     let provider_name = config.provider_label.clone();
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
@@ -481,7 +508,7 @@ async fn run_json_stream_mode(
     let sid = engine.current_session_id();
     protocol_sink.emit_ready(
         engine.compat(),
-        has_mcp,
+        initial_has_mcp,
         sid,
         &approval_manager.current_mode(),
     );
@@ -491,7 +518,89 @@ async fn run_json_stream_mode(
 
     let mut cmd_rx = spawn_stdin_reader();
 
+    // --- Pre-message phase: accept AddMcpServer commands ---
+    let mut mcp_manager = mcp_manager;
+    let mut first_cmd: Option<ProtocolCommand> = None;
+
     while let Some(cmd) = cmd_rx.recv().await {
+        match cmd {
+            ProtocolCommand::AddMcpServer {
+                name,
+                transport,
+                command,
+                args,
+                env,
+                url,
+                headers,
+            } => {
+                let config =
+                    match to_mcp_server_config(&transport, command, args, env, url, headers) {
+                        Ok(c) => c,
+                        Err(e) => {
+                            output.emit_error(&format!("AddMcpServer '{name}': {e}"));
+                            continue;
+                        }
+                    };
+
+                if mcp_manager.is_none() {
+                    match McpManager::connect_all(&HashMap::new()).await {
+                        Ok(m) => {
+                            mcp_manager = Some(Arc::new(m));
+                        }
+                        Err(e) => {
+                            output.emit_error(&format!("AddMcpServer '{name}': init failed: {e}"));
+                            continue;
+                        }
+                    }
+                }
+
+                let mgr_arc = mcp_manager.as_mut().unwrap();
+                match Arc::get_mut(mgr_arc) {
+                    Some(mgr) => match mgr.connect_one(name.clone(), &config).await {
+                        Ok(tool_names) => {
+                            let builtin_names = engine.tool_names();
+                            register_single_server_tools(
+                                engine.registry_mut(),
+                                mgr_arc,
+                                &name,
+                                &builtin_names,
+                                config.deferred.unwrap_or(true),
+                            );
+                            let _ = writer.emit(&ProtocolEvent::McpReady {
+                                name,
+                                tools: tool_names,
+                            });
+                        }
+                        Err(e) => {
+                            output.emit_error(&format!("AddMcpServer '{name}' failed: {e}"));
+                        }
+                    },
+                    None => {
+                        output.emit_error("AddMcpServer: McpManager is shared, cannot add server");
+                    }
+                }
+            }
+            ProtocolCommand::Stop => return Ok(()),
+            other => {
+                first_cmd = Some(other);
+                break;
+            }
+        }
+    }
+
+    let has_mcp = mcp_manager.is_some();
+    let mut pending_cmd = first_cmd;
+
+    loop {
+        let cmd = if let Some(c) = pending_cmd.take() {
+            c
+        } else {
+            match cmd_rx.recv().await {
+                Some(c) => c,
+                None => break,
+            }
+        };
+
         match cmd {
             ProtocolCommand::Message {
                 msg_id,
@@ -642,6 +751,11 @@ async fn run_json_stream_mode(
                     has_mcp,
                     &approval_manager.current_mode(),
                 );
+            }
+            ProtocolCommand::AddMcpServer { name, .. } => {
+                output.emit_error(&format!(
+                    "AddMcpServer '{name}': rejected — only allowed before first Message"
+                ));
             }
         }
     }

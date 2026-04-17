@@ -194,6 +194,14 @@ impl AgentEngine {
         &self.compat
     }
 
+    pub fn tool_names(&self) -> Vec<String> {
+        self.tools.tool_names()
+    }
+
+    pub fn registry_mut(&mut self) -> &mut ToolRegistry {
+        &mut self.tools
+    }
+
     /// Initialize a new session for this engine run
     pub fn init_session(
         &mut self,
