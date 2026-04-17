@@ -155,6 +155,46 @@ pub fn register_mcp_tools(
     }
 }
 
+/// Register tools from a single newly-connected MCP server.
+/// Uses the same collision-detection logic as `register_mcp_tools`.
+pub fn register_single_server_tools(
+    registry: &mut aion_tools::registry::ToolRegistry,
+    manager: &Arc<McpManager>,
+    server_name: &str,
+    builtin_names: &[String],
+    deferred: bool,
+) {
+    let all_tools = manager.all_tools();
+    let server_tools: Vec<_> = all_tools
+        .iter()
+        .filter(|(sn, _)| *sn == server_name)
+        .collect();
+
+    for (_, tool_def) in &server_tools {
+        let original_name = &tool_def.name;
+        let collides_builtin = builtin_names.iter().any(|n| n == original_name);
+        let cross_server_collision = manager.tool_name_count(original_name) > 1;
+
+        let display_name = if collides_builtin || cross_server_collision {
+            format!("mcp__{}_{}", server_name, original_name)
+        } else {
+            original_name.clone()
+        };
+
+        let proxy = McpToolProxy::new(
+            display_name,
+            original_name.clone(),
+            server_name.to_string(),
+            tool_def.description.clone().unwrap_or_default(),
+            tool_def.input_schema.clone(),
+            Arc::clone(manager),
+            deferred,
+        );
+
+        registry.register(Box::new(proxy));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

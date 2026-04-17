@@ -60,6 +60,25 @@ impl McpManager {
         })
     }
 
+    /// Connect a single additional MCP server after initial setup.
+    /// Returns the list of tool names exposed by the server.
+    pub async fn connect_one(
+        &mut self,
+        name: String,
+        config: &McpServerConfig,
+    ) -> Result<Vec<String>, McpError> {
+        let server = Self::connect_server(&name, config).await?;
+        let tool_names: Vec<String> = server.tools.iter().map(|t| t.name.clone()).collect();
+        eprintln!(
+            "[mcp] Connected to '{}': {} tools, resources={}",
+            name,
+            server.tools.len(),
+            server.supports_resources,
+        );
+        self.servers.insert(name, server);
+        Ok(tool_names)
+    }
+
     /// Connect to a single MCP server: create transport, initialize, discover tools
     async fn connect_server(name: &str, config: &McpServerConfig) -> Result<McpServer, McpError> {
         let empty_map = HashMap::new();
