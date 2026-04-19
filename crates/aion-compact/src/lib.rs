@@ -2,8 +2,10 @@ pub mod fold;
 pub mod json;
 pub mod level;
 pub mod sanitize;
+pub mod toon;
 
 pub use level::CompactionLevel;
+pub use toon::toon_format_instructions;
 
 pub fn compact_output(text: &str, level: CompactionLevel) -> String {
     match level {
