@@ -7,7 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-aion-types.workspace = true
+aion-types.workspace   = true
+aion-compact.workspace = true
 
 serde.workspace      = true
 serde_json.workspace = true

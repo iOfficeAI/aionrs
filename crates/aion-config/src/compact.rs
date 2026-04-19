@@ -53,6 +53,12 @@ pub struct CompactConfig {
     /// Default: false.
     #[serde(default)]
     pub cache_diagnostics: bool,
+
+    #[serde(default)]
+    pub compaction: aion_compact::CompactionLevel,
+
+    #[serde(default)]
+    pub toon: bool,
 }
 
 impl Default for CompactConfig {
@@ -68,6 +74,8 @@ impl Default for CompactConfig {
             compactable_tools: default_compactable_tools(),
             enabled: default_true(),
             cache_diagnostics: false,
+            compaction: aion_compact::CompactionLevel::default(),
+            toon: false,
         }
     }
 }
@@ -199,6 +207,39 @@ cache_diagnostics = true
 "#;
         let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
         assert!(cfg.cache_diagnostics);
+    }
+
+    #[test]
+    fn default_compaction_is_safe() {
+        let cfg = CompactConfig::default();
+        assert_eq!(cfg.compaction, aion_compact::CompactionLevel::Safe);
+    }
+
+    #[test]
+    fn default_toon_is_false() {
+        let cfg = CompactConfig::default();
+        assert!(!cfg.toon);
+    }
+
+    #[test]
+    fn toml_compaction_level_override() {
+        let toml_str = r#"compaction = "full""#;
+        let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.compaction, aion_compact::CompactionLevel::Full);
+    }
+
+    #[test]
+    fn toml_compaction_off() {
+        let toml_str = r#"compaction = "off""#;
+        let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.compaction, aion_compact::CompactionLevel::Off);
+    }
+
+    #[test]
+    fn toml_toon_enabled() {
+        let toml_str = r#"toon = true"#;
+        let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.toon);
     }
 
     #[test]
