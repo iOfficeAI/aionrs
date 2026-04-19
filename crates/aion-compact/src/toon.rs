@@ -102,11 +102,10 @@ pub fn try_toon_encode(text: &str) -> String {
             let candidate = &rest[..end_pos];
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate)
                 && value.is_array()
+                && let Some(encoded) = toon_encode_array(&value)
             {
-                if let Some(encoded) = toon_encode_array(&value) {
-                    let suffix = &rest[end_pos..];
-                    return format!("{}{}{}", &trimmed[..start], encoded, suffix);
-                }
+                let suffix = &rest[end_pos..];
+                return format!("{}{}{}", &trimmed[..start], encoded, suffix);
             }
         }
     }

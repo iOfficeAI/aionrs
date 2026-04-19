@@ -44,8 +44,8 @@ pub fn fold_repeated_lines(text: &str) -> String {
             }
             result.push(lines[j - 1].to_string());
         } else {
-            for k in i..j {
-                result.push(lines[k].to_string());
+            for line in &lines[i..j] {
+                result.push(line.to_string());
             }
         }
 

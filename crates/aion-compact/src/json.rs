@@ -53,7 +53,7 @@ pub fn compact_json(text: &str) -> String {
         return text.to_string();
     }
 
-    if let Some(start) = trimmed.find(|c| c == '{' || c == '[') {
+    if let Some(start) = trimmed.find(['{', '[']) {
         let candidate = &trimmed[start..];
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate) {
             let compacted = compact_value(&value);
