@@ -1,10 +1,20 @@
 mod common;
 
+use std::sync::{Arc, Mutex};
+
+use async_trait::async_trait;
+use tokio::sync::mpsc;
+
+use aion_agent::engine::AgentEngine;
 use aion_agent::orchestration::execute_tool_calls;
+use aion_agent::output::null_sink::NullSink;
+use aion_agent::output::OutputSink;
 use aion_compact::CompactionLevel;
+use aion_providers::{LlmProvider, ProviderError};
 use aion_tools::registry::ToolRegistry;
-use aion_types::message::ContentBlock;
-use common::{MockTool, auto_approve_confirmer};
+use aion_types::llm::{LlmEvent, LlmRequest};
+use aion_types::message::{ContentBlock, StopReason, TokenUsage};
+use common::{MockLlmProvider, MockTool, auto_approve_confirmer, test_config};
 use serde_json::json;
 
 const TEST_OUTPUT: &str = "\x1b[32mSTATUS: OK\x1b[0m\n\n\n\n50%\r100%\nCompiling dep-0 v1.0.0\nCompiling dep-1 v1.0.0\nCompiling dep-2 v1.0.0\nCompiling dep-3 v1.0.0\nCompiling dep-4 v1.0.0\n{\n    \"id\": 1,\n    \"name\": \"Alice Wonderland\",\n    \"email\": \"alice@example.com\",\n    \"age\": 30,\n    \"address\": \"123 Main Street, Anytown, USA 12345\",\n    \"phone\": \"+1-555-0123\"\n}";
@@ -233,4 +243,111 @@ async fn case_5_toon_disabled_no_encoding() {
     );
 
     eprintln!("[compaction:A] ✓ no TOON encoding when disabled");
+}
+
+// ---------------------------------------------------------------------------
+// CapturingProvider — wraps MockLlmProvider, records each LlmRequest
+// ---------------------------------------------------------------------------
+
+struct CapturingProvider {
+    inner: MockLlmProvider,
+    captured: Arc<Mutex<Vec<LlmRequest>>>,
+}
+
+#[async_trait]
+impl LlmProvider for CapturingProvider {
+    async fn stream(
+        &self,
+        request: &LlmRequest,
+    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        self.captured.lock().unwrap().push(request.clone());
+        self.inner.stream(request).await
+    }
+}
+
+// ---------------------------------------------------------------------------
+// B Layer: Case 6 (compressed content reaches LLM)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn case_6_compressed_content_reaches_llm() {
+    let captured: Arc<Mutex<Vec<LlmRequest>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let provider = CapturingProvider {
+        inner: MockLlmProvider::with_turns(vec![
+            vec![
+                LlmEvent::ToolUse {
+                    id: "t1".to_string(),
+                    name: "test_tool".to_string(),
+                    input: json!({}),
+                },
+                LlmEvent::Done {
+                    stop_reason: StopReason::ToolUse,
+                    usage: TokenUsage::default(),
+                },
+            ],
+            vec![
+                LlmEvent::TextDelta("done".to_string()),
+                LlmEvent::Done {
+                    stop_reason: StopReason::EndTurn,
+                    usage: TokenUsage::default(),
+                },
+            ],
+        ]),
+        captured: captured.clone(),
+    };
+
+    let mut config = test_config();
+    config.compact.compaction = CompactionLevel::Full;
+    config.compact.toon = false;
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("test_tool", TEST_OUTPUT, false)));
+
+    let output: Arc<dyn OutputSink> = Arc::new(NullSink);
+    let mut engine =
+        AgentEngine::new_with_provider(Arc::new(provider), config, registry, output);
+
+    engine
+        .run("call test_tool", "")
+        .await
+        .expect("engine.run should succeed");
+
+    let requests = captured.lock().unwrap();
+    eprintln!("[compaction:B] === Case 6: Compressed content reaches LLM ===");
+    eprintln!("[compaction:B] captured {} LlmRequests", requests.len());
+    assert!(
+        requests.len() >= 2,
+        "should have at least 2 requests (initial + after tool)"
+    );
+
+    let second_req = &requests[1];
+    let mut found_tool_result = false;
+    for msg in &second_req.messages {
+        for block in &msg.content {
+            if let ContentBlock::ToolResult { content, .. } = block {
+                eprintln!(
+                    "[compaction:B] tool_result content ({} chars): {:?}",
+                    content.len(),
+                    content
+                );
+                assert!(
+                    !content.contains("\x1b"),
+                    "LLM should not see ANSI escapes"
+                );
+                assert!(
+                    content.contains("similar lines")
+                        || content.contains("identical lines"),
+                    "LLM should see folded lines: {content}"
+                );
+                found_tool_result = true;
+            }
+        }
+    }
+    assert!(
+        found_tool_result,
+        "second request should contain a ToolResult"
+    );
+
+    eprintln!("[compaction:B] ✓ LLM received compressed content");
 }
