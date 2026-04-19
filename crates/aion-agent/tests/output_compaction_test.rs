@@ -9,7 +9,6 @@ use serde_json::json;
 
 const TEST_OUTPUT: &str = "\x1b[32mSTATUS: OK\x1b[0m\n\n\n\n50%\r100%\nCompiling dep-0 v1.0.0\nCompiling dep-1 v1.0.0\nCompiling dep-2 v1.0.0\nCompiling dep-3 v1.0.0\nCompiling dep-4 v1.0.0\n{\n    \"id\": 1,\n    \"name\": \"Alice Wonderland\",\n    \"email\": \"alice@example.com\",\n    \"age\": 30,\n    \"address\": \"123 Main Street, Anytown, USA 12345\",\n    \"phone\": \"+1-555-0123\"\n}";
 
-#[allow(dead_code)]
 const TOON_INPUT: &str =
     r#"[{"id":1,"name":"Alice","role":"admin"},{"id":2,"name":"Bob","role":"user"}]"#;
 
@@ -164,4 +163,74 @@ async fn case_3_full_folds_and_compacts() {
     );
 
     eprintln!("[compaction:A] ✓ ANSI stripped, lines folded, output shorter");
+}
+
+// ---------------------------------------------------------------------------
+// A Layer: Case 4-5 (TOON on / off)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn case_4_toon_encodes_array() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("test_tool", TOON_INPUT, false)));
+
+    let tool_calls = vec![make_tool_use("c4", "test_tool")];
+    let confirmer = auto_approve_confirmer();
+
+    let outcome = execute_tool_calls(
+        &registry,
+        &tool_calls,
+        &confirmer,
+        None,
+        CompactionLevel::Full,
+        true,
+    )
+    .await
+    .expect("should succeed");
+
+    let content = extract_tool_result_content(&outcome);
+    eprintln!("[compaction:A] === Case 4: TOON encodes array ===");
+    eprintln!("[compaction:A] raw: {TOON_INPUT}");
+    eprintln!("[compaction:A] result: {content}");
+
+    assert!(
+        content.contains("[2]{id,name,role}:"),
+        "TOON should produce header: {content}"
+    );
+    assert!(content.contains("Alice"), "TOON should contain data");
+    assert!(content.contains("Bob"), "TOON should contain data");
+
+    eprintln!("[compaction:A] ✓ TOON header present with data rows");
+}
+
+#[tokio::test]
+async fn case_5_toon_disabled_no_encoding() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("test_tool", TOON_INPUT, false)));
+
+    let tool_calls = vec![make_tool_use("c5", "test_tool")];
+    let confirmer = auto_approve_confirmer();
+
+    let outcome = execute_tool_calls(
+        &registry,
+        &tool_calls,
+        &confirmer,
+        None,
+        CompactionLevel::Full,
+        false,
+    )
+    .await
+    .expect("should succeed");
+
+    let content = extract_tool_result_content(&outcome);
+    eprintln!("[compaction:A] === Case 5: TOON disabled ===");
+    eprintln!("[compaction:A] raw: {TOON_INPUT}");
+    eprintln!("[compaction:A] result: {content}");
+
+    assert!(
+        !content.contains("[2]{id,name,role}:"),
+        "TOON off should not produce TOON header: {content}"
+    );
+
+    eprintln!("[compaction:A] ✓ no TOON encoding when disabled");
 }
