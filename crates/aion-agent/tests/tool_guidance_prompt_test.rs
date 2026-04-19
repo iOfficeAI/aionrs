@@ -51,6 +51,7 @@ fn tc_4_3_01_tool_guidance_section_exists() {
         None,
         None,
         false,
+        false,
     );
     assert!(
         result.contains("# Using your tools"),
@@ -72,6 +73,7 @@ fn tc_4_3_02_bash_prohibition_list() {
         &[],
         None,
         None,
+        false,
         false,
     );
 
@@ -117,6 +119,7 @@ fn tc_4_3_03_parallel_call_guidance() {
         None,
         None,
         false,
+        false,
     );
     assert!(
         result.contains("parallel"),
@@ -143,6 +146,7 @@ fn tc_4_3_04_edit_write_read_rules() {
         None,
         None,
         false,
+        false,
     );
     assert!(
         result.contains("Prefer Edit over Write"),
@@ -168,6 +172,7 @@ fn tc_4_3_05_order_after_intro_before_custom() {
         &[],
         None,
         None,
+        false,
         false,
     );
 
@@ -207,6 +212,7 @@ fn tc_4_3_06_order_before_skills() {
         None,
         None,
         false,
+        false,
     );
 
     let guidance_pos = result
@@ -241,6 +247,7 @@ fn tc_4_3_06_order_before_memory() {
         &[],
         None,
         Some(&mem_dir),
+        false,
         false,
     );
 
@@ -289,6 +296,7 @@ fn tc_4_3_07_all_sections_coexist() {
         None,
         Some(&mem_dir),
         true, // plan mode active
+        false,
     );
 
     // All sections should exist
@@ -344,6 +352,7 @@ fn tc_4_3_08_guidance_in_plan_mode() {
         None,
         None,
         true,
+        false,
     );
     assert!(
         result.contains("# Using your tools"),

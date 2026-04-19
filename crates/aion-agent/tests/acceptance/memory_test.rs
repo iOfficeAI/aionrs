@@ -44,6 +44,7 @@ fn memory_injection_into_system_prompt() {
         None,
         Some(&mem_dir),
         false,
+        false,
     );
 
     // Behavioral instructions must be present
@@ -125,6 +126,7 @@ fn memory_full_lifecycle() {
         None,
         Some(&mem_dir),
         false,
+        false,
     );
 
     assert!(
@@ -172,6 +174,7 @@ fn memory_full_lifecycle() {
         &[],
         None,
         Some(&mem_dir),
+        false,
         false,
     );
 

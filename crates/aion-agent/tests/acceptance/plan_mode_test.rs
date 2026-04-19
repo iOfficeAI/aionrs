@@ -167,6 +167,7 @@ fn tc_a3_02_plan_mode_system_prompt_injection() {
         None,
         None,
         true,
+        false,
     );
 
     assert!(
@@ -207,6 +208,7 @@ fn tc_a3_02_plan_mode_system_prompt_injection() {
         &[],
         None,
         None,
+        false,
         false,
     );
 

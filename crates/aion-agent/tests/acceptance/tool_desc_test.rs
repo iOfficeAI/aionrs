@@ -21,6 +21,7 @@ fn system_prompt_contains_tool_guidance() {
         None,
         None,
         false,
+        false,
     );
 
     // 1. Heading

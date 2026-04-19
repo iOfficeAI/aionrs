@@ -865,7 +865,8 @@ mod set_config_tests {
     #[test]
     fn set_config_enables_thinking() {
         let mut engine = make_engine("m");
-        let changes = engine.apply_config_update(None, Some("enabled".into()), Some(16000), None, None);
+        let changes =
+            engine.apply_config_update(None, Some("enabled".into()), Some(16000), None, None);
         match &engine.thinking {
             Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
                 assert_eq!(*budget_tokens, 16000);
@@ -908,7 +909,8 @@ mod set_config_tests {
         engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
             budget_tokens: 8000,
         });
-        let changes = engine.apply_config_update(None, Some("invalid_value".into()), None, None, None);
+        let changes =
+            engine.apply_config_update(None, Some("invalid_value".into()), None, None, None);
         match &engine.thinking {
             Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
                 assert_eq!(*budget_tokens, 8000);
