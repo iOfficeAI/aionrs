@@ -516,6 +516,7 @@ impl AgentEngine {
                     auto_approve,
                     &self.allow_list,
                     self.hooks.as_mut(),
+                    self.compaction_level,
                 )
                 .await
                 {
@@ -532,6 +533,7 @@ impl AgentEngine {
                     &tool_calls,
                     &self.confirmer,
                     self.hooks.as_mut(),
+                    self.compaction_level,
                 )
                 .await
                 {
@@ -1306,6 +1308,8 @@ mod compact_tests {
             plan_state: Default::default(),
             plan_active_flag: None,
             cache_detector: super::CacheBreakDetector::new(),
+            compaction_level: aion_compact::CompactionLevel::default(),
+            toon_enabled: false,
         }
     }
 
@@ -1569,6 +1573,8 @@ mod plan_mode_tests {
             plan_state: PlanState::default(),
             plan_active_flag: Some(flag),
             cache_detector: super::CacheBreakDetector::new(),
+            compaction_level: aion_compact::CompactionLevel::default(),
+            toon_enabled: false,
         }
     }
 
