@@ -119,6 +119,14 @@ struct Cli {
     #[arg(long)]
     logout: bool,
 
+    /// Output compaction level: off, safe (default), full
+    #[arg(long)]
+    compaction: Option<String>,
+
+    /// Enable TOON encoding for JSON arrays (session-level, cannot change mid-conversation)
+    #[arg(long)]
+    toon: bool,
+
     /// Initial prompt (if omitted, enters interactive REPL mode)
     #[arg(trailing_var_arg = true)]
     prompt: Vec<String>,
@@ -178,6 +186,16 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let mut config = Config::resolve(&cli_args)?;
+
+    if let Some(ref level_str) = cli.compaction {
+        match level_str.parse::<aion_compact::CompactionLevel>() {
+            Ok(level) => config.compact.compaction = level,
+            Err(e) => anyhow::bail!("Invalid --compaction value: {e}"),
+        }
+    }
+    if cli.toon {
+        config.compact.toon = true;
+    }
 
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
 

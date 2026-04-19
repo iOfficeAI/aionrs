@@ -14,6 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 aion-agent.workspace    = true
+aion-compact.workspace  = true
 aion-config.workspace   = true
 aion-memory.workspace   = true
 aion-providers.workspace = true
