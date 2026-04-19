@@ -76,6 +76,7 @@ struct CapturingProvider {
 |---|------|-----------|
 | 6 | Compressed content reaches LLM | In the 2nd captured request (after tool execution), the `tool_result` content block contains compressed text (not raw) |
 | 7 | SetConfig runtime switch | Turn 1: Off → tool result in request is raw. Call `apply_config_update(compaction: "full")`. Turn 2: same tool → tool result in request is compressed. Compare the two. |
+| 8 | TOON system prompt injection | TOON enabled: captured request's `system_prompt` contains "TOON" and "Token-Oriented Object Notation". TOON disabled: system_prompt does NOT contain "TOON". |
 
 ### C Layer: End-to-End Real API (OPENAI_API_KEY, gpt-4o-mini)
 
@@ -108,9 +109,9 @@ let Some(api_key) = openai_api_key() else {
 
 | # | Name | Method | Assertion |
 |---|------|--------|-----------|
-| 8 | Off vs Safe content | Register MockTool returning ANSI-laden output. Run twice: Off and Safe. Directly check ToolResult.content in engine messages. Ask LLM: "Does the tool output contain color escape codes? Answer yes or no" | Off: content has `\x1b`, LLM says "yes". Safe: content has no `\x1b`, LLM says "no". |
-| 9 | Off vs Full token savings | Register MockTool returning large output (repeated lines + verbose JSON). Run twice: Off and Full. Compare `result.usage.input_tokens` from second turn. | Full's input_tokens < Off's input_tokens (print both values) |
-| 10 | TOON comprehension | Register MockTool returning uniform JSON array. Run with TOON enabled + Full. Ask LLM: "What is the name in the second record? Answer with just the name." | LLM answers correctly (e.g., "Bob"). Also directly verify ToolResult.content contains TOON header. |
+| 9 | Off vs Safe content | Register MockTool returning ANSI-laden output. Run twice: Off and Safe. Directly check ToolResult.content in engine messages. Ask LLM: "Does the tool output contain color escape codes? Answer yes or no" | Off: content has `\x1b`, LLM says "yes". Safe: content has no `\x1b`, LLM says "no". |
+| 10 | Off vs Full token savings | Register MockTool returning large output (repeated lines + verbose JSON). Run twice: Off and Full. Compare `result.usage.input_tokens` from second turn. | Full's input_tokens < Off's input_tokens (print both values) |
+| 11 | TOON comprehension + system prompt | Register MockTool returning uniform JSON array. Run with TOON enabled + Full. Ask LLM: "What is the name in the second record? Answer with just the name." Print system prompt's TOON section via `eprintln!` for human review. | LLM answers correctly (e.g., "Bob"). Directly verify: ToolResult.content contains TOON header; system prompt contains "TOON". |
 
 ## File Organization
 
