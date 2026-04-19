@@ -2,8 +2,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-static ANSI_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
+static ANSI_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap());
 
 pub fn strip_ansi(text: &str) -> String {
     ANSI_RE.replace_all(text, "").into_owned()

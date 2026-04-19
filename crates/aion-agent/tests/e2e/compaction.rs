@@ -3,8 +3,8 @@ use std::sync::{Arc, Mutex};
 use aion_agent::confirm::ToolConfirmer;
 use aion_agent::engine::AgentEngine;
 use aion_agent::orchestration::execute_tool_calls;
-use aion_agent::output::null_sink::NullSink;
 use aion_agent::output::OutputSink;
+use aion_agent::output::null_sink::NullSink;
 use aion_compact::CompactionLevel;
 use aion_config::compat::ProviderCompat;
 use aion_config::config::{Config, ProviderType, SessionConfig, ToolsConfig};
@@ -164,10 +164,7 @@ async fn case_9_off_vs_safe_content() {
     .expect("should succeed");
     let content_safe = extract_tool_result_content(&outcome_safe).unwrap();
 
-    eprintln!(
-        "[e2e:compaction] Off content ({} chars)",
-        content_off.len()
-    );
+    eprintln!("[e2e:compaction] Off content ({} chars)", content_off.len());
     eprintln!(
         "[e2e:compaction] Safe content ({} chars)",
         content_safe.len()
@@ -209,7 +206,9 @@ async fn case_9_off_vs_safe_content() {
     if answer.contains("no") {
         eprintln!("[e2e:compaction] ✓ LLM confirms no ANSI in Safe output");
     } else {
-        eprintln!("[e2e:compaction] ⚠ LLM answer unexpected (non-deterministic, logged for review)");
+        eprintln!(
+            "[e2e:compaction] ⚠ LLM answer unexpected (non-deterministic, logged for review)"
+        );
     }
 
     eprintln!("[e2e:compaction] ✓ PASS (primary: content assertions passed)");
@@ -289,8 +288,7 @@ async fn case_10_off_vs_full_token_savings() {
             .input_tokens
             .saturating_sub(result_full.usage.input_tokens),
         if result_off.usage.input_tokens > 0 {
-            (1.0 - result_full.usage.input_tokens as f64
-                / result_off.usage.input_tokens as f64)
+            (1.0 - result_full.usage.input_tokens as f64 / result_off.usage.input_tokens as f64)
                 * 100.0
         } else {
             0.0
