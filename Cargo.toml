@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/aion-types",
     "crates/aion-protocol",
+    "crates/aion-compact",
     "crates/aion-config",
     "crates/aion-providers",
     "crates/aion-tools",
@@ -24,6 +25,7 @@ repository = "https://github.com/iOfficeAI/aionrs"
 # Internal crates
 aion-types     = { path = "crates/aion-types" }
 aion-protocol  = { path = "crates/aion-protocol" }
+aion-compact   = { path = "crates/aion-compact" }
 aion-config    = { path = "crates/aion-config" }
 aion-providers = { path = "crates/aion-providers" }
 aion-tools     = { path = "crates/aion-tools" }
