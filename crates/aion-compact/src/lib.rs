@@ -1,4 +1,5 @@
 pub mod level;
+pub mod sanitize;
 
 pub use level::CompactionLevel;
 
