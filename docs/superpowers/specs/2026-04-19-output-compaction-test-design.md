@@ -6,6 +6,45 @@
 
 ## 架构：三层测试
 
+### 通用日志原则
+
+所有三层测试均通过 `eprintln!` 打印关键信息，配合 `cargo test -- --nocapture` 供人工审核。每层使用独立前缀标识：
+
+- A 层：`[compaction:A]`
+- B 层：`[compaction:B]`
+- C 层：`[e2e:compaction]`
+
+**A 层日志格式示例：**
+
+```
+[compaction:A] === Case 1: Off 透传 ===
+[compaction:A] 原始内容 (120 chars): \x1b[32mSTATUS: OK...
+[compaction:A] 压缩后内容 (120 chars): \x1b[32mSTATUS: OK...
+[compaction:A] ✓ 内容未变
+```
+
+**B 层日志格式示例：**
+
+```
+[compaction:B] === Case 6: 压缩后内容到达 LLM ===
+[compaction:B] 捕获到 2 次 LlmRequest
+[compaction:B] Request #2 tool_result content (95 chars): STATUS: OK...
+[compaction:B] system_prompt 包含 TOON: true
+[compaction:B] ✓ LLM 看到的是压缩后内容
+```
+
+**C 层日志格式示例：**
+
+```
+[e2e:compaction] === Off vs Safe 内容对比 ===
+[e2e:compaction] 工具输出 (原始, 120 字符): \x1b[32mSTATUS: OK...
+[e2e:compaction] 工具输出 (压缩后, 95 字符): STATUS: OK...
+[e2e:compaction] 问 LLM: 工具输出中是否包含颜色转义码？回答 yes 或 no
+[e2e:compaction] LLM 回答: no
+[e2e:compaction] Token 用量: 150 input / 5 output
+[e2e:compaction] ✓ PASS
+```
+
 ### A 层：Tool 结果层（本地 Mock，确定性）
 
 **文件：** `crates/aion-agent/tests/output_compaction_test.rs`
@@ -91,17 +130,7 @@ let Some(api_key) = openai_api_key() else {
 };
 ```
 
-**日志原则：** 每个测试通过 `eprintln!` 打印关键信息，配合 `--nocapture` 供人工审核：
-
-```
-[e2e:compaction] === 测试名称 ===
-[e2e:compaction] 工具输出 (原始, N 字符): <content>
-[e2e:compaction] 工具输出 (压缩后, M 字符): <content>
-[e2e:compaction] 问 LLM: <question>
-[e2e:compaction] LLM 回答: <response>
-[e2e:compaction] Token 用量: N input / M output
-[e2e:compaction] ✓ PASS
-```
+**日志格式：** 遵循通用日志原则（见上方），使用 `[e2e:compaction]` 前缀。
 
 **测试数据：** 与 A 层相同的精心构造字符串，通过 MockTool 注册（真实 LLM + Mock 工具）。
 
