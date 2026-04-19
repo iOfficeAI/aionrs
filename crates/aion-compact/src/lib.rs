@@ -1,4 +1,5 @@
 pub mod fold;
+pub mod json;
 pub mod level;
 pub mod sanitize;
 
