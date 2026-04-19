@@ -676,7 +676,7 @@ async fn run_json_stream_mode(
                 // Apply any config changes that arrived during processing
                 if let Some((model, thinking, thinking_budget, effort)) = pending_config.take() {
                     let changes =
-                        engine.apply_config_update(model, thinking, thinking_budget, effort);
+                        engine.apply_config_update(model, thinking, thinking_budget, effort, None);
                     if !changes.is_empty() {
                         let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
                             msg_id: String::new(),
@@ -735,7 +735,7 @@ async fn run_json_stream_mode(
                 thinking_budget,
                 effort,
             } => {
-                let changes = engine.apply_config_update(model, thinking, thinking_budget, effort);
+                let changes = engine.apply_config_update(model, thinking, thinking_budget, effort, None);
                 let message = if changes.is_empty() {
                     "set_config: no changes".to_string()
                 } else {

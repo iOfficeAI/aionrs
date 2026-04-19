@@ -15,6 +15,7 @@ aion-tools.workspace     = true
 aion-mcp.workspace       = true
 aion-skills.workspace    = true
 aion-memory.workspace    = true
+aion-compact.workspace   = true
 
 tokio.workspace       = true
 futures.workspace     = true
