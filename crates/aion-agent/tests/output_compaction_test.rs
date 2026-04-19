@@ -351,3 +351,85 @@ async fn case_6_compressed_content_reaches_llm() {
 
     eprintln!("[compaction:B] ✓ LLM received compressed content");
 }
+
+// ---------------------------------------------------------------------------
+// B Layer: Case 7 (runtime compaction switch)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn case_7_runtime_compaction_switch() {
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("test_tool", TEST_OUTPUT, false)));
+
+    let tool_calls = vec![make_tool_use("c7", "test_tool")];
+    let confirmer = auto_approve_confirmer();
+
+    let outcome_off = execute_tool_calls(
+        &registry,
+        &tool_calls,
+        &confirmer,
+        None,
+        CompactionLevel::Off,
+        false,
+    )
+    .await
+    .expect("should succeed");
+    let content_off = extract_tool_result_content(&outcome_off).to_string();
+
+    let outcome_full = execute_tool_calls(
+        &registry,
+        &tool_calls,
+        &confirmer,
+        None,
+        CompactionLevel::Full,
+        false,
+    )
+    .await
+    .expect("should succeed");
+    let content_full = extract_tool_result_content(&outcome_full).to_string();
+
+    eprintln!("[compaction:B] === Case 7: Runtime compaction switch ===");
+    eprintln!(
+        "[compaction:B] Off content ({} chars)",
+        content_off.len()
+    );
+    eprintln!(
+        "[compaction:B] Full content ({} chars)",
+        content_full.len()
+    );
+
+    assert_ne!(
+        content_off, content_full,
+        "Off and Full should produce different content"
+    );
+    assert!(content_off.contains("\x1b"), "Off should preserve ANSI");
+    assert!(!content_full.contains("\x1b"), "Full should strip ANSI");
+    assert!(
+        content_full.contains("similar lines") || content_full.contains("identical lines"),
+        "Full should fold lines"
+    );
+
+    // Verify apply_config_update works on the engine
+    let mut config = test_config();
+    config.compact.compaction = CompactionLevel::Off;
+    let registry_engine = ToolRegistry::new();
+    let output: Arc<dyn OutputSink> = Arc::new(NullSink);
+    let mut engine = AgentEngine::new_with_provider(
+        Arc::new(MockLlmProvider::with_text_response("ok")),
+        config,
+        registry_engine,
+        output,
+    );
+    assert_eq!(engine.compaction_level(), CompactionLevel::Off);
+
+    let changes =
+        engine.apply_config_update(None, None, None, None, Some("full".to_string()));
+    assert!(!changes.is_empty(), "should report changes");
+    assert_eq!(engine.compaction_level(), CompactionLevel::Full);
+    eprintln!(
+        "[compaction:B] apply_config_update changes: {:?}",
+        changes
+    );
+
+    eprintln!("[compaction:B] ✓ runtime switch from Off to Full verified");
+}
