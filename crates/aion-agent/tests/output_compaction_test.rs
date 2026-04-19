@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
+use aion_agent::context::{SystemPromptCache, build_system_prompt};
 use aion_agent::engine::AgentEngine;
 use aion_agent::orchestration::execute_tool_calls;
 use aion_agent::output::null_sink::NullSink;
@@ -432,4 +433,67 @@ async fn case_7_runtime_compaction_switch() {
     );
 
     eprintln!("[compaction:B] ✓ runtime switch from Off to Full verified");
+}
+
+// ---------------------------------------------------------------------------
+// B Layer: Case 8 (TOON system prompt injection)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn case_8_toon_system_prompt_injection() {
+    eprintln!("[compaction:B] === Case 8: TOON system prompt injection ===");
+
+    // TOON enabled
+    let mut cache_on = SystemPromptCache::new();
+    let prompt_on = build_system_prompt(
+        &mut cache_on,
+        Some("You are a test assistant."),
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        None,
+        false,
+        true, // toon_enabled
+    );
+
+    eprintln!(
+        "[compaction:B] TOON=true system prompt length: {} chars",
+        prompt_on.len()
+    );
+
+    assert!(
+        prompt_on.contains("TOON"),
+        "TOON enabled: system prompt should mention TOON"
+    );
+    assert!(
+        prompt_on.contains("Token-Oriented Object Notation"),
+        "should contain full TOON description"
+    );
+
+    // TOON disabled
+    let mut cache_off = SystemPromptCache::new();
+    let prompt_off = build_system_prompt(
+        &mut cache_off,
+        Some("You are a test assistant."),
+        "/tmp",
+        "test-model",
+        &[],
+        None,
+        None,
+        false,
+        false, // toon_enabled
+    );
+
+    eprintln!(
+        "[compaction:B] TOON=false system prompt length: {} chars",
+        prompt_off.len()
+    );
+
+    assert!(
+        !prompt_off.contains("TOON"),
+        "TOON disabled: system prompt should NOT mention TOON"
+    );
+
+    eprintln!("[compaction:B] ✓ TOON system prompt injection verified");
 }
