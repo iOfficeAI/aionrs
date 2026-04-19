@@ -471,7 +471,7 @@ fn to_mcp_server_config(
 }
 
 /// Pending config fields: (model, thinking, thinking_budget, effort)
-type PendingConfig = (Option<String>, Option<String>, Option<u32>, Option<String>);
+type PendingConfig = (Option<String>, Option<String>, Option<u32>, Option<String>, Option<String>);
 
 async fn run_json_stream_mode(
     config: Config,
@@ -649,8 +649,8 @@ async fn run_json_stream_mode(
                                         stopped = true;
                                         break;
                                     }
-                                    ProtocolCommand::SetConfig { model, thinking, thinking_budget, effort } => {
-                                        pending_config = Some((model, thinking, thinking_budget, effort));
+                                    ProtocolCommand::SetConfig { model, thinking, thinking_budget, effort, compaction } => {
+                                        pending_config = Some((model, thinking, thinking_budget, effort, compaction));
                                         let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
                                             msg_id: String::new(),
                                             message: "set_config: queued, will apply after current response".to_string(),
@@ -674,9 +674,9 @@ async fn run_json_stream_mode(
                 } // engine_fut dropped here, releasing mutable borrow
 
                 // Apply any config changes that arrived during processing
-                if let Some((model, thinking, thinking_budget, effort)) = pending_config.take() {
+                if let Some((model, thinking, thinking_budget, effort, compaction)) = pending_config.take() {
                     let changes =
-                        engine.apply_config_update(model, thinking, thinking_budget, effort, None);
+                        engine.apply_config_update(model, thinking, thinking_budget, effort, compaction);
                     if !changes.is_empty() {
                         let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
                             msg_id: String::new(),
@@ -734,8 +734,9 @@ async fn run_json_stream_mode(
                 thinking,
                 thinking_budget,
                 effort,
+                compaction,
             } => {
-                let changes = engine.apply_config_update(model, thinking, thinking_budget, effort, None);
+                let changes = engine.apply_config_update(model, thinking, thinking_budget, effort, compaction);
                 let message = if changes.is_empty() {
                     "set_config: no changes".to_string()
                 } else {

@@ -174,6 +174,7 @@ fn parse_set_config_all_fields() {
             effort,
             thinking,
             thinking_budget,
+            ..
         } => {
             assert_eq!(model.as_deref(), Some("m"));
             assert_eq!(effort.as_deref(), Some("low"));

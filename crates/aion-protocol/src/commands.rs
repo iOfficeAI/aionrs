@@ -39,6 +39,8 @@ pub enum ProtocolCommand {
         thinking_budget: Option<u32>,
         #[serde(default)]
         effort: Option<String>,
+        #[serde(default)]
+        compaction: Option<String>,
     },
     AddMcpServer {
         name: String,
@@ -83,6 +85,7 @@ mod tests {
             thinking: None,
             thinking_budget: None,
             effort: None,
+            compaction: None,
         };
         let dbg = format!("{cmd:?}");
         assert!(dbg.contains("SetConfig"));
@@ -96,12 +99,14 @@ mod tests {
             thinking: None,
             thinking_budget: None,
             effort: None,
+            compaction: None,
         };
         let b = ProtocolCommand::SetConfig {
             model: Some("m".into()),
             thinking: None,
             thinking_budget: None,
             effort: None,
+            compaction: None,
         };
         assert_eq!(a, b);
 
@@ -110,6 +115,7 @@ mod tests {
             thinking: None,
             thinking_budget: None,
             effort: None,
+            compaction: None,
         };
         assert_ne!(a, c);
     }
@@ -121,12 +127,14 @@ mod tests {
             thinking: Some("enabled".into()),
             thinking_budget: Some(8000),
             effort: Some("high".into()),
+            compaction: None,
         };
         let b = ProtocolCommand::SetConfig {
             model: Some("m".into()),
             thinking: Some("enabled".into()),
             thinking_budget: Some(8000),
             effort: Some("high".into()),
+            compaction: None,
         };
         assert_eq!(a, b);
     }
@@ -138,9 +146,34 @@ mod tests {
             thinking: None,
             thinking_budget: None,
             effort: None,
+            compaction: None,
         };
         let dbg = format!("{cmd:?}");
         assert!(dbg.contains("SetConfig"));
+    }
+
+    #[test]
+    fn set_config_with_compaction() {
+        let json = r#"{"type":"set_config","compaction":"full"}"#;
+        let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            ProtocolCommand::SetConfig { compaction, .. } => {
+                assert_eq!(compaction.unwrap(), "full");
+            }
+            _ => panic!("expected SetConfig"),
+        }
+    }
+
+    #[test]
+    fn set_config_compaction_none_by_default() {
+        let json = r#"{"type":"set_config","model":"test"}"#;
+        let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
+        match cmd {
+            ProtocolCommand::SetConfig { compaction, .. } => {
+                assert!(compaction.is_none());
+            }
+            _ => panic!("expected SetConfig"),
+        }
     }
 
     #[test]
