@@ -17,7 +17,6 @@ use serde_json::json;
 
 const TEST_OUTPUT: &str = "\x1b[32mSTATUS: OK\x1b[0m\n\n\n\n50%\r100%\nCompiling dep-0 v1.0.0\nCompiling dep-1 v1.0.0\nCompiling dep-2 v1.0.0\nCompiling dep-3 v1.0.0\nCompiling dep-4 v1.0.0\n{\n    \"id\": 1,\n    \"name\": \"Alice Wonderland\",\n    \"email\": \"alice@example.com\",\n    \"age\": 30,\n    \"address\": \"123 Main Street, Anytown, USA 12345\",\n    \"phone\": \"+1-555-0123\"\n}";
 
-#[allow(dead_code)]
 const TOON_INPUT: &str =
     r#"[{"id":1,"name":"Alice","role":"admin"},{"id":2,"name":"Bob","role":"user"}]"#;
 
@@ -214,4 +213,174 @@ async fn case_9_off_vs_safe_content() {
     }
 
     eprintln!("[e2e:compaction] ✓ PASS (primary: content assertions passed)");
+}
+
+// ---------------------------------------------------------------------------
+// C Layer: Case 10 (Off vs Full token savings)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn case_10_off_vs_full_token_savings() {
+    let Some(api_key) = openai_api_key() else {
+        eprintln!("[e2e:compaction] OPENAI_API_KEY not set — skipping");
+        return;
+    };
+
+    eprintln!("[e2e:compaction] === Case 10: Off vs Full token savings ===");
+
+    let mut large_output = String::new();
+    for i in 0..20 {
+        large_output.push_str(&format!(
+            "Compiling dependency-{i} v0.1.0 (registry+https://github.com/rust-lang/crates.io-index)\n"
+        ));
+    }
+    large_output.push_str("{\n    \"users\": [\n");
+    for i in 0..10 {
+        large_output.push_str(&format!(
+            "        {{\n            \"id\": {i},\n            \"name\": \"User {i}\",\n            \"email\": \"user{i}@example.com\"\n        }}{}\n",
+            if i < 9 { "," } else { "" }
+        ));
+    }
+    large_output.push_str("    ]\n}");
+
+    // Off
+    let mut config_off = openai_config(&api_key);
+    config_off.compact.compaction = CompactionLevel::Off;
+    let provider_off = create_provider(&config_off);
+    let mut registry_off = ToolRegistry::new();
+    registry_off.register(Box::new(FixedOutputTool::new("big_tool", &large_output)));
+    let output_off: Arc<dyn OutputSink> = Arc::new(NullSink);
+    let mut engine_off =
+        AgentEngine::new_with_provider(provider_off, config_off, registry_off, output_off);
+
+    let prompt = "Call big_tool, then say 'done'.";
+    let result_off = engine_off
+        .run(prompt, "")
+        .await
+        .expect("engine.run should succeed");
+
+    // Full
+    let mut config_full = openai_config(&api_key);
+    config_full.compact.compaction = CompactionLevel::Full;
+    let provider_full = create_provider(&config_full);
+    let mut registry_full = ToolRegistry::new();
+    registry_full.register(Box::new(FixedOutputTool::new("big_tool", &large_output)));
+    let output_full: Arc<dyn OutputSink> = Arc::new(NullSink);
+    let mut engine_full =
+        AgentEngine::new_with_provider(provider_full, config_full, registry_full, output_full);
+
+    let result_full = engine_full
+        .run(prompt, "")
+        .await
+        .expect("engine.run should succeed");
+
+    eprintln!(
+        "[e2e:compaction] Off  input_tokens: {}",
+        result_off.usage.input_tokens
+    );
+    eprintln!(
+        "[e2e:compaction] Full input_tokens: {}",
+        result_full.usage.input_tokens
+    );
+    eprintln!(
+        "[e2e:compaction] Savings: {} tokens ({:.1}%)",
+        result_off
+            .usage
+            .input_tokens
+            .saturating_sub(result_full.usage.input_tokens),
+        if result_off.usage.input_tokens > 0 {
+            (1.0 - result_full.usage.input_tokens as f64
+                / result_off.usage.input_tokens as f64)
+                * 100.0
+        } else {
+            0.0
+        }
+    );
+
+    assert!(
+        result_full.usage.input_tokens < result_off.usage.input_tokens,
+        "Full compaction should use fewer input tokens: full={} vs off={}",
+        result_full.usage.input_tokens,
+        result_off.usage.input_tokens
+    );
+
+    eprintln!("[e2e:compaction] ✓ PASS");
+}
+
+// ---------------------------------------------------------------------------
+// C Layer: Case 11 (TOON comprehension + system prompt)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn case_11_toon_comprehension_and_system_prompt() {
+    let Some(api_key) = openai_api_key() else {
+        eprintln!("[e2e:compaction] OPENAI_API_KEY not set — skipping");
+        return;
+    };
+
+    eprintln!("[e2e:compaction] === Case 11: TOON comprehension + system prompt ===");
+
+    // Direct content check (deterministic)
+    let confirmer = Arc::new(Mutex::new(ToolConfirmer::new(true, vec![])));
+    let mut registry_check = ToolRegistry::new();
+    registry_check.register(Box::new(FixedOutputTool::new("data_tool", TOON_INPUT)));
+    let tool_calls = vec![ContentBlock::ToolUse {
+        id: "t1".to_string(),
+        name: "data_tool".to_string(),
+        input: json!({}),
+    }];
+
+    let outcome = execute_tool_calls(
+        &registry_check,
+        &tool_calls,
+        &confirmer,
+        None,
+        CompactionLevel::Full,
+        true,
+    )
+    .await
+    .expect("should succeed");
+    let content = extract_tool_result_content(&outcome).unwrap();
+
+    eprintln!("[e2e:compaction] TOON-encoded content: {content}");
+    assert!(
+        content.contains("[2]{id,name,role}:"),
+        "should contain TOON header: {content}"
+    );
+
+    // LLM comprehension test
+    let mut config = openai_config(&api_key);
+    config.compact.compaction = CompactionLevel::Full;
+    config.compact.toon = true;
+
+    let provider = create_provider(&config);
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(FixedOutputTool::new("data_tool", TOON_INPUT)));
+    let output: Arc<dyn OutputSink> = Arc::new(NullSink);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+
+    let prompt = "Call data_tool, then answer: what is the name of the second record? Answer with just the name, nothing else.";
+    let result = engine
+        .run(prompt, "")
+        .await
+        .expect("engine.run should succeed");
+
+    eprintln!("[e2e:compaction] LLM question: name of second record?");
+    eprintln!("[e2e:compaction] LLM answer: {}", result.text);
+    eprintln!(
+        "[e2e:compaction] Token usage: {} input / {} output",
+        result.usage.input_tokens, result.usage.output_tokens
+    );
+
+    let answer = result.text.to_lowercase();
+    if answer.contains("bob") {
+        eprintln!("[e2e:compaction] ✓ LLM correctly understood TOON format");
+    } else {
+        eprintln!(
+            "[e2e:compaction] ⚠ LLM answer: '{}' (expected 'Bob', logged for review)",
+            result.text
+        );
+    }
+
+    eprintln!("[e2e:compaction] ✓ PASS (primary: TOON content assertion passed)");
 }
