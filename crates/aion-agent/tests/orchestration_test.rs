@@ -59,6 +59,7 @@ async fn test_execute_single_tool_call() {
         &confirmer,
         None,
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execution should succeed");
@@ -97,6 +98,7 @@ async fn test_execute_concurrent_safe_tools() {
         &confirmer,
         None,
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execution should succeed");
@@ -139,6 +141,7 @@ async fn test_execute_non_concurrent_tools_sequential() {
         &confirmer,
         None,
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execution should succeed");
@@ -175,6 +178,7 @@ async fn test_unknown_tool_returns_error() {
         &confirmer,
         None,
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execute_tool_calls itself should not fail");
@@ -210,6 +214,7 @@ async fn test_tool_error_returns_error_result() {
         &confirmer,
         None,
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execution should succeed");
@@ -248,6 +253,7 @@ async fn test_pre_hook_blocks_tool() {
         &confirmer,
         Some(&mut hook_engine),
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execute_tool_calls itself should not fail");
@@ -293,6 +299,7 @@ async fn test_post_hook_runs_after_tool() {
         &confirmer,
         Some(&mut hook_engine),
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execution should succeed");
@@ -328,6 +335,7 @@ async fn test_tool_result_truncation() {
         &confirmer,
         None,
         CompactionLevel::Off,
+        false,
     )
     .await
     .expect("execution should succeed");

@@ -19,6 +19,10 @@ pub fn compact_output(text: &str, level: CompactionLevel) -> String {
     }
 }
 
+pub fn compact_output_toon(text: &str) -> String {
+    toon::try_toon_encode(text)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

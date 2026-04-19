@@ -517,6 +517,7 @@ impl AgentEngine {
                     &self.allow_list,
                     self.hooks.as_mut(),
                     self.compaction_level,
+                    self.toon_enabled,
                 )
                 .await
                 {
@@ -534,6 +535,7 @@ impl AgentEngine {
                     &self.confirmer,
                     self.hooks.as_mut(),
                     self.compaction_level,
+                    self.toon_enabled,
                 )
                 .await
                 {
