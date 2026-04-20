@@ -9,10 +9,16 @@ A Rust-based LLM tool-use agent for the command line. It connects to LLM APIs, a
 - **Reasoning model support** — OpenAI `o1`/`o3` reasoning models with `reasoning_effort` control
 - **7 built-in tools** — Read, Write, Edit, Bash, Grep, Glob, Spawn (sub-agents)
 - **MCP client** — Connect to any [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio / SSE / streamable-http)
+- **Dynamic MCP injection** — Host clients can inject MCP servers at runtime via the [JSON stream protocol](docs/json-stream-protocol.md)
 - **Skills** — Named prompt snippets with variable substitution, shell expansion, conditional activation, and per-skill model/permission overrides (see [docs/skills.md](docs/skills.md))
 - **Hook system** — Event-driven automation on tool lifecycle (auto-format, lint, audit)
 - **Sub-agent spawning** — Parallel task execution via the Spawn tool
 - **Session persistence** — Save and resume conversation history
+- **Persistent memory** — Project-specific memory with auto-indexing across sessions (see [docs/advanced.md](docs/advanced.md#memory-system))
+- **Plan mode** — Read-only exploration mode for designing implementation plans before coding (see [docs/advanced.md](docs/advanced.md#plan-mode))
+- **Context compression** — Three-tier automatic compaction: microcompact, autocompact, emergency (see [docs/advanced.md](docs/advanced.md#context-compression))
+- **Output compaction** — Configurable output compression (off/safe/full) with TOON encoding (see [docs/advanced.md](docs/advanced.md#output-compaction))
+- **File state cache** — LRU cache with read deduplication and write tracking
 - **Prompt caching** — Anthropic cache_control for up to 90% cost reduction
 - **Profile inheritance** — Named profiles with `extends` for quick provider/model switching
 - **OAuth login** — Use Claude.ai subscription directly, no API key needed
@@ -49,12 +55,17 @@ aionrs --help
 ├──────────────────┼───────────────────────┼───────────────────┤
 │  Providers       │  Tool Registry        │  Hook Executor    │
 │  ├ Anthropic     │  ├ Built-in (7)       │  ├ pre_tool_use   │
-│  ├ OpenAI        │  └ MCP tools (N)      │  ├ post_tool_use  │
-│  ├ Bedrock       │                       │  └ stop           │
-│  └ Vertex AI     │  MCP Client           │                   │
-│                  │  ├ Stdio transport    │  Sub-Agent        │
-│  ProviderCompat  │  ├ SSE transport      │  Spawner          │
-│  (compat layer)  │  └ HTTP transport     │                   │
+│  ├ OpenAI        │  ├ MCP tools (N)      │  ├ post_tool_use  │
+│  ├ Bedrock       │  └ Plan Mode tools    │  └ stop           │
+│  └ Vertex AI     │                       │                   │
+│                  │  MCP Client           │  Memory System    │
+│  ProviderCompat  │  ├ Stdio transport    │  (per-project)    │
+│  (compat layer)  │  ├ SSE transport      │                   │
+│                  │  └ HTTP transport     │  Sub-Agent        │
+│  Compact Engine  │                       │  Spawner          │
+│  ├ Microcompact  │  File State Cache     │                   │
+│  ├ Autocompact   │  (LRU)               │  Output Compactor │
+│  └ Emergency     │                       │  (off/safe/full)  │
 └──────────────────┴───────────────────────┴───────────────────┘
 ```
 
