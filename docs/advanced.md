@@ -146,3 +146,188 @@ If an `AGENTS.md` file exists in the current working directory, its contents are
 - Project-specific coding standards
 - Architecture descriptions
 - Special working constraints
+
+---
+
+## Memory System
+
+Persistent, file-based memory that allows the agent to retain project-specific knowledge across sessions. Memory is automatically loaded into the system prompt at conversation start.
+
+### Memory Types
+
+| Type | Purpose |
+|------|---------|
+| `user` | User's role, goals, preferences, knowledge |
+| `feedback` | Corrections and confirmations on work approach |
+| `project` | Ongoing work context not derivable from code/git |
+| `reference` | Pointers to external systems and resources |
+
+### Storage
+
+Memory files live in a per-project directory under the global config:
+
+```
+<config_dir>/aionrs/projects/<sanitized-project-path>/memory/
+├── MEMORY.md              # Index (auto-loaded into prompt, max 200 lines)
+├── user_role.md
+├── feedback_testing.md
+└── project_auth_rewrite.md
+```
+
+Each memory file uses YAML frontmatter:
+
+```markdown
+---
+name: auth rewrite
+description: Auth middleware rewrite driven by compliance
+type: project
+---
+
+Auth middleware rewrite is driven by legal/compliance requirements.
+```
+
+### Configuration
+
+Memory is enabled by default with no configuration required. The memory directory is auto-resolved from the current working directory.
+
+Override the base directory via environment variable:
+
+```bash
+export AIONRS_MEMORY_DIR=/custom/path
+```
+
+### How It Works
+
+1. Agent starts → memory directory resolved from project path
+2. `MEMORY.md` index loaded into system prompt (truncated at 200 lines / 25 KB)
+3. Agent reads/writes memory files using standard Read/Write tools
+4. Agent maintains the `MEMORY.md` index as memories are added or removed
+
+---
+
+## Plan Mode
+
+A read-only exploration mode where the agent focuses on understanding the codebase and producing an implementation plan before making any changes.
+
+### How It Works
+
+1. Agent calls `EnterPlanMode` → tool access restricted to read-only (Read, Grep, Glob)
+2. Agent explores code, designs approach, writes a structured plan in its response
+3. Agent calls `ExitPlanMode` → full tool access restored, plan optionally saved to disk
+
+### Configuration
+
+```toml
+[plan]
+enabled = true                    # Register Plan Mode tools (default: true)
+plan_directory = ".aionrs/plans"  # Where plan files are saved
+```
+
+### Workflow Phases
+
+When in plan mode, the agent follows a structured 4-phase process:
+
+1. **Understand** — Explore the codebase with read-only tools
+2. **Design** — Identify files to modify, code to reuse
+3. **Write the plan** — Compose a clear, actionable implementation plan
+4. **Submit** — Call `ExitPlanMode` to restore full tool access
+
+---
+
+## Context Compression
+
+A three-tier automatic compaction strategy that prevents context window overflow during long conversations.
+
+### Tiers
+
+| Tier | Trigger | Method | LLM Call |
+|------|---------|--------|----------|
+| **Microcompact** | Tool result count exceeds threshold or time gap | Clears old tool result content, keeping the N most recent | No |
+| **Autocompact** | Input tokens approach context limit | LLM summarizes the conversation | Yes |
+| **Emergency** | Input tokens near absolute limit | Blocks further API calls, asks user to start fresh | No |
+
+### How It Works
+
+- **Microcompact** runs automatically: replaces old Read/Bash/Grep/Glob/Write/Edit results with `[Tool result cleared]`, keeping the 5 most recent results intact. Triggered by count (>10 compactable results) or time (>1 hour since last assistant message).
+
+- **Autocompact** triggers when input tokens reach `context_window - output_reserve - autocompact_buffer` (default: 200,000 - 20,000 - 13,000 = 167,000 tokens). The agent calls the LLM to produce a conversation summary, then replaces history with a compact boundary marker. A circuit breaker stops retrying after 3 consecutive failures.
+
+- **Emergency** is the last safety net at `context_window - emergency_buffer` (default: 197,000 tokens). Always active regardless of config. Blocks API calls and prompts the user to compact or start a new conversation.
+
+### Configuration
+
+```toml
+[compact]
+enabled = true              # Enable compaction system (default: true)
+context_window = 200000     # Context window in tokens
+output_reserve = 20000      # Reserved for output generation
+autocompact_buffer = 13000  # Buffer before autocompact triggers
+emergency_buffer = 3000     # Buffer before emergency block
+max_failures = 3            # Circuit breaker threshold
+micro_keep_recent = 5       # Keep N most recent tool results
+```
+
+---
+
+## File State Cache
+
+An LRU cache that tracks files the agent has recently accessed, enabling read deduplication and automatic cache updates on writes.
+
+- **Read dedup**: When the agent reads a file it has already seen (and the file hasn't changed), the cache provides the content without re-reading from disk.
+- **Write/Edit auto-update**: After Write or Edit operations, the cache is updated immediately with the new content.
+- **Dual eviction**: Entries are evicted when either the entry count limit or the total byte size limit is reached.
+
+### Configuration
+
+```toml
+[file_cache]
+enabled = true                # Enable file state caching (default: true)
+max_entries = 100             # Maximum cached files
+max_size_bytes = 26214400     # Max total cache size (25 MB)
+```
+
+---
+
+## Output Compaction
+
+Post-processes tool output to reduce token usage. Three levels from lightest to heaviest:
+
+| Level | Transformations |
+|-------|----------------|
+| `off` | No transformation |
+| `safe` (default) | Strip ANSI escape codes, merge consecutive blank lines, collapse carriage-return progress bars |
+| `full` | Everything in `safe`, plus: fold repeated lines, compact JSON indentation |
+
+### TOON Encoding
+
+When enabled alongside `full` compaction, TOON (Token-Oriented Object Notation) encodes uniform JSON arrays as compact tables:
+
+```
+[2]{id,name,role}:
+  1,Alice,admin
+  2,Bob,user
+```
+
+This is equivalent to:
+
+```json
+[{"id":1,"name":"Alice","role":"admin"},{"id":2,"name":"Bob","role":"user"}]
+```
+
+TOON instructions are injected into the system prompt so the LLM understands the format.
+
+### Configuration
+
+```toml
+[compact]
+compaction = "safe"   # off | safe | full (default: safe)
+toon = false          # Enable TOON encoding (default: false)
+```
+
+### Runtime Control
+
+In `--json-stream` mode, the compaction level can be changed at runtime via `set_config`:
+
+```json
+{"type": "set_config", "compaction": "full"}
+```
