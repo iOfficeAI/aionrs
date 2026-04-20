@@ -21,6 +21,19 @@ aionrs [OPTIONS] [PROMPT]...
 
 > For the full list of CLI parameters, run `aionrs --help`.
 
+### Key Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `--provider <name>` | Provider: `anthropic`, `openai`, `bedrock`, `vertex`, or a custom alias |
+| `--model <id>` | Model name |
+| `--profile <name>` | Named profile from config file |
+| `--compaction <level>` | Output compaction: `off`, `safe` (default), `full` |
+| `--toon` | Enable TOON tabular encoding (with `full` compaction) |
+| `--auto-approve` | Skip all tool confirmations |
+| `--json-stream` | JSON Lines mode for host integration |
+| `--resume <id>` | Resume a previous session |
+
 ---
 
 ## Configuration
@@ -92,6 +105,18 @@ allow_list = ["Read", "Grep", "Glob"]
 enabled = true
 directory = ".aionrs/sessions"
 max_sessions = 20
+
+[compact]
+compaction = "safe"   # off | safe | full
+toon = false          # Enable TOON encoding for JSON arrays
+
+[file_cache]
+enabled = true
+max_entries = 100
+
+[plan]
+enabled = true
+plan_directory = ".aionrs/plans"
 ```
 
 ### API Key Resolution Order
