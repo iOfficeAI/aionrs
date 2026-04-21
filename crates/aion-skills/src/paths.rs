@@ -103,7 +103,7 @@ fn walk_up_dirs(cwd: &Path, subdir: &str) -> Vec<PathBuf> {
 
 /// Determine where to stop walking up. Stops at git root if found,
 /// otherwise at the user home directory.
-fn stop_boundary(cwd: &Path) -> Option<PathBuf> {
+pub fn stop_boundary(cwd: &Path) -> Option<PathBuf> {
     find_git_root(cwd).or_else(dirs::home_dir)
 }
 
