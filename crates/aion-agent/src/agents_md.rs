@@ -35,10 +35,10 @@ pub fn collect_agents_md(cwd: &str) -> Vec<AgentsMdFile> {
     let mut files = Vec::new();
 
     // 1. Global: <config_dir>/aionrs/AGENTS.md
-    if let Some(global_path) = app_config_dir().map(|d| d.join("AGENTS.md")) {
-        if let Some(file) = read_agents_md(&global_path, true) {
-            files.push(file);
-        }
+    if let Some(global_path) = app_config_dir().map(|d| d.join("AGENTS.md"))
+        && let Some(file) = read_agents_md(&global_path, true)
+    {
+        files.push(file);
     }
 
     // 2. Walk up from cwd to stop_boundary, collect AGENTS.md paths
