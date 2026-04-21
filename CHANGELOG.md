@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.13](https://github.com/iOfficeAI/aionrs/compare/v0.1.12...v0.1.13) (2026-04-21)
+
+
+### Features
+
+* hierarchical AGENTS.md loading with [@include](https://github.com/include) support ([#59](https://github.com/iOfficeAI/aionrs/issues/59)) ([3992d52](https://github.com/iOfficeAI/aionrs/commit/3992d5211b87069f11420fc8c7eaa4e8dc0b8214))
+
+
+### Bug Fixes
+
+* **orchestration:** guide LLM to ToolSearch when deferred tool fails ([#60](https://github.com/iOfficeAI/aionrs/issues/60)) ([a62c8c2](https://github.com/iOfficeAI/aionrs/commit/a62c8c249e45bc56e5bc74bf74f29d43311ede2c))
+
 ## [0.1.12](https://github.com/iOfficeAI/aionrs/compare/v0.1.11...v0.1.12) (2026-04-20)
 
 
