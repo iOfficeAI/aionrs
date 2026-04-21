@@ -595,4 +595,209 @@ mod tests {
         let result = maybe_append_deferred_hint("validation failed", schema, &input);
         assert!(result.contains("ToolSearch"));
     }
+
+    // -- execute_single integration tests (deferred tool hint) ----------------
+
+    use aion_tools::Tool;
+    use aion_tools::registry::ToolRegistry;
+
+    struct MockDeferredTool {
+        schema: serde_json::Value,
+    }
+
+    #[async_trait::async_trait]
+    impl Tool for MockDeferredTool {
+        fn name(&self) -> &str {
+            "MockDeferred"
+        }
+        fn description(&self) -> &str {
+            "A mock deferred tool for testing"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            self.schema.clone()
+        }
+        fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool {
+            true
+        }
+        fn is_deferred(&self) -> bool {
+            true
+        }
+        async fn execute(&self, input: serde_json::Value) -> aion_types::tool::ToolResult {
+            if input.get("tasks").is_none() {
+                return aion_types::tool::ToolResult {
+                    content: "Missing or invalid 'tasks' array".to_string(),
+                    is_error: true,
+                };
+            }
+            aion_types::tool::ToolResult {
+                content: "ok".to_string(),
+                is_error: false,
+            }
+        }
+        fn category(&self) -> aion_protocol::events::ToolCategory {
+            aion_protocol::events::ToolCategory::Exec
+        }
+    }
+
+    struct MockNonDeferredTool;
+
+    #[async_trait::async_trait]
+    impl Tool for MockNonDeferredTool {
+        fn name(&self) -> &str {
+            "MockNonDeferred"
+        }
+        fn description(&self) -> &str {
+            "A mock non-deferred tool"
+        }
+        fn input_schema(&self) -> serde_json::Value {
+            json!({
+                "type": "object",
+                "properties": { "cmd": { "type": "string" } },
+                "required": ["cmd"]
+            })
+        }
+        fn is_concurrency_safe(&self, _input: &serde_json::Value) -> bool {
+            true
+        }
+        async fn execute(&self, input: serde_json::Value) -> aion_types::tool::ToolResult {
+            if input.get("cmd").is_none() {
+                return aion_types::tool::ToolResult {
+                    content: "Missing cmd".to_string(),
+                    is_error: true,
+                };
+            }
+            aion_types::tool::ToolResult {
+                content: "ok".to_string(),
+                is_error: false,
+            }
+        }
+        fn category(&self) -> aion_protocol::events::ToolCategory {
+            aion_protocol::events::ToolCategory::Exec
+        }
+    }
+
+    fn make_registry_with_deferred() -> ToolRegistry {
+        let mut registry = ToolRegistry::new();
+        registry.register(Box::new(MockDeferredTool {
+            schema: json!({
+                "type": "object",
+                "properties": { "tasks": { "type": "array" } },
+                "required": ["tasks"]
+            }),
+        }));
+        registry.register(Box::new(MockNonDeferredTool));
+        registry
+    }
+
+    #[tokio::test]
+    async fn execute_single_deferred_tool_error_missing_required_appends_hint() {
+        let registry = make_registry_with_deferred();
+        let call = ContentBlock::ToolUse {
+            id: "call_1".into(),
+            name: "MockDeferred".into(),
+            input: json!({}),
+        };
+        let (result, _) = execute_single(
+            &registry,
+            &call,
+            None,
+            aion_compact::CompactionLevel::Off,
+            false,
+        )
+        .await;
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = &result
+        {
+            assert!(is_error);
+            assert!(content.contains("Missing or invalid 'tasks' array"));
+            assert!(content.contains("ToolSearch"));
+        } else {
+            panic!("expected ToolResult");
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_single_deferred_tool_error_with_required_present_no_hint() {
+        let registry = make_registry_with_deferred();
+        // tasks is present but wrong type — tool still fails, but required field exists
+        let call = ContentBlock::ToolUse {
+            id: "call_2".into(),
+            name: "MockDeferred".into(),
+            input: json!({"tasks": "not_an_array"}),
+        };
+        let (result, _) = execute_single(
+            &registry,
+            &call,
+            None,
+            aion_compact::CompactionLevel::Off,
+            false,
+        )
+        .await;
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = &result
+        {
+            // Tool succeeds because input.get("tasks") is Some
+            assert!(!is_error);
+            assert!(!content.contains("ToolSearch"));
+        } else {
+            panic!("expected ToolResult");
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_single_deferred_tool_success_no_hint() {
+        let registry = make_registry_with_deferred();
+        let call = ContentBlock::ToolUse {
+            id: "call_3".into(),
+            name: "MockDeferred".into(),
+            input: json!({"tasks": [{"name": "t1", "prompt": "do x"}]}),
+        };
+        let (result, _) = execute_single(
+            &registry,
+            &call,
+            None,
+            aion_compact::CompactionLevel::Off,
+            false,
+        )
+        .await;
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = &result
+        {
+            assert!(!is_error);
+            assert_eq!(content, "ok");
+        } else {
+            panic!("expected ToolResult");
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_single_non_deferred_tool_error_no_hint() {
+        let registry = make_registry_with_deferred();
+        let call = ContentBlock::ToolUse {
+            id: "call_4".into(),
+            name: "MockNonDeferred".into(),
+            input: json!({}),
+        };
+        let (result, _) = execute_single(
+            &registry,
+            &call,
+            None,
+            aion_compact::CompactionLevel::Off,
+            false,
+        )
+        .await;
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = &result
+        {
+            assert!(is_error);
+            assert!(content.contains("Missing cmd"));
+            assert!(!content.contains("ToolSearch"));
+        } else {
+            panic!("expected ToolResult");
+        }
+    }
 }
