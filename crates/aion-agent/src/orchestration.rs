@@ -174,7 +174,12 @@ async fn execute_single(
             } else {
                 tool.context_modifier_for(input)
             };
-            let content = truncate_result(&r.content, max_size);
+            let error_content = if r.is_error && tool.is_deferred() {
+                maybe_append_deferred_hint(&r.content, tool.input_schema(), input)
+            } else {
+                r.content.clone()
+            };
+            let content = truncate_result(&error_content, max_size);
             let content = aion_compact::compact_output(&content, compaction_level);
             let content = if toon_enabled {
                 aion_compact::compact_output_toon(&content)
@@ -368,6 +373,37 @@ fn block_is_error(block: &ContentBlock) -> bool {
     matches!(block, ContentBlock::ToolResult { is_error: true, .. })
 }
 
+/// When a deferred tool fails AND the input is missing required fields from
+/// its full schema, append a hint telling the LLM to call ToolSearch first.
+/// If required fields are all present (or the schema has none), the original
+/// error is returned unchanged — the failure is a runtime issue, not a
+/// missing-schema problem.
+fn maybe_append_deferred_hint(
+    original_error: &str,
+    schema: serde_json::Value,
+    input: &serde_json::Value,
+) -> String {
+    let missing: Vec<&str> = schema["required"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .filter(|key| input.get(key).is_none())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if missing.is_empty() {
+        return original_error.to_string();
+    }
+
+    format!(
+        "{}\n\nThis is a deferred tool — its full parameter schema was not loaded. \
+         Call ToolSearch to load the schema, then retry.",
+        original_error
+    )
+}
+
 fn truncate_result(content: &str, max_chars: usize) -> String {
     if content.len() <= max_chars {
         return content.to_string();
@@ -441,6 +477,7 @@ fn partition<'a>(registry: &ToolRegistry, calls: &'a [ContentBlock]) -> Vec<Batc
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     // -- truncate_display -----------------------------------------------------
 
@@ -491,5 +528,71 @@ mod tests {
         let mixed = "Hello你好World世界Test测试".repeat(100);
         let result = truncate_result(&mixed, 200);
         assert!(result.contains("truncated"));
+    }
+
+    // -- maybe_append_deferred_hint -------------------------------------------
+
+    #[test]
+    fn deferred_hint_appended_when_required_field_missing() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "tasks": { "type": "array" } },
+            "required": ["tasks"]
+        });
+        let input = json!({});
+        let result = maybe_append_deferred_hint("Missing or invalid 'tasks' array", schema, &input);
+        assert!(result.contains("Missing or invalid 'tasks' array"));
+        assert!(result.contains("ToolSearch"));
+    }
+
+    #[test]
+    fn deferred_hint_not_appended_when_required_fields_present() {
+        let schema = json!({
+            "type": "object",
+            "properties": { "tasks": { "type": "array" } },
+            "required": ["tasks"]
+        });
+        let input = json!({"tasks": [{"name": "t1", "prompt": "do x"}]});
+        let result = maybe_append_deferred_hint("Some runtime error", schema, &input);
+        assert_eq!(result, "Some runtime error");
+        assert!(!result.contains("ToolSearch"));
+    }
+
+    #[test]
+    fn deferred_hint_not_appended_when_no_required_field() {
+        let schema = json!({
+            "type": "object",
+            "properties": {}
+        });
+        let input = json!({});
+        let result = maybe_append_deferred_hint("some error", schema, &input);
+        assert_eq!(result, "some error");
+    }
+
+    #[test]
+    fn deferred_hint_not_appended_when_required_is_empty() {
+        let schema = json!({
+            "type": "object",
+            "properties": {},
+            "required": []
+        });
+        let input = json!({});
+        let result = maybe_append_deferred_hint("some error", schema, &input);
+        assert_eq!(result, "some error");
+    }
+
+    #[test]
+    fn deferred_hint_appended_for_partial_missing_fields() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "a": { "type": "string" },
+                "b": { "type": "string" }
+            },
+            "required": ["a", "b"]
+        });
+        let input = json!({"a": "present"});
+        let result = maybe_append_deferred_hint("validation failed", schema, &input);
+        assert!(result.contains("ToolSearch"));
     }
 }
