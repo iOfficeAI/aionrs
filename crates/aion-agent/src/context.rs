@@ -6,6 +6,7 @@ use aion_skills::prompt::format_skills_within_budget;
 use aion_skills::types::SkillMetadata;
 use aion_types::message::{ContentBlock, Message, Role};
 
+use crate::agents_md;
 use crate::plan::prompt as plan_prompt;
 
 /// Session-scoped cache for system prompt sections.
@@ -144,15 +145,10 @@ pub fn build_system_prompt(
         parts.push(custom_cached.clone());
     }
 
-    // Section: AGENTS.md (session permanent)
+    // Section: AGENTS.md (session permanent, hierarchical)
     let agents_section = cache.sections.entry("agents_md").or_insert_with(|| {
-        let agents_md = Path::new(cwd).join("AGENTS.md");
-        if agents_md.exists()
-            && let Ok(content) = std::fs::read_to_string(&agents_md)
-        {
-            return format!("# Project Instructions (AGENTS.md)\n\n{content}");
-        }
-        String::new()
+        let files = agents_md::collect_agents_md(cwd);
+        agents_md::format_agents_md_section(&files)
     });
     if !agents_section.is_empty() {
         parts.push(agents_section.clone());
@@ -688,8 +684,12 @@ mod tests {
             "should NOT load CLAUDE.md content"
         );
         assert!(
-            result.contains("Project Instructions (AGENTS.md)"),
-            "header should reference AGENTS.md"
+            result.contains("(project instructions)"),
+            "header should indicate project instructions"
+        );
+        assert!(
+            result.contains("AGENTS.md"),
+            "header should contain AGENTS.md filename"
         );
     }
 
@@ -718,7 +718,7 @@ mod tests {
             "CLAUDE.md should be ignored"
         );
         assert!(
-            !result.contains("Project Instructions"),
+            !result.contains("(project instructions)"),
             "no project instructions should be injected"
         );
     }
