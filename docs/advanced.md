@@ -139,13 +139,39 @@ VCR_MODE=replay VCR_CASSETTE=tests/cassettes/my_test.json \
 
 ---
 
-## AGENTS.md Auto-Loading
+## AGENTS.md Hierarchical Loading
 
-If an `AGENTS.md` file exists in the current working directory, its contents are automatically injected into the system prompt. Use this for:
+AGENTS.md files provide project-specific instructions that are automatically injected into the system prompt. Files are discovered hierarchically and merged from remote to near:
 
-- Project-specific coding standards
-- Architecture descriptions
-- Special working constraints
+1. **Global**: `<config_dir>/aionrs/AGENTS.md` — user-level instructions for all projects
+2. **Project hierarchy**: Walk up from cwd to the git root (or home directory), collecting every `AGENTS.md` found along the way
+
+Files closer to the working directory appear later in the prompt and take precedence (via LLM recency bias). Each file is annotated with its absolute path for traceability.
+
+### @include Directive
+
+AGENTS.md files can include other files using `@` syntax:
+
+- `@FILENAME` or `@./relative/path` — relative to the AGENTS.md file's directory
+- `@~/path` — relative to home directory
+- `@/absolute/path` — absolute path
+
+Paths inside fenced code blocks are ignored. Includes are recursive (up to depth 5) with circular reference detection. Non-existent files and non-text files are silently skipped.
+
+### Example
+
+Given this structure:
+
+```
+my-workspace/
+├── .git/
+├── AGENTS.md          ← workspace rules
+└── packages/
+    └── server/
+        └── AGENTS.md  ← server-specific rules
+```
+
+Running aion in `packages/server/` produces a system prompt containing both files, workspace first, then server.
 
 ---
 

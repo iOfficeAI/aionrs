@@ -22,7 +22,7 @@ A Rust-based LLM tool-use agent for the command line. It connects to LLM APIs, a
 - **Prompt caching** — Anthropic cache_control for up to 90% cost reduction
 - **Profile inheritance** — Named profiles with `extends` for quick provider/model switching
 - **OAuth login** — Use Claude.ai subscription directly, no API key needed
-- **AGENTS.md injection** — Auto-load project-specific system prompts
+- **AGENTS.md injection** — Hierarchical loading of project instructions with @include support
 
 ## Quick Start
 
