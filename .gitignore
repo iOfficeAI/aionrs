@@ -22,6 +22,10 @@
 # Temporary files
 .tmp/
 
+# Git worktrees
+.worktree/
+worktree/
+
 # aionrs session data
 .aionrs/
 
@@ -39,3 +43,6 @@ coverage/
 # Superpowers brainstorm tool (runtime files, session data)
 .superpowers/
 docs/superpowers/
+
+# Superset
+.superset/
