@@ -112,7 +112,6 @@ impl Tool for BashTool {
 
     fn describe(&self, input: &Value) -> String {
         let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
-        let display = if cmd.len() > 80 { &cmd[..80] } else { cmd };
-        format!("Execute: {}", display)
+        format!("Execute: {}", crate::truncate_utf8(cmd, 80))
     }
 }

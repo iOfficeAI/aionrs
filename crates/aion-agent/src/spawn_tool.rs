@@ -133,8 +133,7 @@ impl Tool for SpawnTool {
             .get("task")
             .and_then(|v| v.as_str())
             .unwrap_or("sub-agent");
-        let display = if task.len() > 80 { &task[..80] } else { task };
-        format!("Spawn: {}", display)
+        format!("Spawn: {}", aion_tools::truncate_utf8(task, 80))
     }
 }
 
