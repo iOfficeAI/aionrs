@@ -47,8 +47,8 @@ fn spawn_description_mentions_max_turns() {
     let tool = make_spawn_tool();
     let desc = tool.description();
     assert!(
-        desc.contains("10"),
-        "Spawn description should mention the 10 turn limit per sub-agent"
+        desc.contains("200"),
+        "Spawn description should mention the 200 turn limit per sub-agent"
     );
 }
 
