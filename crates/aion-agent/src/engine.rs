@@ -30,7 +30,7 @@ pub struct AgentEngine {
     system_prompt: String,
     model: String,
     max_tokens: u32,
-    max_turns: usize,
+    max_turns: Option<usize>,
     total_usage: TokenUsage,
     thinking: Option<aion_types::llm::ThinkingConfig>,
     /// Resolved provider compat settings (for capability validation)
@@ -360,7 +360,19 @@ impl AgentEngine {
             }],
         ));
 
-        for turn in 0..self.max_turns {
+        let mut turn: usize = 0;
+        loop {
+            if let Some(limit) = self.max_turns {
+                if turn >= limit {
+                    self.save_session();
+                    return Ok(AgentResult {
+                        text: String::new(),
+                        stop_reason: StopReason::MaxTurns,
+                        usage: self.total_usage.clone(),
+                        turns: turn,
+                    });
+                }
+            }
             // Run multi-level compaction before each API call.
             // On the first turn last_input_tokens is 0 so neither
             // autocompact nor emergency will fire.
@@ -577,10 +589,8 @@ impl AgentEngine {
 
             // Save session after each turn
             self.save_session();
+            turn += 1;
         }
-
-        self.save_session();
-        Err(AgentError::MaxTurnsExceeded(self.max_turns))
     }
 
     /// Run the multi-level compaction pipeline before each API call.
@@ -783,7 +793,7 @@ mod set_config_tests {
             system_prompt: String::new(),
             model: model.to_string(),
             max_tokens: 4096,
-            max_turns: 10,
+            max_turns: Some(10),
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1110,7 +1120,7 @@ mod phase6_tests {
             system_prompt: String::new(),
             model: model.to_string(),
             max_tokens: 4096,
-            max_turns: 10,
+            max_turns: Some(10),
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1312,7 +1322,7 @@ mod compact_tests {
             system_prompt: String::new(),
             model: "test-model".to_string(),
             max_tokens: 4096,
-            max_turns: 10,
+            max_turns: Some(10),
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1577,7 +1587,7 @@ mod plan_mode_tests {
             system_prompt: String::new(),
             model: "test-model".to_string(),
             max_tokens: 4096,
-            max_turns: 10,
+            max_turns: Some(10),
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1757,8 +1767,6 @@ pub enum AgentError {
     ApiError(String),
     #[error("Provider error: {0}")]
     Provider(#[from] ProviderError),
-    #[error("Max turns ({0}) exceeded")]
-    MaxTurnsExceeded(usize),
     #[error("User aborted the session")]
     UserAborted,
     #[error("Context window nearly full ({input_tokens} tokens used, limit {limit})")]
