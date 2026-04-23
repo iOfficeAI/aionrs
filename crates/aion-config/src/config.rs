@@ -120,8 +120,8 @@ pub struct DefaultConfig {
     pub model: Option<String>,
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
-    #[serde(default = "default_max_turns")]
-    pub max_turns: usize,
+    #[serde(default)]
+    pub max_turns: Option<usize>,
     pub system_prompt: Option<String>,
 }
 
@@ -131,7 +131,7 @@ impl Default for DefaultConfig {
             provider: default_provider(),
             model: None,
             max_tokens: default_max_tokens(),
-            max_turns: default_max_turns(),
+            max_turns: None,
             system_prompt: None,
         }
     }
@@ -226,9 +226,6 @@ fn default_provider() -> String {
 fn default_max_tokens() -> u32 {
     8192
 }
-fn default_max_turns() -> usize {
-    30
-}
 fn default_allow_list() -> Vec<String> {
     vec!["Read".into(), "Grep".into(), "Glob".into()]
 }
@@ -252,7 +249,7 @@ pub struct Config {
     pub base_url: String,
     pub model: String,
     pub max_tokens: u32,
-    pub max_turns: usize,
+    pub max_turns: Option<usize>,
     pub system_prompt: Option<String>,
     pub thinking: Option<ThinkingConfig>,
     pub prompt_caching: bool,
@@ -346,7 +343,7 @@ impl Config {
             });
 
         let max_tokens = cli.max_tokens.unwrap_or(merged.default.max_tokens);
-        let max_turns = cli.max_turns.unwrap_or(merged.default.max_turns);
+        let max_turns = cli.max_turns.or(merged.default.max_turns);
 
         let system_prompt = cli
             .system_prompt
@@ -581,11 +578,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         } else {
             global.default.max_tokens
         },
-        max_turns: if project.default.max_turns != default_max_turns() {
-            project.default.max_turns
-        } else {
-            global.default.max_turns
-        },
+        max_turns: project.default.max_turns.or(global.default.max_turns),
         system_prompt: project
             .default
             .system_prompt
@@ -771,7 +764,7 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
         config.default.max_tokens = max_tokens;
     }
     if let Some(max_turns) = profile.max_turns {
-        config.default.max_turns = max_turns;
+        config.default.max_turns = Some(max_turns);
     }
 
     // Profile can override api_key, base_url, and compat for the active provider
@@ -824,7 +817,7 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r#"# aionrs configuration
 provider = "anthropic"            # built-in provider or custom alias from [providers.<name>]
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
-max_turns = 30
+# max_turns = 30                  # optional: omit for unlimited turns
 # system_prompt = "..."          # optional custom system prompt
 
 # Provider-specific API settings
@@ -1091,7 +1084,7 @@ mod tests {
                 provider: "anthropic".to_string(),
                 model: Some("global-model".to_string()),
                 max_tokens: 4096,
-                max_turns: 10,
+                max_turns: Some(10),
                 system_prompt: Some("global prompt".to_string()),
             },
             ..Default::default()
@@ -1101,7 +1094,7 @@ mod tests {
                 provider: "openai".to_string(), // non-default -> overrides global
                 model: Some("project-model".to_string()),
                 max_tokens: 2048, // non-default -> overrides global
-                max_turns: 5,     // non-default -> overrides global
+                max_turns: Some(5), // non-default -> overrides global
                 system_prompt: Some("project prompt".to_string()),
             },
             ..Default::default()
@@ -1112,7 +1105,7 @@ mod tests {
         assert_eq!(merged.default.provider, "openai");
         assert_eq!(merged.default.model, Some("project-model".to_string()));
         assert_eq!(merged.default.max_tokens, 2048);
-        assert_eq!(merged.default.max_turns, 5);
+        assert_eq!(merged.default.max_turns, Some(5));
         assert_eq!(
             merged.default.system_prompt,
             Some("project prompt".to_string())
@@ -1127,12 +1120,12 @@ mod tests {
                 provider: "openai".to_string(),
                 model: Some("global-model".to_string()),
                 max_tokens: 1024,
-                max_turns: 5,
+                max_turns: Some(5),
                 system_prompt: Some("global prompt".to_string()),
             },
             ..Default::default()
         };
-        // Project stays at built-in defaults (provider = "anthropic", max_tokens = 8192, max_turns = 30)
+        // Project stays at built-in defaults (provider = "anthropic", max_tokens = 8192, max_turns = None)
         let project = ConfigFile::default();
 
         let merged = merge_config_files(global, project);
@@ -1141,7 +1134,7 @@ mod tests {
         assert_eq!(merged.default.provider, "openai");
         assert_eq!(merged.default.model, Some("global-model".to_string()));
         assert_eq!(merged.default.max_tokens, 1024);
-        assert_eq!(merged.default.max_turns, 5);
+        assert_eq!(merged.default.max_turns, Some(5));
         assert_eq!(
             merged.default.system_prompt,
             Some("global prompt".to_string())
@@ -1155,7 +1148,7 @@ mod tests {
 
         assert_eq!(merged.default.provider, default_provider());
         assert_eq!(merged.default.max_tokens, default_max_tokens());
-        assert_eq!(merged.default.max_turns, default_max_turns());
+        assert_eq!(merged.default.max_turns, None);
         assert!(merged.default.model.is_none());
         assert!(merged.providers.is_empty());
         assert!(merged.profiles.is_empty());
@@ -1404,7 +1397,7 @@ allow = ["commit", "review-pr", "db:*"]
 
         assert_eq!(config.default.provider, "anthropic");
         assert_eq!(config.default.max_tokens, 8192);
-        assert_eq!(config.default.max_turns, 30);
+        assert_eq!(config.default.max_turns, None);
         assert!(config.default.model.is_none());
         assert!(config.providers.is_empty());
         assert!(config.profiles.is_empty());
