@@ -34,7 +34,7 @@ fn openai_config(api_key: &str) -> Config {
         base_url: "https://api.openai.com".to_string(),
         model: "gpt-4o-mini".to_string(),
         max_tokens: 256,
-        max_turns: 3,
+        max_turns: Some(3),
         system_prompt: Some(
             "You are a helpful assistant. Be concise. Answer exactly what is asked.".to_string(),
         ),

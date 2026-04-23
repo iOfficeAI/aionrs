@@ -257,18 +257,16 @@ async fn test_engine_token_usage_tracking() {
 }
 
 // ---------------------------------------------------------------------------
-// test_engine_max_turns_exceeded
+// test_engine_max_turns_returns_ok
 //
-// Verifies that the engine returns AgentError::MaxTurnsExceeded when the
+// Verifies that the engine returns Ok with StopReason::MaxTurns when the
 // LLM keeps requesting tools beyond the configured max_turns limit.
 //
 // With max_turns=1 the engine executes one turn.  If that turn has tool
 // calls it processes them, then loops back and hits the limit.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn test_engine_max_turns_exceeded() {
-    // Supply two tool-use turns so the mock has events for both iterations;
-    // the engine should bail after the first tool-call turn is processed.
+async fn test_engine_max_turns_returns_ok() {
     let tool_use_turn = || {
         vec![
             LlmEvent::ToolUse {
@@ -291,23 +289,20 @@ async fn test_engine_max_turns_exceeded() {
     let provider = Arc::new(MockLlmProvider::with_turns(vec![tool_use_turn(), tool_use_turn()]));
 
     let mut config = test_config();
-    config.max_turns = 1;
+    config.max_turns = Some(1);
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
-    let err = engine
+    let result = engine
         .run("Keep calling tools", "")
         .await
-        .map(|_| panic!("expected error, got Ok"))
-        .unwrap_err();
+        .expect("should return Ok, not Err");
 
-    match err {
-        AgentError::MaxTurnsExceeded(n) => assert_eq!(n, 1),
-        other => panic!("expected MaxTurnsExceeded(1), got: {:?}", other),
-    }
+    assert_eq!(result.stop_reason, StopReason::MaxTurns);
+    assert_eq!(result.turns, 1);
 }
 
 // ---------------------------------------------------------------------------

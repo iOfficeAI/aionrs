@@ -548,7 +548,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
         emergency_buffer: 3_000,
         ..Default::default()
     };
-    config.max_turns = 20;
+    config.max_turns = Some(20);
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(common::MockTool::new(
@@ -702,7 +702,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
         emergency_buffer: 3_000,
         ..Default::default()
     };
-    config.max_turns = 20;
+    config.max_turns = Some(20);
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(common::MockTool::new(
@@ -823,7 +823,7 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
         emergency_buffer: 3_000,
         ..Default::default()
     };
-    config.max_turns = 10;
+    config.max_turns = Some(10);
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(common::MockTool::new(
