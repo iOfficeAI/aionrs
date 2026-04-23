@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.14](https://github.com/iOfficeAI/aionrs/compare/v0.1.13...v0.1.14) (2026-04-23)
+
+
+### Features
+
+* align maxTurns logic with Claude Code ([#66](https://github.com/iOfficeAI/aionrs/issues/66)) ([d640d88](https://github.com/iOfficeAI/aionrs/commit/d640d88380c7c2e64be1c644e1cf424a1699b8a1))
+
+
+### Bug Fixes
+
+* UTF-8 panic in tool describe + autocompact skip logging ([#63](https://github.com/iOfficeAI/aionrs/issues/63)) ([c00222d](https://github.com/iOfficeAI/aionrs/commit/c00222d5363c681398dfd1333108ea38fc9eae69))
+
 ## [0.1.13](https://github.com/iOfficeAI/aionrs/compare/v0.1.12...v0.1.13) (2026-04-21)
 
 
