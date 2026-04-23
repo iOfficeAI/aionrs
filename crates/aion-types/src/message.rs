@@ -84,6 +84,8 @@ pub enum StopReason {
     ToolUse,
     /// Hit max_tokens limit
     MaxTokens,
+    /// Hit max_turns limit
+    MaxTurns,
 }
 
 /// Token usage statistics
