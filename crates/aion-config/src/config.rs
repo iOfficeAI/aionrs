@@ -1093,7 +1093,7 @@ mod tests {
             default: DefaultConfig {
                 provider: "openai".to_string(), // non-default -> overrides global
                 model: Some("project-model".to_string()),
-                max_tokens: 2048, // non-default -> overrides global
+                max_tokens: 2048,   // non-default -> overrides global
                 max_turns: Some(5), // non-default -> overrides global
                 system_prompt: Some("project prompt".to_string()),
             },

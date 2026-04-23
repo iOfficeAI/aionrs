@@ -362,16 +362,16 @@ impl AgentEngine {
 
         let mut turn: usize = 0;
         loop {
-            if let Some(limit) = self.max_turns {
-                if turn >= limit {
-                    self.save_session();
-                    return Ok(AgentResult {
-                        text: String::new(),
-                        stop_reason: StopReason::MaxTurns,
-                        usage: self.total_usage.clone(),
-                        turns: turn,
-                    });
-                }
+            if let Some(limit) = self.max_turns
+                && turn >= limit
+            {
+                self.save_session();
+                return Ok(AgentResult {
+                    text: String::new(),
+                    stop_reason: StopReason::MaxTurns,
+                    usage: self.total_usage.clone(),
+                    turns: turn,
+                });
             }
             // Run multi-level compaction before each API call.
             // On the first turn last_input_tokens is 0 so neither
