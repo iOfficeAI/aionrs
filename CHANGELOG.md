@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.15](https://github.com/iOfficeAI/aionrs/compare/v0.1.14...v0.1.15) (2026-04-24)
+
+
+### Features
+
+* add ping/pong heartbeat protocol support ([#68](https://github.com/iOfficeAI/aionrs/issues/68)) ([20e760b](https://github.com/iOfficeAI/aionrs/commit/20e760b5020525260c5fc10f7211390d96a1be01))
+
 ## [0.1.14](https://github.com/iOfficeAI/aionrs/compare/v0.1.13...v0.1.14) (2026-04-23)
 
 
