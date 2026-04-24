@@ -291,6 +291,18 @@ Emitted after a dynamically injected MCP server has connected and its tools are 
 | `name` | string | Server name (as provided in `add_mcp_server`) |
 | `tools` | string[] | List of tool names registered from this server |
 
+### 1.14 `pong`
+
+Response to a `ping` command from the client. Used for heartbeat/liveness detection.
+
+```json
+{
+  "type": "pong"
+}
+```
+
+No additional fields. The agent emits `pong` immediately upon receiving a `ping` command, regardless of whether a message turn is active.
+
 ## 2. Client → Agent Commands (stdin)
 
 Every line is a JSON object with a `type` field.
@@ -456,6 +468,18 @@ Agent  → stdout: {"type":"mcp_ready","name":"tools","tools":["tool_a","tool_b"
 Client → stdin:  {"type":"message","msg_id":"m1","content":"Hello"}
                   ↑ first message ends the injection window
 ```
+
+### 2.9 `ping`
+
+Heartbeat probe. The agent responds immediately with a `pong` event.
+
+```json
+{
+  "type": "ping"
+}
+```
+
+Can be sent at any time — during idle, during message processing, or during tool execution. The agent always responds with `{"type":"pong"}`.
 
 After the first `message`, any further `add_mcp_server` commands are rejected:
 

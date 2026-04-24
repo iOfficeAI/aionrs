@@ -689,6 +689,9 @@ async fn run_json_stream_mode(
                                             message: format!("mode updated: {}", approval_manager.current_mode()),
                                         });
                                     }
+                                    ProtocolCommand::Ping => {
+                                        let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Pong);
+                                    }
                                     _ => {
                                         eprintln!("[protocol] Ignoring command during active message processing");
                                     }
@@ -794,6 +797,9 @@ async fn run_json_stream_mode(
                 output.emit_error(&format!(
                     "AddMcpServer '{name}': rejected — only allowed before first Message"
                 ));
+            }
+            ProtocolCommand::Ping => {
+                let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Pong);
             }
         }
     }

@@ -56,6 +56,7 @@ pub enum ProtocolCommand {
         #[serde(default)]
         headers: Option<HashMap<String, String>>,
     },
+    Ping,
 }
 
 #[derive(Debug, Deserialize, Default, PartialEq, Eq)]
@@ -207,6 +208,13 @@ mod tests {
             }
             _ => panic!("expected AddMcpServer"),
         }
+    }
+
+    #[test]
+    fn ping_deserialize() {
+        let json = r#"{"type":"ping"}"#;
+        let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
+        assert_eq!(cmd, ProtocolCommand::Ping);
     }
 
     #[test]

@@ -69,6 +69,7 @@ pub enum ProtocolEvent {
         name: String,
         tools: Vec<String>,
     },
+    Pong,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -307,6 +308,14 @@ mod tests {
         assert_eq!(json["tools"][0], "team_send_message");
         assert_eq!(json["tools"][1], "team_task_create");
         assert_eq!(json["tools"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn test_pong_event_serialization() {
+        let event = ProtocolEvent::Pong;
+        let json = serde_json::to_value(&event).unwrap();
+        assert_eq!(json["type"], "pong");
+        assert_eq!(json.as_object().unwrap().len(), 1);
     }
 
     #[test]
