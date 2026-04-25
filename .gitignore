@@ -24,7 +24,9 @@
 
 # Git worktrees
 .worktree/
+.worktrees/
 worktree/
+worktrees/
 
 # aionrs session data
 .aionrs/
