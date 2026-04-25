@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tokio::process::Command;
+
+use crate::shell::shell_command_builder;
 
 /// Hook system configuration
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -227,9 +228,7 @@ async fn run_hook_command(
     let timeout = Duration::from_millis(timeout_ms);
 
     let result = tokio::time::timeout(timeout, async {
-        Command::new("sh")
-            .arg("-c")
-            .arg(&interpolated)
+        shell_command_builder(&interpolated)
             .envs(env_vars)
             .output()
             .await
