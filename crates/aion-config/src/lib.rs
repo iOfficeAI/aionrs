@@ -8,3 +8,4 @@ pub mod debug;
 pub mod file_cache;
 pub mod hooks;
 pub mod plan;
+pub mod shell;
