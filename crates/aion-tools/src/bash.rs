@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
-use tokio::process::Command;
 
+use aion_config::shell::shell_command;
 use aion_protocol::events::ToolCategory;
 use aion_types::tool::{JsonSchema, ToolResult};
 
@@ -75,7 +75,7 @@ impl Tool for BashTool {
         let timeout = Duration::from_millis(timeout_ms);
 
         let result = tokio::time::timeout(timeout, async {
-            Command::new("sh").arg("-c").arg(command).output().await
+            shell_command(command).await
         })
         .await;
 
@@ -113,5 +113,28 @@ impl Tool for BashTool {
     fn describe(&self, input: &Value) -> String {
         let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
         format!("Execute: {}", crate::truncate_utf8(cmd, 80))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn execute_echo_returns_stdout() {
+        let tool = BashTool;
+        let input = json!({"command": "echo hello_bash"});
+        let result = tool.execute(input).await;
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(result.content.contains("hello_bash"));
+    }
+
+    #[tokio::test]
+    async fn execute_invalid_command_returns_error() {
+        let tool = BashTool;
+        let input = json!({"command": "nonexistent_command_xyz_123"});
+        let result = tool.execute(input).await;
+        assert!(result.is_error);
     }
 }
