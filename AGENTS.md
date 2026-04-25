@@ -139,13 +139,14 @@ Every test must verify a meaningful behavior or edge case.
 No trivial tests that just assert the happy path without checking boundaries,
 error conditions, or non-obvious logic.
 
-## Cross-Platform Path Handling
+## Cross-Platform
 
 CI runs on macOS, Linux, **and Windows**. Local dev can only test the
 current platform's `#[cfg(...)]` code — other platform branches are
 verified by CI alone.
 
-Rules:
+### Paths
+
 - Never hardcode platform paths (`/tmp/...`, `C:\...`) in production code.
   Use `Path::join()`, `dirs::config_dir()`, `tempfile::tempdir()`, etc.
 - In tests, hardcoded Unix paths (`Path::new("/foo/...")`) are fine for
@@ -155,6 +156,16 @@ Rules:
   platform-sensitive checks.
 - Use `std::path::Component::Normal` (not byte length) when checking
   path depth — prefix/root components differ across platforms.
+
+### Shell Execution
+
+- All shell invocations must go through `aion_config::shell` module
+  (`shell_command()` or `shell_command_builder()`).
+- Never call `Command::new("sh")`, `Command::new("bash")`, or
+  `Command::new("cmd")` directly — these are platform-specific.
+- External CLI tools that differ across platforms (e.g. `grep` vs
+  `findstr`) must use `cfg!(windows)` branches or equivalent
+  platform-aware selection.
 
 ## Code Style
 
