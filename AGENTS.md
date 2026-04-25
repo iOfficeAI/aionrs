@@ -119,8 +119,9 @@ existing dependency graph before adding cross-crate imports.
 
 ### File Organization
 
-- One file per logical unit within each crate
-- Keep files under 800 lines; extract modules when approaching the limit
+- Each module (`.rs` file) follows the **single responsibility principle** —
+  one clear purpose per file
+- Keep files under 1000 lines; extract sub-modules when approaching the limit
 - Organize by domain responsibility, not by type
 
 ## Test Organization
