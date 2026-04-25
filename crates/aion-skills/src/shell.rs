@@ -189,25 +189,14 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
 
 /// Execute a single shell command and return its combined stdout/stderr output.
 async fn execute_command(command: &str, cwd: &str) -> Result<String, ShellExecutionError> {
-    let output = if cfg!(windows) {
-        tokio::process::Command::new("cmd")
-            .arg("/C")
-            .arg(command)
-            .current_dir(cwd)
-            .output()
-            .await
-    } else {
-        tokio::process::Command::new("bash")
-            .arg("-c")
-            .arg(command)
-            .current_dir(cwd)
-            .output()
-            .await
-    }
-    .map_err(|e| ShellExecutionError::CommandFailed {
-        pattern: command.to_owned(),
-        output: e.to_string(),
-    })?;
+    let output = aion_config::shell::shell_command_builder(command)
+        .current_dir(cwd)
+        .output()
+        .await
+        .map_err(|e| ShellExecutionError::CommandFailed {
+            pattern: command.to_owned(),
+            output: e.to_string(),
+        })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
