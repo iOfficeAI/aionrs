@@ -50,7 +50,9 @@ mod tests {
 
     #[tokio::test]
     async fn shell_command_runs_echo() {
-        let output = shell_command("echo hello").await.expect("shell_command failed");
+        let output = shell_command("echo hello")
+            .await
+            .expect("shell_command failed");
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("hello"));
     }

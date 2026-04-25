@@ -143,10 +143,7 @@ async fn try_grep(pattern: &str, path: &str, case_insensitive: bool) -> ToolResu
             .arg("/N")
             .arg("/R")
             .arg(pattern)
-            .arg(format!(
-                "{}\\*",
-                path.trim_end_matches(['\\', '/'])
-            ));
+            .arg(format!("{}\\*", path.trim_end_matches(['\\', '/'])));
         if case_insensitive {
             c.arg("/I");
         }

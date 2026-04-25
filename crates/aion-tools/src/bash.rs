@@ -74,10 +74,7 @@ impl Tool for BashTool {
 
         let timeout = Duration::from_millis(timeout_ms);
 
-        let result = tokio::time::timeout(timeout, async {
-            shell_command(command).await
-        })
-        .await;
+        let result = tokio::time::timeout(timeout, async { shell_command(command).await }).await;
 
         match result {
             Ok(Ok(output)) => {
