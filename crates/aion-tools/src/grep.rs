@@ -137,12 +137,28 @@ async fn try_ripgrep(
 }
 
 async fn try_grep(pattern: &str, path: &str, case_insensitive: bool) -> ToolResult {
-    let mut cmd = Command::new("grep");
-    cmd.arg("-rn").arg(pattern).arg(path);
-
-    if case_insensitive {
-        cmd.arg("-i");
-    }
+    let mut cmd = if cfg!(windows) {
+        let mut c = Command::new("findstr");
+        c.arg("/S")
+            .arg("/N")
+            .arg("/R")
+            .arg(pattern)
+            .arg(format!(
+                "{}\\*",
+                path.trim_end_matches(['\\', '/'])
+            ));
+        if case_insensitive {
+            c.arg("/I");
+        }
+        c
+    } else {
+        let mut c = Command::new("grep");
+        c.arg("-rn").arg(pattern).arg(path);
+        if case_insensitive {
+            c.arg("-i");
+        }
+        c
+    };
 
     match cmd.output().await {
         Ok(output) => {
@@ -153,7 +169,6 @@ async fn try_grep(pattern: &str, path: &str, case_insensitive: bool) -> ToolResu
                     is_error: false,
                 }
             } else {
-                // Limit to 250 lines
                 let lines: Vec<&str> = stdout.lines().take(250).collect();
                 ToolResult {
                     content: lines.join("\n"),
@@ -165,5 +180,23 @@ async fn try_grep(pattern: &str, path: &str, case_insensitive: bool) -> ToolResu
             content: format!("grep failed: {}", e),
             is_error: true,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[tokio::test]
+    async fn grep_tool_finds_pattern_in_own_source() {
+        let tool = GrepTool;
+        let input = json!({
+            "pattern": "GrepTool",
+            "path": env!("CARGO_MANIFEST_DIR")
+        });
+        let result = tool.execute(input).await;
+        assert!(!result.is_error, "grep failed: {}", result.content);
+        assert!(result.content.contains("GrepTool"));
     }
 }
