@@ -1,40 +1,23 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use clap::Parser;
 
-use aion_agent::context;
-use aion_agent::engine::AgentEngine;
+use aion_agent::bootstrap::AgentBootstrap;
 use aion_agent::output::OutputSink;
 use aion_agent::output::protocol_sink::ProtocolSink;
 use aion_agent::output::terminal::TerminalSink;
-use aion_agent::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
 use aion_agent::session;
-use aion_agent::skill_tool::SkillTool;
-use aion_agent::spawn_tool::SpawnTool;
-use aion_agent::spawner::AgentSpawner;
 use aion_config::auth;
 use aion_config::config::{self, CliArgs, Config, McpServerConfig, TransportType};
 use aion_mcp::manager::McpManager;
-use aion_mcp::tool_proxy::{register_mcp_tools, register_single_server_tools};
+use aion_mcp::tool_proxy::register_single_server_tools;
 use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
 use aion_protocol::events::ProtocolEvent;
 use aion_protocol::reader::spawn_stdin_reader;
 use aion_protocol::writer::ProtocolWriter;
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
-use aion_skills::loader::load_all_skills;
-use aion_skills::permissions::SkillPermissionChecker;
-use aion_tools::bash::BashTool;
-use aion_tools::edit::EditTool;
-use aion_tools::file_cache::FileStateCache;
-use aion_tools::glob::GlobTool;
-use aion_tools::grep::GrepTool;
-use aion_tools::read::ReadTool;
-use aion_tools::registry::ToolRegistry;
-use aion_tools::tool_search::ToolSearchTool;
-use aion_tools::write::WriteTool;
 
 #[derive(Parser)]
 #[command(
@@ -227,156 +210,57 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Resolve memory directory for the current project
-    let cwd_path = std::path::Path::new(&cwd);
-    let memory_dir = aion_memory::paths::auto_memory_dir(cwd_path);
-
-    // Create file state cache (shared across Read/Edit/Write tools)
-    let file_cache = if config.file_cache.enabled {
-        Some(Arc::new(std::sync::RwLock::new(FileStateCache::new(
-            &config.file_cache,
-        ))))
-    } else {
-        None
-    };
-
-    // Register built-in tools
-    let mut registry = ToolRegistry::new();
-    registry.register(Box::new(ReadTool::new(file_cache.clone())));
-    registry.register(Box::new(WriteTool::new(file_cache.clone())));
-    registry.register(Box::new(EditTool::new(file_cache)));
-    registry.register(Box::new(BashTool));
-    registry.register(Box::new(GrepTool));
-    registry.register(Box::new(GlobTool));
-
-    let builtin_names: Vec<String> = registry.tool_names();
-
-    // Connect to MCP servers (if configured)
-    let mcp_manager = if !config.mcp.servers.is_empty() {
-        match McpManager::connect_all(&config.mcp.servers).await {
-            Ok(mgr) => {
-                let mgr = Arc::new(mgr);
-                register_mcp_tools(&mut registry, &mgr, &builtin_names, &config.mcp.servers);
-                Some(mgr)
-            }
-            Err(e) => {
-                output.emit_error(&format!("MCP initialization error: {}", e));
-                None
-            }
-        }
-    } else {
-        None
-    };
-
-    // Load skills from all sources (bundled, MCP, user, project)
-    let skills = load_all_skills(cwd_path, &[], false, mcp_manager.as_deref()).await;
-
-    // Build system prompt with loaded skills
-    let mut prompt_cache = aion_agent::context::SystemPromptCache::new();
-    let system_prompt = context::build_system_prompt(
-        &mut prompt_cache,
-        config.system_prompt.as_deref(),
-        &cwd,
-        &config.model,
-        &skills,
-        None,
-        memory_dir.as_deref(),
-        false,
-        config.compact.toon,
-    );
-    config.system_prompt = Some(system_prompt);
-
-    // Register SkillTool so the LLM can invoke skills
-    let skills_arc = Arc::new(skills);
-    let skill_checker = SkillPermissionChecker::new(
-        config.tools.skills.deny.clone(),
-        config.tools.skills.allow.clone(),
-        config.tools.auto_approve,
-    );
-    registry.register(Box::new(SkillTool::new(
-        skills_arc,
-        cwd.clone(),
-        skill_checker,
-    )));
-
-    // Create provider (shared via Arc for sub-agent reuse)
-    let provider = aion_providers::create_provider(&config);
-
-    // Register SpawnTool (sub-agent spawning)
-    let spawner = Arc::new(AgentSpawner::new(provider.clone(), config.clone()));
-    registry.register(Box::new(SpawnTool::new(spawner.clone())));
-
-    // Register Plan Mode tools (if enabled)
-    let plan_active_flag = Arc::new(AtomicBool::new(false));
-    if config.plan.enabled {
-        registry.register(Box::new(EnterPlanModeTool::new(Arc::clone(
-            &plan_active_flag,
-        ))));
-        registry.register(Box::new(ExitPlanModeTool::new(Arc::clone(
-            &plan_active_flag,
-        ))));
-    }
-
-    // Register ToolSearch (must be after all other tools to capture full snapshot)
-    let tool_defs_snapshot = registry.to_tool_defs();
-    registry.register(Box::new(ToolSearchTool::new(tool_defs_snapshot)));
-
+    // Branch to JSON stream mode
     if cli.json_stream {
-        return run_json_stream_mode(
-            config,
-            registry,
-            provider,
-            mcp_manager,
-            cli.resume,
-            cli.session_id,
-            plan_active_flag.clone(),
-        )
-        .await;
+        return run_json_stream_mode(config, &cwd, cli.resume, cli.session_id).await;
     }
 
     let provider_name = config.provider_label.clone();
 
-    // Handle --resume
-    let mut engine = if let Some(resume_id) = cli.resume {
+    // Bootstrap engine with full feature initialization
+    let mut bootstrap = AgentBootstrap::new(config, &cwd, output.clone());
+
+    if let Some(resume_id) = &cli.resume {
+        let cfg = bootstrap.config();
         let session_mgr = session::SessionManager::new(
-            config.session.directory.clone().into(),
-            config.session.max_sessions,
+            cfg.session.directory.clone().into(),
+            cfg.session.max_sessions,
         );
-        let session = session_mgr.load(&resume_id)?;
+        let session = session_mgr.load(resume_id)?;
         terminal.formatter().session_info(&format!(
             "Resumed session {} ({} messages, {} model)",
             session.id,
             session.messages.len(),
             session.model
         ));
-        AgentEngine::resume_with_provider(provider, config, registry, output.clone(), session)
-    } else {
-        let mut engine = AgentEngine::new_with_provider(provider, config, registry, output.clone());
+        bootstrap = bootstrap.resume(session);
+    }
+
+    let result = bootstrap.build().await?;
+    let mut engine = result.engine;
+
+    if cli.resume.is_none() {
         engine.init_session(&provider_name, &cwd, cli.session_id.as_deref())?;
-        engine
-    };
-    engine.set_plan_active_flag(plan_active_flag.clone());
+    }
 
     let prompt = cli.prompt.join(" ");
     if prompt.is_empty() {
         repl_loop(&mut engine, &terminal, &output).await?;
     } else {
-        let result = engine.run(&prompt, "").await?;
+        let run_result = engine.run(&prompt, "").await?;
         output.emit_stream_end(
             "",
-            result.turns,
-            result.usage.input_tokens,
-            result.usage.output_tokens,
-            result.usage.cache_creation_tokens,
-            result.usage.cache_read_tokens,
+            run_result.turns,
+            run_result.usage.input_tokens,
+            run_result.usage.output_tokens,
+            run_result.usage.cache_creation_tokens,
+            run_result.usage.cache_read_tokens,
         );
     }
 
-    // Run stop hooks before cleanup
     engine.run_stop_hooks().await;
 
-    // Cleanup MCP servers on exit
-    if let Some(mgr) = &mcp_manager {
+    for mgr in &result.mcp_managers {
         mgr.shutdown().await;
     }
 
@@ -384,7 +268,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn repl_loop(
-    engine: &mut AgentEngine,
+    engine: &mut aion_agent::engine::AgentEngine,
     terminal: &Arc<TerminalSink>,
     output: &Arc<dyn OutputSink>,
 ) -> anyhow::Result<()> {
@@ -500,35 +384,37 @@ type PendingConfig = (
 
 async fn run_json_stream_mode(
     config: Config,
-    registry: ToolRegistry,
-    provider: Arc<dyn aion_providers::LlmProvider>,
-    mcp_manager: Option<Arc<McpManager>>,
+    cwd: &str,
     resume: Option<String>,
     session_id: Option<String>,
-    plan_active_flag: Arc<AtomicBool>,
 ) -> anyhow::Result<()> {
     let writer = Arc::new(ProtocolWriter::new());
     let protocol_sink = Arc::new(ProtocolSink::new(writer.clone()));
     let approval_manager = Arc::new(ToolApprovalManager::new());
     let output: Arc<dyn OutputSink> = protocol_sink.clone();
-    let initial_has_mcp = mcp_manager.is_some();
 
     let provider_name = config.provider_label.clone();
-    let cwd = std::env::current_dir()?.to_string_lossy().to_string();
 
-    let mut engine = if let Some(resume_id) = resume {
+    // Bootstrap engine with full feature initialization
+    let mut bootstrap = AgentBootstrap::new(config, cwd, output.clone());
+
+    if let Some(resume_id) = &resume {
+        let cfg = bootstrap.config();
         let session_mgr = session::SessionManager::new(
-            config.session.directory.clone().into(),
-            config.session.max_sessions,
+            cfg.session.directory.clone().into(),
+            cfg.session.max_sessions,
         );
-        let session = session_mgr.load(&resume_id)?;
-        AgentEngine::resume_with_provider(provider, config, registry, output.clone(), session)
-    } else {
-        let mut engine = AgentEngine::new_with_provider(provider, config, registry, output.clone());
-        engine.init_session(&provider_name, &cwd, session_id.as_deref())?;
-        engine
-    };
-    engine.set_plan_active_flag(plan_active_flag);
+        let session = session_mgr.load(resume_id)?;
+        bootstrap = bootstrap.resume(session);
+    }
+
+    let result = bootstrap.build().await?;
+    let mut engine = result.engine;
+    let initial_has_mcp = result.has_mcp;
+
+    if resume.is_none() {
+        engine.init_session(&provider_name, cwd, session_id.as_deref())?;
+    }
 
     let sid = engine.current_session_id();
     protocol_sink.emit_ready(
@@ -544,8 +430,6 @@ async fn run_json_stream_mode(
     let mut cmd_rx = spawn_stdin_reader();
 
     // --- Pre-message phase: accept AddMcpServer commands ---
-    // Dynamic servers get their own McpManager instances because the initial
-    // mcp_manager Arc may already be shared by tool proxies (Arc::get_mut fails).
     let mut dynamic_managers: Vec<Arc<McpManager>> = Vec::new();
     let mut first_cmd: Option<ProtocolCommand> = None;
 
@@ -612,7 +496,7 @@ async fn run_json_stream_mode(
         }
     }
 
-    let has_mcp = mcp_manager.is_some() || !dynamic_managers.is_empty();
+    let has_mcp = initial_has_mcp || !dynamic_managers.is_empty();
     let mut pending_cmd = first_cmd;
 
     loop {
@@ -655,8 +539,6 @@ async fn run_json_stream_mode(
                                     }
                                     Err(e) => {
                                         output.emit_error(&e.to_string());
-                                        // Always emit stream_end so the client
-                                        // can leave the "running" state.
                                         output.emit_stream_end(&msg_id, 0, 0, 0, 0, 0);
                                     }
                                 }
@@ -699,9 +581,8 @@ async fn run_json_stream_mode(
                             }
                         }
                     }
-                } // engine_fut dropped here, releasing mutable borrow
+                }
 
-                // Apply any config changes that arrived during processing
                 if let Some((model, thinking, thinking_budget, effort, compaction)) =
                     pending_config.take()
                 {
@@ -718,7 +599,6 @@ async fn run_json_stream_mode(
                             message: format!("config applied: {}", changes.join(", ")),
                         });
                     }
-                    // config_changed covers both config and mode updates
                     protocol_sink.emit_config_changed(
                         engine.compat(),
                         has_mcp,
@@ -805,7 +685,7 @@ async fn run_json_stream_mode(
     }
 
     engine.run_stop_hooks().await;
-    if let Some(mgr) = &mcp_manager {
+    for mgr in &result.mcp_managers {
         mgr.shutdown().await;
     }
     for mgr in &dynamic_managers {
