@@ -147,11 +147,10 @@ async fn bootstrap_with_agents_md_in_workspace() {
     std::fs::write(workspace.join("AGENTS.md"), "PROJECT_RULES_MARKER").unwrap();
 
     let config = minimal_config();
-    let _result =
-        AgentBootstrap::new(config, workspace.to_string_lossy().as_ref(), null_output())
-            .build()
-            .await
-            .unwrap();
+    let _result = AgentBootstrap::new(config, workspace.to_string_lossy().as_ref(), null_output())
+        .build()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

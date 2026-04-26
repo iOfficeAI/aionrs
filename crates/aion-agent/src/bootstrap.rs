@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use aion_config::config::Config;
 use aion_mcp::manager::McpManager;
@@ -37,11 +37,7 @@ pub struct AgentBootstrap {
 }
 
 impl AgentBootstrap {
-    pub fn new(
-        config: Config,
-        workspace: impl Into<String>,
-        output: Arc<dyn OutputSink>,
-    ) -> Self {
+    pub fn new(config: Config, workspace: impl Into<String>, output: Arc<dyn OutputSink>) -> Self {
         Self {
             config,
             workspace: workspace.into(),
@@ -197,12 +193,7 @@ impl AgentBootstrap {
                 session,
             )
         } else {
-            AgentEngine::new_with_provider(
-                provider.clone(),
-                self.config,
-                registry,
-                self.output,
-            )
+            AgentEngine::new_with_provider(provider.clone(), self.config, registry, self.output)
         };
         engine.set_plan_active_flag(plan_active_flag);
 
