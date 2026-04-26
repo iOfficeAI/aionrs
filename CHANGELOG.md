@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.16](https://github.com/iOfficeAI/aionrs/compare/v0.1.15...v0.1.16) (2026-04-26)
+
+
+### Features
+
+* add AgentBootstrap builder for consistent engine initialization ([#73](https://github.com/iOfficeAI/aionrs/issues/73)) ([a9392ba](https://github.com/iOfficeAI/aionrs/commit/a9392ba353d664c0c8429ea1e7a754e493e9ff29))
+
+
+### Bug Fixes
+
+* cross-platform shell execution for Windows support ([#70](https://github.com/iOfficeAI/aionrs/issues/70)) ([402d4ff](https://github.com/iOfficeAI/aionrs/commit/402d4ff7311ec47892733dfb79dcd9e83fbfce9c))
+
 ## [0.1.15](https://github.com/iOfficeAI/aionrs/compare/v0.1.14...v0.1.15) (2026-04-24)
 
 
