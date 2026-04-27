@@ -16,7 +16,7 @@ use aion_mcp::tool_proxy::register_single_server_tools;
 use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
 use aion_protocol::events::ProtocolEvent;
 use aion_protocol::reader::spawn_stdin_reader;
-use aion_protocol::writer::ProtocolWriter;
+use aion_protocol::writer::{ProtocolEmitter, ProtocolWriter};
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 
 #[derive(Parser)]
