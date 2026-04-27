@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "aion-agent"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-compact",
  "aion-config",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "aion-cli"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-agent",
  "aion-compact",
@@ -66,7 +66,7 @@ dependencies = [
 
 [[package]]
 name = "aion-compact"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "regex",
  "serde",
@@ -75,7 +75,7 @@ dependencies = [
 
 [[package]]
 name = "aion-config"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-compact",
  "aion-types",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "aion-mcp"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-config",
  "aion-protocol",
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "aion-memory"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-config",
  "chrono",
@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "aion-protocol"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-types",
  "rstest",
@@ -143,7 +143,7 @@ dependencies = [
 
 [[package]]
 name = "aion-providers"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-config",
  "aion-types",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "aion-skills"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-config",
  "aion-mcp",
@@ -198,7 +198,7 @@ dependencies = [
 
 [[package]]
 name = "aion-tools"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "aion-config",
  "aion-protocol",
@@ -217,7 +217,7 @@ dependencies = [
 
 [[package]]
 name = "aion-types"
-version = "0.1.15"
+version = "0.1.16"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2047,9 +2047,9 @@ checksum = "5e5032e24019045c762d3c0f28f5b6b8bbf38563a65908389bf7978758920897"
 
 [[package]]
 name = "lru"
-version = "0.17.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e0b564323a0fb6d54b864f625ae139de9612e27edb944dda37c109f05aac531"
+checksum = "8a860605968fce16869fd239cf4237a82f3ac470723415db603b0e8b6c8d4fb9"
 dependencies = [
  "hashbrown 0.17.0",
 ]
