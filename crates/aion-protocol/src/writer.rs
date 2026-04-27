@@ -3,6 +3,15 @@ use std::sync::Mutex;
 
 use crate::events::ProtocolEvent;
 
+/// Trait for emitting protocol events to a host.
+///
+/// The default implementation (`ProtocolWriter`) writes JSON Lines to stdout.
+/// Backend integrations provide alternative implementations that bridge events
+/// to their own event systems.
+pub trait ProtocolEmitter: Send + Sync {
+    fn emit(&self, event: &ProtocolEvent) -> io::Result<()>;
+}
+
 /// Thread-safe JSON Lines writer to stdout
 pub struct ProtocolWriter {
     writer: Mutex<BufWriter<Stdout>>,
@@ -20,9 +29,10 @@ impl ProtocolWriter {
             writer: Mutex::new(BufWriter::new(io::stdout())),
         }
     }
+}
 
-    /// Serialize and write a protocol event as a single JSON line to stdout
-    pub fn emit(&self, event: &ProtocolEvent) -> io::Result<()> {
+impl ProtocolEmitter for ProtocolWriter {
+    fn emit(&self, event: &ProtocolEvent) -> io::Result<()> {
         let mut w = self
             .writer
             .lock()
@@ -46,7 +56,6 @@ mod tests {
 
     #[test]
     fn test_writer_emit_does_not_panic() {
-        // Just verify emit doesn't panic (output goes to stdout)
         let writer = ProtocolWriter::new();
         let event = ProtocolEvent::Ready {
             version: "0.1.0".to_string(),
