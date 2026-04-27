@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use aion_config::compat::ProviderCompat;
 use aion_protocol::events::{Capabilities, ErrorInfo, ProtocolEvent, Usage};
-use aion_protocol::writer::ProtocolWriter;
+use aion_protocol::writer::{ProtocolEmitter, ProtocolWriter};
 
 use super::OutputSink;
 

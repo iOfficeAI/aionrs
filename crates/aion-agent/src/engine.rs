@@ -42,7 +42,7 @@ pub struct AgentEngine {
     output: Arc<dyn OutputSink>,
     current_msg_id: String,
     approval_manager: Option<Arc<aion_protocol::ToolApprovalManager>>,
-    protocol_writer: Option<Arc<aion_protocol::writer::ProtocolWriter>>,
+    protocol_writer: Option<Arc<dyn aion_protocol::writer::ProtocolEmitter>>,
     allow_list: Vec<String>,
     /// Persisted reasoning effort, updated by skill context modifiers.
     /// Carried into each turn's LlmRequest.reasoning_effort.
@@ -240,7 +240,7 @@ impl AgentEngine {
         self.approval_manager = Some(mgr);
     }
 
-    pub fn set_protocol_writer(&mut self, writer: Arc<aion_protocol::writer::ProtocolWriter>) {
+    pub fn set_protocol_writer(&mut self, writer: Arc<dyn aion_protocol::writer::ProtocolEmitter>) {
         self.protocol_writer = Some(writer);
     }
 

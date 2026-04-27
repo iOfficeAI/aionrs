@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use crate::confirm::{ConfirmResult, ToolConfirmer};
 use aion_config::hooks::HookEngine;
 use aion_protocol::events::{OutputType, ProtocolEvent, ToolCategory, ToolInfo, ToolStatus};
-use aion_protocol::writer::ProtocolWriter;
+use aion_protocol::writer::ProtocolEmitter;
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 use aion_types::message::ContentBlock;
 use aion_types::skill_types::ContextModifier;
@@ -229,7 +229,7 @@ pub async fn execute_tool_calls_with_approval(
     registry: &ToolRegistry,
     tool_calls: &[ContentBlock],
     approval_manager: &Arc<ToolApprovalManager>,
-    writer: &Arc<ProtocolWriter>,
+    writer: &Arc<dyn ProtocolEmitter>,
     msg_id: &str,
     auto_approve: bool,
     allow_list: &[String],
