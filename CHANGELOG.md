@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.17](https://github.com/iOfficeAI/aionrs/compare/v0.1.16...v0.1.17) (2026-04-29)
+
+
+### Code Refactoring
+
+* extract ProtocolEmitter trait for backend integration ([#75](https://github.com/iOfficeAI/aionrs/issues/75)) ([b792d74](https://github.com/iOfficeAI/aionrs/commit/b792d74a0171708de4f6c2019f1b3f3864375b0b))
+
 ## [0.1.16](https://github.com/iOfficeAI/aionrs/compare/v0.1.15...v0.1.16) (2026-04-26)
 
 
