@@ -46,6 +46,16 @@ impl OpenAIProvider {
     fn build_messages(messages: &[Message], system: &str, compat: &ProviderCompat) -> Vec<Value> {
         let mut result: Vec<Value> = Vec::new();
 
+        // Check if any assistant message in the conversation has thinking content.
+        // If so, DeepSeek API requires ALL assistant messages to include
+        // reasoning_content (even if empty string).
+        let has_any_thinking = messages.iter().any(|m| {
+            m.role == Role::Assistant
+                && m.content
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::Thinking { .. }))
+        });
+
         // System message first
         if !system.is_empty() {
             result.push(json!({
@@ -104,7 +114,8 @@ impl OpenAIProvider {
 
                     // Preserve reasoning_content for models with thinking mode
                     // (e.g. DeepSeek Reasoner, Kimi K2.5). The API requires
-                    // previous reasoning_content to be sent back in multi-turn.
+                    // ALL assistant messages to include reasoning_content once
+                    // any message in the conversation has it.
                     let thinking: String = msg
                         .content
                         .iter()
@@ -118,7 +129,7 @@ impl OpenAIProvider {
                         .collect::<Vec<_>>()
                         .join("");
 
-                    if !thinking.is_empty() {
+                    if has_any_thinking {
                         msg_json["reasoning_content"] = json!(thinking);
                     }
 
@@ -366,6 +377,23 @@ fn merge_consecutive_assistant(messages: &mut Vec<Value>) {
 
             if !merged_text.is_empty() {
                 messages[i]["content"] = json!(merged_text);
+            }
+
+            // Merge reasoning_content
+            let curr_rc = messages[i]["reasoning_content"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let next_rc = next["reasoning_content"].as_str().unwrap_or("").to_string();
+            let merged_rc = match (curr_rc.is_empty(), next_rc.is_empty()) {
+                (true, true) => String::new(),
+                (true, false) => next_rc,
+                (false, true) => curr_rc,
+                (false, false) => format!("{}{}", curr_rc, next_rc),
+            };
+
+            if !merged_rc.is_empty() {
+                messages[i]["reasoning_content"] = json!(merged_rc);
             }
 
             // Merge tool_calls
