@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.18](https://github.com/iOfficeAI/aionrs/compare/v0.1.17...v0.1.18) (2026-04-30)
+
+
+### Bug Fixes
+
+* **openai:** preserve reasoning_content in multi-turn conversations ([#80](https://github.com/iOfficeAI/aionrs/issues/80)) ([88bdf06](https://github.com/iOfficeAI/aionrs/commit/88bdf061883043a50a21d25e241a4e6eee9623da))
+
 ## [0.1.17](https://github.com/iOfficeAI/aionrs/compare/v0.1.16...v0.1.17) (2026-04-29)
 
 
