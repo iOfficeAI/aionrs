@@ -98,7 +98,7 @@ pub fn scan_memory_files(dir: &Path) -> Result<Vec<MemoryHeader>> {
     }
 
     // Sort by mtime descending (newest first).
-    headers.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    headers.sort_by_key(|h| std::cmp::Reverse(h.mtime));
 
     // Cap at limit.
     headers.truncate(MAX_MEMORY_FILES);

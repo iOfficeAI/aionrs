@@ -106,7 +106,7 @@ impl Tool for GlobTool {
         }
 
         // Sort by modification time, newest first
-        files.sort_by(|a, b| b.0.cmp(&a.0));
+        files.sort_by_key(|f| std::cmp::Reverse(f.0));
 
         if files.is_empty() {
             return ToolResult {
