@@ -4,7 +4,7 @@
 version = 2
 
 [metadata]
-generated_at = "2026-04-04T02:13:43Z"
+generated_at = "2026-05-07T13:38:40Z"
 vx_version = "0.8.15"
 platform = "x86_64-pc-windows-msvc"
 
@@ -16,8 +16,16 @@ ecosystem = "generic"
 download_url = "https://github.com/casey/just/releases/download/1.48.1/just-1.48.1-x86_64-pc-windows-msvc.zip"
 
 [tools.rust]
-version = "1.93.1"
-source = "rust"
-resolved_from = "1.93.1"
-ecosystem = "rust"
-download_url = "https://github.com/rust-lang/rustup/releases/download/1.29.0/rustup-init-1.29.0-x86_64-pc-windows-msvc.exe"
+version = "1.95.0"
+source = "provider"
+resolved_from = "1.95.0"
+ecosystem = "generic"
+download_url = "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init"
+
+[tools.rust.platform_urls]
+darwin-arm64 = "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init"
+darwin-x64 = "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init"
+linux-arm64 = "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init"
+linux-x64 = "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init"
+windows-arm64 = "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init"
+windows-x64 = "https://static.rust-lang.org/rustup/dist/aarch64-apple-darwin/rustup-init"

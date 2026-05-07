@@ -1,4 +1,4 @@
 [toolchain]
-channel = "1.93.1"
-components = ["cargo", "clippy", "rustfmt"]
+channel = "1.95.0"
+components = ["clippy", "rustfmt"]
 

@@ -115,11 +115,7 @@ impl RuntimeDiscovery {
         }
 
         // Sort deepest-first: more path components = deeper
-        new_dirs.sort_by(|a, b| {
-            let depth_b = b.components().count();
-            let depth_a = a.components().count();
-            depth_b.cmp(&depth_a)
-        });
+        new_dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
 
         new_dirs
     }
