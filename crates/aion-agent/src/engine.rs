@@ -458,8 +458,7 @@ impl AgentEngine {
             // Use max(provider_reported, local_estimate) as a safety net:
             // some providers (e.g. DeepSeek with prefix caching) underreport
             // prompt_tokens, causing compaction to never trigger.
-            let local_estimate =
-                estimate::estimate_tokens_from_messages(&self.messages);
+            let local_estimate = estimate::estimate_tokens_from_messages(&self.messages);
             let effective_watermark = turn_usage.input_tokens.max(local_estimate);
 
             if local_estimate > turn_usage.input_tokens
