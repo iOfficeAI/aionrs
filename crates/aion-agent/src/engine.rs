@@ -460,8 +460,18 @@ impl AgentEngine {
             // prompt_tokens, causing compaction to never trigger.
             let local_estimate =
                 estimate::estimate_tokens_from_messages(&self.messages);
-            self.compact_state.last_input_tokens =
-                turn_usage.input_tokens.max(local_estimate);
+            let effective_watermark = turn_usage.input_tokens.max(local_estimate);
+
+            if local_estimate > turn_usage.input_tokens
+                && local_estimate.saturating_sub(turn_usage.input_tokens) > 10_000
+            {
+                self.output.emit_info(&format!(
+                    "Token watermark override: provider={}, local_estimate={}, using={}",
+                    turn_usage.input_tokens, local_estimate, effective_watermark
+                ));
+            }
+
+            self.compact_state.last_input_tokens = effective_watermark;
 
             // Cache break detection
             let cache_stats = CacheStats {
