@@ -13,7 +13,7 @@ use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_str
 
 use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::compact::state::CompactState;
-use crate::compact::{auto, emergency, micro};
+use crate::compact::{auto, emergency, estimate, micro};
 use crate::confirm::ToolConfirmer;
 use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
@@ -454,8 +454,14 @@ impl AgentEngine {
             self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
             self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
 
-            // Track per-turn input tokens for compaction watermark
-            self.compact_state.last_input_tokens = turn_usage.input_tokens;
+            // Track per-turn input tokens for compaction watermark.
+            // Use max(provider_reported, local_estimate) as a safety net:
+            // some providers (e.g. DeepSeek with prefix caching) underreport
+            // prompt_tokens, causing compaction to never trigger.
+            let local_estimate =
+                estimate::estimate_tokens_from_messages(&self.messages);
+            self.compact_state.last_input_tokens =
+                turn_usage.input_tokens.max(local_estimate);
 
             // Cache break detection
             let cache_stats = CacheStats {
