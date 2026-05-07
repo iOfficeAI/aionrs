@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/iOfficeAI/aionrs/compare/v0.1.18...v0.1.19) (2026-05-07)
+
+
+### Bug Fixes
+
+* **compact:** autocompact token watermark for prefix-caching providers ([#84](https://github.com/iOfficeAI/aionrs/issues/84)) ([581f11d](https://github.com/iOfficeAI/aionrs/commit/581f11d0c7e72c04bfd93dac711ded6e7daf89dc))
+
 ## [0.1.18](https://github.com/iOfficeAI/aionrs/compare/v0.1.17...v0.1.18) (2026-04-30)
 
 
