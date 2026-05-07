@@ -7,6 +7,7 @@
 
 pub mod auto;
 pub mod emergency;
+pub mod estimate;
 pub mod micro;
 pub mod prompt;
 pub mod state;

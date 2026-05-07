@@ -580,9 +580,16 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
 
     // Extract usage if present
     if let Some(usage) = json.get("usage") {
-        state.input_tokens = usage["prompt_tokens"]
+        let base_prompt = usage["prompt_tokens"]
             .as_u64()
             .unwrap_or(state.input_tokens);
+
+        // DeepSeek-style: prompt_cache_hit_tokens is reported separately and
+        // prompt_tokens only contains the cache-miss portion.
+        // Add it to get the true total prompt size.
+        let cache_hit = usage["prompt_cache_hit_tokens"].as_u64().unwrap_or(0);
+
+        state.input_tokens = base_prompt + cache_hit;
         state.output_tokens = usage["completion_tokens"]
             .as_u64()
             .unwrap_or(state.output_tokens);
@@ -965,5 +972,44 @@ mod tests {
         assert!(spawn_params["properties"].as_object().unwrap().is_empty());
         let spawn_desc = result[1]["function"]["description"].as_str().unwrap();
         assert!(spawn_desc.contains("ToolSearch"));
+    }
+
+    #[test]
+    fn usage_includes_prompt_cache_hit_tokens() {
+        // DeepSeek reports prompt_cache_hit_tokens separately;
+        // input_tokens should be the sum of prompt_tokens + prompt_cache_hit_tokens
+        let mut state = StreamState::new();
+
+        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":500,"completion_tokens":100,"prompt_cache_hit_tokens":999500}}"#;
+        let _ = parse_sse_chunk(chunk, &mut state);
+
+        assert_eq!(state.input_tokens, 1_000_000);
+        assert_eq!(state.output_tokens, 100);
+    }
+
+    #[test]
+    fn usage_with_prompt_tokens_details_cached() {
+        // OpenAI standard: prompt_tokens already includes cached_tokens (it's the total)
+        // prompt_tokens_details.cached_tokens is informational only
+        let mut state = StreamState::new();
+
+        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000000,"completion_tokens":100,"prompt_tokens_details":{"cached_tokens":999000}}}"#;
+        let _ = parse_sse_chunk(chunk, &mut state);
+
+        // prompt_tokens is already the full total for OpenAI
+        assert_eq!(state.input_tokens, 1_000_000);
+        assert_eq!(state.output_tokens, 100);
+    }
+
+    #[test]
+    fn usage_without_cache_fields_unchanged() {
+        // Provider that only sends prompt_tokens (no cache fields)
+        let mut state = StreamState::new();
+
+        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":50000,"completion_tokens":200}}"#;
+        let _ = parse_sse_chunk(chunk, &mut state);
+
+        assert_eq!(state.input_tokens, 50_000);
+        assert_eq!(state.output_tokens, 200);
     }
 }
