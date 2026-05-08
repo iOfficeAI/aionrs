@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.20](https://github.com/iOfficeAI/aionrs/compare/v0.1.19...v0.1.20) (2026-05-08)
+
+
+### Features
+
+* **config:** add project_dir to CliArgs for non-CWD config loading ([#87](https://github.com/iOfficeAI/aionrs/issues/87)) ([f0a5fd7](https://github.com/iOfficeAI/aionrs/commit/f0a5fd7be8582675357ab7994fce96ff4c472004))
+
 ## [0.1.19](https://github.com/iOfficeAI/aionrs/compare/v0.1.18...v0.1.19) (2026-05-07)
 
 
