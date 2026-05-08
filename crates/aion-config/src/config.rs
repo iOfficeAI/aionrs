@@ -292,6 +292,7 @@ pub struct CliArgs {
     pub system_prompt: Option<String>,
     pub profile: Option<String>,
     pub auto_approve: bool,
+    pub project_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -300,8 +301,13 @@ impl Config {
         // 1. Load global config
         let global = load_config_file(&global_config_path());
 
-        // 2. Load project config (cwd)
-        let project = load_config_file(&project_config_path());
+        // 2. Load project config (from project_dir if specified, else CWD)
+        let project_path = cli
+            .project_dir
+            .as_ref()
+            .map(|d| d.join(".aionrs.toml"))
+            .unwrap_or_else(project_config_path);
+        let project = load_config_file(&project_path);
 
         // 3. Merge: global <- project
         let mut merged = merge_config_files(global, project);
@@ -1882,5 +1888,54 @@ enabled = false
             !merged.file_cache.enabled,
             "project enabled=false should override global"
         );
+    }
+
+    #[test]
+    fn test_resolve_with_project_dir_loads_project_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_toml = tmp.path().join(".aionrs.toml");
+        std::fs::write(
+            &project_toml,
+            r#"
+[default]
+max_tokens = 1234
+"#,
+        )
+        .unwrap();
+
+        let cli_args = CliArgs {
+            provider: Some("anthropic".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli_args).unwrap();
+        assert_eq!(config.max_tokens, 1234);
+    }
+
+    #[test]
+    fn test_resolve_without_project_dir_uses_cwd() {
+        let cli_args = CliArgs {
+            provider: Some("anthropic".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: None,
+        };
+
+        let config = Config::resolve(&cli_args);
+        assert!(config.is_ok());
     }
 }

@@ -166,6 +166,7 @@ async fn main() -> anyhow::Result<()> {
         system_prompt: cli.system_prompt,
         profile: cli.profile,
         auto_approve: cli.auto_approve,
+        project_dir: None,
     };
 
     let mut config = Config::resolve(&cli_args)?;
