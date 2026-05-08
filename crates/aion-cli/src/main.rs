@@ -62,6 +62,10 @@ struct Cli {
     #[arg(long)]
     auto_approve: bool,
 
+    /// Project directory to load .aionrs.toml from (defaults to CWD)
+    #[arg(long)]
+    project_dir: Option<std::path::PathBuf>,
+
     /// Resume a previous session
     #[arg(long)]
     resume: Option<String>,
@@ -166,7 +170,7 @@ async fn main() -> anyhow::Result<()> {
         system_prompt: cli.system_prompt,
         profile: cli.profile,
         auto_approve: cli.auto_approve,
-        project_dir: None,
+        project_dir: cli.project_dir,
     };
 
     let mut config = Config::resolve(&cli_args)?;
