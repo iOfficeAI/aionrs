@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.21](https://github.com/iOfficeAI/aionrs/compare/v0.1.20...v0.1.21) (2026-05-09)
+
+
+### Bug Fixes
+
+* **deps:** resolve rustls-webpki security vulnerabilities ([#90](https://github.com/iOfficeAI/aionrs/issues/90)) ([b2f46b3](https://github.com/iOfficeAI/aionrs/commit/b2f46b3c7d3463499381b75ac82c5cbb53fb44e9))
+
 ## [0.1.20](https://github.com/iOfficeAI/aionrs/compare/v0.1.19...v0.1.20) (2026-05-08)
 
 
