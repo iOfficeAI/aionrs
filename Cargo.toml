@@ -90,7 +90,10 @@ is-terminal = "0.4"
 aws-sigv4            = "1"
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
 aws-config           = { version = "1", features = ["behavior-version-latest"] }
-aws-sdk-sts          = "1"
+aws-sdk-sts          = { version = "1", default-features = false, features = ["rt-tokio", "default-https-client", "sigv4a"] }
+
+# Pin rustls-webpki to fix RUSTSEC-2026-{0098,0099,0104}
+rustls-webpki = "0.103.13"
 
 # JWT creation (for Vertex GCP service account auth)
 jsonwebtoken = "10"
