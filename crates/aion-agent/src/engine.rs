@@ -639,6 +639,22 @@ impl AgentEngine {
         let mut compacted = false;
         let should_compact =
             auto::should_autocompact(self.compact_state.last_input_tokens, &self.compact_config);
+        if should_compact {
+            let threshold = if let Some(pct) = self.compact_config.autocompact_threshold_pct {
+                let t = self.compact_config.context_window * pct as usize / 100;
+                self.output.emit_info(&format!(
+                    "Autocompact threshold: {} tokens ({}% of {})",
+                    t, pct, self.compact_config.context_window
+                ));
+                t
+            } else {
+                self.compact_config
+                    .context_window
+                    .saturating_sub(self.compact_config.output_reserve)
+                    .saturating_sub(self.compact_config.autocompact_buffer)
+            };
+            let _ = threshold;
+        }
         if should_compact && !self.compact_state.is_circuit_broken(&self.compact_config) {
             let provider = Arc::clone(&self.provider);
             match auto::autocompact(
