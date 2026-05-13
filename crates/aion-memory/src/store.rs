@@ -210,10 +210,7 @@ fn parse_frontmatter(raw: &str, path: Option<&Path>) -> (MemoryFrontmatter, Stri
         Ok(fm) => fm,
         Err(e) => {
             if let Some(p) = path {
-                eprintln!(
-                    "warning: failed to parse frontmatter in {}: {e}",
-                    p.display()
-                );
+                tracing::warn!(target: "aion_memory", path = %p.display(), error = %e, "failed to parse memory frontmatter");
             }
             MemoryFrontmatter::default()
         }

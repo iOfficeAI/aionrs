@@ -123,10 +123,7 @@ impl ConditionalSkillManager {
 
                 for pattern in &entry.patterns {
                     if pattern.matches(&rel) {
-                        eprintln!(
-                            "[skills] Activated conditional skill '{}' (matched path: {})",
-                            name, rel
-                        );
+                        tracing::info!(target: "aion_skills", skill = %name, path = %rel, "activated conditional skill");
                         to_activate.push(name.clone());
                         continue 'outer;
                     }
@@ -198,11 +195,7 @@ fn compile_patterns(skill_name: &str, raw_patterns: &[String]) -> Vec<Pattern> {
         .filter_map(|p| match Pattern::new(p) {
             Ok(pat) => Some(pat),
             Err(e) => {
-                eprintln!(
-                    "[skills] Skill '{}': invalid glob pattern '{}' — skipped ({}). \
-                     Note: `!` negation patterns are not supported (use glob syntax instead).",
-                    skill_name, p, e
-                );
+                tracing::warn!(target: "aion_skills", skill = %skill_name, pattern = %p, error = %e, "invalid glob pattern, skipping");
                 None
             }
         })

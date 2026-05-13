@@ -563,7 +563,7 @@ fn project_config_path() -> PathBuf {
 fn load_config_file(path: &Path) -> ConfigFile {
     match std::fs::read_to_string(path) {
         Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
-            eprintln!("Warning: failed to parse {}: {}", path.display(), e);
+            tracing::warn!(target: "aion_config", path = %path.display(), error = %e, "failed to parse config file");
             ConfigFile::default()
         }),
         Err(_) => ConfigFile::default(),
@@ -805,14 +805,14 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
 pub fn init_config() -> anyhow::Result<()> {
     let path = global_config_path();
     if path.exists() {
-        eprintln!("Config already exists: {}", path.display());
+        tracing::info!(target: "aion_config", path = %path.display(), "config file already exists");
         return Ok(());
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&path, DEFAULT_CONFIG_TEMPLATE)?;
-    eprintln!("Config created: {}", path.display());
+    tracing::info!(target: "aion_config", path = %path.display(), "config file created");
     Ok(())
 }
 

@@ -149,12 +149,7 @@ pub async fn extract_bundled_skill_files(
         Ok(()) => Some(dir),
         Err(e) => {
             // Non-fatal: log and degrade gracefully (skill runs without skill_root)
-            eprintln!(
-                "[aionrs] failed to extract bundled skill '{}' to {}: {}",
-                skill_name,
-                dir.display(),
-                e
-            );
+            tracing::warn!(target: "aion_skills", skill = %skill_name, path = %dir.display(), error = %e, "failed to extract bundled skill");
             None
         }
     }

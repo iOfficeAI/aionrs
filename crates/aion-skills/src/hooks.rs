@@ -32,7 +32,7 @@ pub fn parse_skill_hooks(
 ) -> Option<SkillHooksConfig> {
     // MCP skills may not register hooks (security boundary).
     if source == SkillSource::Mcp {
-        eprintln!("[skill:{skill_name}] MCP source — hooks ignored");
+        tracing::warn!(target: "aion_skills", skill = %skill_name, "hooks ignored for MCP source");
         return None;
     }
 
@@ -41,7 +41,7 @@ pub fn parse_skill_hooks(
     let obj = match raw.as_object() {
         Some(o) => o,
         None => {
-            eprintln!("[skill:{skill_name}] hooks_raw is not a JSON object, ignoring");
+            tracing::warn!(target: "aion_skills", skill = %skill_name, "hooks_raw is not a JSON object, ignoring");
             return None;
         }
     };
@@ -58,7 +58,7 @@ pub fn parse_skill_hooks(
             "PostToolUse" => &mut config.post_tool_use,
             "Stop" => &mut config.stop,
             other => {
-                eprintln!("[skill:{skill_name}] unknown hook event '{other}', skipping");
+                tracing::warn!(target: "aion_skills", skill = %skill_name, event = %other, "unknown hook event, skipping");
                 continue;
             }
         };
@@ -66,10 +66,7 @@ pub fn parse_skill_hooks(
         let matchers = match matchers_val.as_array() {
             Some(a) => a,
             None => {
-                eprintln!(
-                    "[skill:{skill_name}] hook event '{}' value is not an array, skipping",
-                    event_key
-                );
+                tracing::warn!(target: "aion_skills", skill = %skill_name, event = %event_key, "hook event value is not an array, skipping");
                 continue;
             }
         };
@@ -87,11 +84,11 @@ pub fn parse_skill_hooks(
                 match hook["type"].as_str() {
                     Some("command") => {}
                     Some(other) => {
-                        eprintln!("[skill:{skill_name}] unsupported hook type '{other}', skipping");
+                        tracing::warn!(target: "aion_skills", skill = %skill_name, hook_type = %other, "unsupported hook type, skipping");
                         continue;
                     }
                     None => {
-                        eprintln!("[skill:{skill_name}] hook missing type field, skipping");
+                        tracing::warn!(target: "aion_skills", skill = %skill_name, "hook missing type field, skipping");
                         continue;
                     }
                 }
@@ -99,9 +96,7 @@ pub fn parse_skill_hooks(
                 let command = match hook["command"].as_str() {
                     Some(c) => c.to_string(),
                     None => {
-                        eprintln!(
-                            "[skill:{skill_name}] command-type hook missing command field, skipping"
-                        );
+                        tracing::warn!(target: "aion_skills", skill = %skill_name, "command-type hook missing command field, skipping");
                         continue;
                     }
                 };
