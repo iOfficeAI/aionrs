@@ -707,11 +707,7 @@ mod tests {
 
     #[test]
     fn test_max_tokens_field_default() {
-        let provider = OpenAIProvider::new(
-            "key",
-            "http://localhost",
-            openai_compat(),
-        );
+        let provider = OpenAIProvider::new("key", "http://localhost", openai_compat());
         let req = LlmRequest {
             model: "gpt-4o".into(),
             system: String::new(),
@@ -732,8 +728,7 @@ mod tests {
             max_tokens_field: Some("max_completion_tokens".into()),
             ..Default::default()
         };
-        let provider =
-            OpenAIProvider::new("key", "http://localhost", compat);
+        let provider = OpenAIProvider::new("key", "http://localhost", compat);
         let req = LlmRequest {
             model: "gpt-4o".into(),
             system: String::new(),

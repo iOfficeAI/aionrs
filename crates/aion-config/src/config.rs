@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 use crate::auth::{AuthConfig, OAuthManager};
 use crate::compact::CompactConfig;
 use crate::compat::ProviderCompat;
-use crate::logging::LoggingConfig;
 use crate::file_cache::FileCacheConfig;
 use crate::hooks::HooksConfig;
+use crate::logging::LoggingConfig;
 use crate::plan::PlanConfig;
 use aion_types::llm::ThinkingConfig;
 

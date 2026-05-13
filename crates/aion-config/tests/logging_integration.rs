@@ -28,7 +28,10 @@ fn create_file_layer_writes_json_to_file() {
     assert!(!entries.is_empty(), "expected at least one .log file");
 
     let content = std::fs::read_to_string(entries[0].path()).unwrap();
-    assert!(content.contains("test message"), "log should contain message");
+    assert!(
+        content.contains("test message"),
+        "log should contain message"
+    );
     assert!(content.contains("aion_test"), "log should contain target");
 }
 
