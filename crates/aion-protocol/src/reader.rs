@@ -29,12 +29,12 @@ pub fn spawn_stdin_reader() -> mpsc::UnboundedReceiver<ProtocolCommand> {
                             }
                         }
                         Err(e) => {
-                            eprintln!("[protocol] Invalid command: {e}");
+                            tracing::debug!(target: "aion_protocol", error = %e, "invalid protocol command");
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("[protocol] stdin read error: {e}");
+                    tracing::debug!(target: "aion_protocol", error = %e, "stdin read error");
                     break;
                 }
             }
