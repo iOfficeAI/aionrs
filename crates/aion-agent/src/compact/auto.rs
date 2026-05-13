@@ -57,14 +57,18 @@ pub enum CompactError {
 
 /// Check if autocompact should trigger based on the token watermark.
 ///
-/// Returns `true` when `last_input_tokens` >= the autocompact threshold:
-/// `threshold = context_window - output_reserve - autocompact_buffer`
+/// When `autocompact_threshold_pct` is set, threshold = context_window * pct / 100.
+/// Otherwise falls back to: `threshold = context_window - output_reserve - autocompact_buffer`
 pub fn should_autocompact(last_input_tokens: u64, config: &CompactConfig) -> bool {
     if !config.enabled {
         return false;
     }
-    let effective_window = config.context_window.saturating_sub(config.output_reserve);
-    let threshold = effective_window.saturating_sub(config.autocompact_buffer);
+    let threshold = if let Some(pct) = config.autocompact_threshold_pct {
+        config.context_window * pct as usize / 100
+    } else {
+        let effective_window = config.context_window.saturating_sub(config.output_reserve);
+        effective_window.saturating_sub(config.autocompact_buffer)
+    };
     last_input_tokens as usize >= threshold
 }
 
@@ -337,6 +341,53 @@ mod tests {
     fn zero_tokens_does_not_trigger() {
         let config = default_config();
         assert!(!should_autocompact(0, &config));
+    }
+
+    #[test]
+    fn threshold_pct_overrides_default_calculation() {
+        let config = CompactConfig {
+            context_window: 200_000,
+            autocompact_threshold_pct: Some(50),
+            ..default_config()
+        };
+        // threshold = 200k * 50 / 100 = 100k
+        assert!(!should_autocompact(99_999, &config));
+        assert!(should_autocompact(100_000, &config));
+        assert!(should_autocompact(150_000, &config));
+    }
+
+    #[test]
+    fn threshold_pct_zero_triggers_immediately() {
+        let config = CompactConfig {
+            autocompact_threshold_pct: Some(0),
+            ..default_config()
+        };
+        // threshold = 0, any non-negative triggers
+        assert!(should_autocompact(0, &config));
+        assert!(should_autocompact(1, &config));
+    }
+
+    #[test]
+    fn threshold_pct_100_never_triggers() {
+        let config = CompactConfig {
+            context_window: 200_000,
+            autocompact_threshold_pct: Some(100),
+            ..default_config()
+        };
+        // threshold = 200k, provider never reports 200k input_tokens
+        assert!(!should_autocompact(199_999, &config));
+        assert!(should_autocompact(200_000, &config));
+    }
+
+    #[test]
+    fn threshold_pct_none_uses_default_logic() {
+        let config = CompactConfig {
+            autocompact_threshold_pct: None,
+            ..default_config()
+        };
+        // Same as default: threshold = 200k - 20k - 13k = 167k
+        assert!(!should_autocompact(166_999, &config));
+        assert!(should_autocompact(167_000, &config));
     }
 
     // ── truncate_for_retry ──────────────────────────────────────────────

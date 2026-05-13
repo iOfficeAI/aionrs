@@ -673,11 +673,14 @@ impl AgentEngine {
                 self.compact_state.consecutive_failures, self.compact_state.last_input_tokens
             ));
         } else if !self.compact_config.enabled {
-            let threshold = self
-                .compact_config
-                .context_window
-                .saturating_sub(self.compact_config.output_reserve)
-                .saturating_sub(self.compact_config.autocompact_buffer);
+            let threshold = if let Some(pct) = self.compact_config.autocompact_threshold_pct {
+                self.compact_config.context_window * pct as usize / 100
+            } else {
+                self.compact_config
+                    .context_window
+                    .saturating_sub(self.compact_config.output_reserve)
+                    .saturating_sub(self.compact_config.autocompact_buffer)
+            };
             if self.compact_state.last_input_tokens as usize >= threshold {
                 self.output.emit_info(&format!(
                     "Autocompact: disabled (compact.enabled=false, \
