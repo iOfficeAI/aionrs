@@ -119,7 +119,10 @@ fn confirm_call(
     confirmer: &Arc<Mutex<ToolConfirmer>>,
     call: &ContentBlock,
 ) -> Result<Option<ContentBlock>, ExecutionControl> {
-    let ContentBlock::ToolUse { id, name, input, .. } = call else {
+    let ContentBlock::ToolUse {
+        id, name, input, ..
+    } = call
+    else {
         return Ok(None);
     };
 
@@ -147,7 +150,10 @@ async fn execute_single(
     compaction_level: aion_compact::CompactionLevel,
     toon_enabled: bool,
 ) -> (ContentBlock, Option<ContextModifier>) {
-    let ContentBlock::ToolUse { id, name, input, .. } = call else {
+    let ContentBlock::ToolUse {
+        id, name, input, ..
+    } = call
+    else {
         unreachable!("execute_single called with non-ToolUse block")
     };
 
@@ -241,7 +247,10 @@ pub async fn execute_tool_calls_with_approval(
     let mut modifiers = Vec::new();
 
     for call in tool_calls {
-        let ContentBlock::ToolUse { id, name, input, .. } = call else {
+        let ContentBlock::ToolUse {
+            id, name, input, ..
+        } = call
+        else {
             continue;
         };
 

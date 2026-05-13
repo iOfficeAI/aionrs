@@ -198,7 +198,9 @@ mod tests {
         };
         // assert
         match &block {
-            ContentBlock::ToolUse { id, name, input, .. } => {
+            ContentBlock::ToolUse {
+                id, name, input, ..
+            } => {
                 assert_eq!(id, "call_1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

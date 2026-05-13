@@ -103,7 +103,9 @@ mod tests {
             extra: None,
         };
         match &event {
-            LlmEvent::ToolUse { id, name, input, .. } => {
+            LlmEvent::ToolUse {
+                id, name, input, ..
+            } => {
                 assert_eq!(id, "call_1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

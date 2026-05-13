@@ -1066,7 +1066,10 @@ mod tests {
             .filter(|e| matches!(e, LlmEvent::ToolUse { .. }))
             .collect();
         assert_eq!(tool_events.len(), 1, "tool call should be emitted on stop");
-        if let LlmEvent::ToolUse { id, name, input, .. } = &tool_events[0] {
+        if let LlmEvent::ToolUse {
+            id, name, input, ..
+        } = &tool_events[0]
+        {
             assert_eq!(id, "call_abc123");
             assert_eq!(name, "Skill");
             assert_eq!(input["skill"], "test");
@@ -1089,7 +1092,8 @@ mod tests {
         // Standard stop without tool calls should still produce EndTurn.
         let mut state = StreamState::new();
 
-        let chunk = r#"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}"#;
+        let chunk =
+            r#"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}"#;
         let events = parse_sse_chunk(chunk, &mut state);
 
         let text_events: Vec<_> = events

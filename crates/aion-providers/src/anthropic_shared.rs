@@ -33,7 +33,9 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     "type": "text",
                     "text": text
                 }),
-                ContentBlock::ToolUse { id, name, input, .. } => {
+                ContentBlock::ToolUse {
+                    id, name, input, ..
+                } => {
                     let tool_id = if id.is_empty() && compat.auto_tool_id() {
                         generate_tool_id()
                     } else {
@@ -687,7 +689,9 @@ mod tests {
         // assert
         assert_eq!(events.len(), 1);
         match &events[0] {
-            LlmEvent::ToolUse { id, name, input, .. } => {
+            LlmEvent::ToolUse {
+                id, name, input, ..
+            } => {
                 assert_eq!(id, "id1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

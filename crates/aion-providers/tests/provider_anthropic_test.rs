@@ -177,7 +177,9 @@ data: {\"type\":\"message_stop\"}\n\n";
     assert_eq!(tool_events.len(), 1, "expected exactly one ToolUse event");
 
     match tool_events[0] {
-        LlmEvent::ToolUse { id, name, input, .. } => {
+        LlmEvent::ToolUse {
+            id, name, input, ..
+        } => {
             assert_eq!(id, "toolu_abc");
             assert_eq!(name, "Read");
             assert_eq!(input["file_path"], "/tmp/test");
