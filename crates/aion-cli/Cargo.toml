@@ -23,8 +23,10 @@ aion-mcp.workspace      = true
 aion-protocol.workspace = true
 aion-skills.workspace   = true
 
-tokio.workspace  = true
-anyhow.workspace = true
-clap.workspace   = true
+tokio.workspace              = true
+anyhow.workspace             = true
+clap.workspace               = true
+tracing.workspace            = true
+tracing-subscriber.workspace = true
 
 workspace-hack.workspace = true

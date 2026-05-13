@@ -114,6 +114,14 @@ struct Cli {
     #[arg(long)]
     toon: bool,
 
+    /// Log directory (enables file logging)
+    #[arg(long)]
+    log_dir: Option<String>,
+
+    /// Log level filter (e.g. "info", "debug", "info,aion_providers=debug")
+    #[arg(long)]
+    log_level: Option<String>,
+
     /// Initial prompt (if omitted, enters interactive REPL mode)
     #[arg(trailing_var_arg = true)]
     prompt: Vec<String>,
@@ -184,6 +192,29 @@ async fn main() -> anyhow::Result<()> {
     if cli.toon {
         config.compact.toon = true;
     }
+
+    let _log_guard = {
+        use tracing_subscriber::layer::SubscriberExt;
+        use tracing_subscriber::util::SubscriberInitExt;
+
+        let resolved = config
+            .logging
+            .resolve(cli.log_dir.as_deref(), cli.log_level.as_deref());
+        if resolved.enabled {
+            match aion_config::logging::create_file_layer(&resolved) {
+                Ok((layer, guard)) => {
+                    tracing_subscriber::registry().with(layer).init();
+                    Some(guard)
+                }
+                Err(e) => {
+                    eprintln!("Warning: failed to initialize logging: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
 
     let cwd = std::env::current_dir()?.to_string_lossy().to_string();
 
@@ -449,9 +480,7 @@ async fn run_json_stream_mode(
                 url,
                 headers,
             } => {
-                eprintln!(
-                    "[mcp] AddMcpServer received: name={name}, transport={transport}, command={command:?}"
-                );
+                tracing::info!(target: "aion_mcp", %name, %transport, ?command, "AddMcpServer received");
                 let config =
                     match to_mcp_server_config(&transport, command, args, env, url, headers) {
                         Ok(c) => c,
@@ -463,7 +492,7 @@ async fn run_json_stream_mode(
 
                 let mut single_configs = HashMap::new();
                 single_configs.insert(name.clone(), config.clone());
-                eprintln!("[mcp] Connecting to '{name}'...");
+                tracing::info!(target: "aion_mcp", %name, "connecting to mcp server");
                 match McpManager::connect_all(&single_configs).await {
                     Ok(mgr) => {
                         let tool_names: Vec<String> = mgr
@@ -471,7 +500,7 @@ async fn run_json_stream_mode(
                             .iter()
                             .map(|(_, t)| t.name.clone())
                             .collect();
-                        eprintln!("[mcp] Connected to '{name}': {} tools", tool_names.len());
+                        tracing::info!(target: "aion_mcp", %name, tools = tool_names.len(), "mcp server connected");
                         let mgr_arc = Arc::new(mgr);
                         let builtin_names = engine.tool_names();
                         register_single_server_tools(
@@ -488,7 +517,7 @@ async fn run_json_stream_mode(
                         });
                     }
                     Err(e) => {
-                        eprintln!("[mcp] connect_one failed for '{name}': {e}");
+                        tracing::warn!(target: "aion_mcp", %name, error = %e, "mcp server connection failed");
                         output.emit_error(&format!("AddMcpServer '{name}' failed: {e}"));
                     }
                 }
@@ -580,7 +609,7 @@ async fn run_json_stream_mode(
                                         let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Pong);
                                     }
                                     _ => {
-                                        eprintln!("[protocol] Ignoring command during active message processing");
+                                        tracing::debug!(target: "aion_protocol", "ignoring command during active message processing");
                                     }
                                 }
                             }
@@ -633,7 +662,7 @@ async fn run_json_stream_mode(
                 approval_manager.resolve(&call_id, ToolApprovalResult::Denied { reason });
             }
             ProtocolCommand::InitHistory { text } => {
-                eprintln!("[protocol] InitHistory received: {} chars", text.len());
+                tracing::debug!(target: "aion_protocol", chars = text.len(), "InitHistory received");
             }
             ProtocolCommand::SetMode { mode } => {
                 let mode_str = format!("{mode:?}").to_lowercase();
@@ -647,7 +676,7 @@ async fn run_json_stream_mode(
                     has_mcp,
                     &approval_manager.current_mode(),
                 );
-                eprintln!("[protocol] SetMode applied: {mode_str}");
+                tracing::debug!(target: "aion_protocol", mode = %mode_str, "SetMode applied");
             }
             ProtocolCommand::SetConfig {
                 model,
