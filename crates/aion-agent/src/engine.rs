@@ -221,6 +221,7 @@ impl AgentEngine {
     ) -> anyhow::Result<()> {
         if let Some(mgr) = &self.session_manager {
             let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
+            tracing::info!(target: "aion_agent", session_id = %session.id, provider = %provider_name, model = %self.model, "session started");
             self.current_session = Some(session);
         }
         Ok(())
@@ -640,6 +641,7 @@ impl AgentEngine {
         let should_compact =
             auto::should_autocompact(self.compact_state.last_input_tokens, &self.compact_config);
         if should_compact {
+            tracing::info!(target: "aion_agent", last_input_tokens = self.compact_state.last_input_tokens, "context compaction triggered");
             let threshold = if let Some(pct) = self.compact_config.autocompact_threshold_pct {
                 let t = self.compact_config.context_window * pct as usize / 100;
                 self.output.emit_info(&format!(
@@ -730,7 +732,7 @@ impl AgentEngine {
         if let Some(hook_engine) = &self.hooks {
             let messages = hook_engine.run_stop().await;
             for msg in messages {
-                eprintln!("{}", msg);
+                tracing::info!(target: "aion_agent", hook_message = %msg, "stop hook output");
             }
         }
     }

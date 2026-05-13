@@ -157,6 +157,9 @@ async fn execute_single(
         unreachable!("execute_single called with non-ToolUse block")
     };
 
+    let start = std::time::Instant::now();
+    tracing::info!(target: "aion_agent", tool = %name, call_id = %id, "tool execution started");
+
     // Run pre-tool-use hooks
     if let Some(hook_engine) = hooks
         && let Err(e) = hook_engine.run_pre_tool_use(name, input).await
@@ -215,9 +218,12 @@ async fn execute_single(
             .run_post_tool_use(name, input, &result.content)
             .await;
         for msg in messages {
-            eprintln!("{}", msg);
+            tracing::info!(target: "aion_agent", hook_message = %msg, "post-tool-use hook output");
         }
     }
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    tracing::info!(target: "aion_agent", duration_ms, success = !result.is_error, "tool execution completed");
 
     (
         ContentBlock::ToolResult {

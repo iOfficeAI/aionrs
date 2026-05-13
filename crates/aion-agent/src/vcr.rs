@@ -179,11 +179,7 @@ impl VcrLayer {
 
             let json = serde_json::to_string_pretty(&*cassette)?;
             std::fs::write(path, json)?;
-            eprintln!(
-                "[vcr] Saved {} interactions to {}",
-                cassette.interactions.len(),
-                path.display()
-            );
+            tracing::info!(target: "aion_agent", interactions = cassette.interactions.len(), path = %path.display(), "vcr cassette saved");
         }
         Ok(())
     }
@@ -192,7 +188,7 @@ impl VcrLayer {
 impl Drop for VcrLayer {
     fn drop(&mut self) {
         if let Err(e) = self.save() {
-            eprintln!("[vcr] Failed to save cassette: {}", e);
+            tracing::warn!(target: "aion_agent", error = %e, "failed to save vcr cassette");
         }
     }
 }
@@ -201,11 +197,7 @@ impl Drop for VcrLayer {
 fn load_cassette(path: &Path) -> anyhow::Result<Cassette> {
     let content = std::fs::read_to_string(path)?;
     let cassette: Cassette = serde_json::from_str(&content)?;
-    eprintln!(
-        "[vcr] Loaded cassette '{}' with {} interactions",
-        cassette.name,
-        cassette.interactions.len()
-    );
+    tracing::info!(target: "aion_agent", name = %cassette.name, interactions = cassette.interactions.len(), "vcr cassette loaded");
     Ok(cassette)
 }
 
