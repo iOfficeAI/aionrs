@@ -27,7 +27,7 @@ fn minimal_config() -> Config {
         bedrock: None,
         vertex: None,
         mcp: Default::default(),
-        debug: Default::default(),
+        logging: Default::default(),
     }
 }
 

@@ -41,6 +41,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "tokio-test",
+ "tracing",
  "wiremock",
  "workspace-hack",
 ]
@@ -73,6 +74,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -145,6 +147,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tracing",
  "workspace-hack",
 ]
 
@@ -221,6 +224,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
  "workspace-hack",
 ]
 
