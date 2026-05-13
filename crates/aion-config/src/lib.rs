@@ -6,6 +6,7 @@ pub mod compat;
 pub mod config;
 pub mod debug;
 pub mod file_cache;
+pub mod logging;
 pub mod hooks;
 pub mod plan;
 pub mod shell;

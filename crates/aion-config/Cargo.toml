@@ -21,6 +21,10 @@ reqwest.workspace    = true
 glob.workspace       = true
 tokio.workspace      = true
 
+tracing.workspace            = true
+tracing-appender.workspace   = true
+tracing-subscriber.workspace = true
+
 workspace-hack.workspace = true
 
 [dev-dependencies]
