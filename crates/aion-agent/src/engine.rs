@@ -10,6 +10,7 @@ use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
+use tracing::Instrument;
 
 use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::compact::state::CompactState;
@@ -352,6 +353,25 @@ impl AgentEngine {
 
     /// Run the agent loop with user input
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
+        let session_id = self
+            .current_session
+            .as_ref()
+            .map(|s| s.id.clone())
+            .unwrap_or_default();
+        let span = tracing::info_span!(
+            target: "aion_agent",
+            "agent_run",
+            session_id = %session_id,
+            msg_id = %msg_id,
+        );
+        self.run_inner(user_input, msg_id).instrument(span).await
+    }
+
+    async fn run_inner(
+        &mut self,
+        user_input: &str,
+        msg_id: &str,
+    ) -> Result<AgentResult, AgentError> {
         self.current_msg_id = msg_id.to_string();
         self.output.emit_stream_start(msg_id);
         self.messages.push(Message::now(
