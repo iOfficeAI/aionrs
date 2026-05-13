@@ -104,6 +104,11 @@ base64 = "0.22"
 # URL parsing
 url = "2"
 
+# Structured logging
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json", "registry"] }
+
 unicode-width = "0.2.2"
 
 # Unix file flags (O_NOFOLLOW) for secure bundled skill file extraction
