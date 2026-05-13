@@ -4,7 +4,6 @@ pub mod auth;
 pub mod compact;
 pub mod compat;
 pub mod config;
-pub mod debug;
 pub mod file_cache;
 pub mod logging;
 pub mod hooks;

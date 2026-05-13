@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::auth::{AuthConfig, OAuthManager};
 use crate::compact::CompactConfig;
 use crate::compat::ProviderCompat;
-use crate::debug::DebugConfig;
+use crate::logging::LoggingConfig;
 use crate::file_cache::FileCacheConfig;
 use crate::hooks::HooksConfig;
 use crate::plan::PlanConfig;
@@ -110,7 +110,7 @@ pub struct ConfigFile {
     pub mcp: McpConfig,
 
     #[serde(default)]
-    pub debug: DebugConfig,
+    pub logging: LoggingConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -263,7 +263,7 @@ pub struct Config {
     pub bedrock: Option<BedrockConfig>,
     pub vertex: Option<VertexConfig>,
     pub mcp: McpConfig,
-    pub debug: DebugConfig,
+    pub logging: LoggingConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -407,7 +407,7 @@ impl Config {
             bedrock: merged.bedrock,
             vertex: merged.vertex,
             mcp: merged.mcp,
-            debug: merged.debug,
+            logging: merged.logging,
         })
     }
 }
@@ -693,7 +693,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         global.compact
     };
 
-    let debug = DebugConfig::merge(global.debug, project.debug);
+    let logging = LoggingConfig::merge(global.logging, project.logging);
 
     ConfigFile {
         default,
@@ -709,7 +709,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         vertex,
         auth,
         mcp,
-        debug,
+        logging,
     }
 }
 
@@ -940,6 +940,12 @@ max_sessions = 20                # auto-cleanup oldest
 # [[hooks.stop]]
 # name = "final-lint"
 # command = "cargo clippy --quiet 2>&1 | tail -5"
+
+# Logging configuration
+# [logging]
+# enabled = true                   # enable file logging (default: false)
+# level = "info"                   # log level filter (default: "info")
+# dir = "~/Library/Logs/aionrs"    # log directory (default: platform-specific)
 
 # MCP (Model Context Protocol) servers
 # [mcp.servers.filesystem]
