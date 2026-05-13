@@ -4,7 +4,6 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use aion_config::compat::ProviderCompat;
-use aion_config::debug::DebugConfig;
 use aion_providers::anthropic::AnthropicProvider;
 use aion_providers::{LlmProvider, ProviderError};
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
@@ -81,7 +80,6 @@ async fn test_anthropic_stream_text_response() {
         "test-api-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(false);
     let request = minimal_request();
@@ -157,7 +155,6 @@ data: {\"type\":\"message_stop\"}\n\n";
         "test-api-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(false);
     let request = minimal_request();
@@ -246,7 +243,6 @@ data: {\"type\":\"message_stop\"}\n\n";
         "test-api-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(false);
 
@@ -305,7 +301,6 @@ async fn test_anthropic_auth_error() {
         "bad-api-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(false);
     let request = minimal_request();
@@ -348,7 +343,6 @@ async fn test_anthropic_rate_limit_retryable() {
         "test-api-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(false);
     let request = minimal_request();
@@ -394,7 +388,6 @@ async fn test_anthropic_request_headers() {
         "my-secret-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(false);
     let request = minimal_request();
@@ -438,7 +431,6 @@ async fn test_anthropic_prompt_caching_header() {
         "test-api-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(true);
     let request = minimal_request();
@@ -478,7 +470,6 @@ async fn test_anthropic_no_prompt_caching_header_when_disabled() {
         "test-api-key",
         &server.uri(),
         ProviderCompat::anthropic_defaults(),
-        DebugConfig::default(),
     )
     .with_cache(false);
     let request = minimal_request();

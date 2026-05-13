@@ -29,6 +29,8 @@ aws-credential-types.workspace = true
 aws-config.workspace           = true
 aws-sdk-sts.workspace          = true
 
+tracing.workspace        = true
+
 workspace-hack.workspace = true
 
 [dev-dependencies]

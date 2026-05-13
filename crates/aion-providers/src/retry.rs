@@ -14,7 +14,7 @@ where
         match f().await {
             Ok(val) => return Ok(val),
             Err(e) if e.is_retryable() && attempt < max_retries => {
-                eprintln!("[retry] attempt {}/{}: {}", attempt + 1, max_retries, e);
+                tracing::warn!(attempt = attempt + 1, max_retries, error = %e, "retrying request");
                 tokio::time::sleep(backoff).await;
                 backoff = (backoff * 2).min(Duration::from_secs(30));
             }

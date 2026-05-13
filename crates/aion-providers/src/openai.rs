@@ -7,28 +7,23 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
-use crate::{
-    LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump,
-};
+use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
-use aion_config::debug::DebugConfig;
 
 pub struct OpenAIProvider {
     client: reqwest::Client,
     api_key: String,
     base_url: String,
     compat: ProviderCompat,
-    debug: DebugConfig,
 }
 
 impl OpenAIProvider {
-    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat, debug: DebugConfig) -> Self {
+    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key: api_key.to_string(),
             base_url: base_url.to_string(),
             compat,
-            debug,
         }
     }
 
@@ -495,8 +490,7 @@ impl LlmProvider for OpenAIProvider {
         let url = format!("{}{}", self.base_url, self.compat.api_path());
         let body = self.build_request_body(request);
 
-        dump_request_body(&self.debug, &body);
-        reset_response_dump(&self.debug);
+        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
         let response = self
             .client
@@ -521,10 +515,9 @@ impl LlmProvider for OpenAIProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
-        let debug = self.debug.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = process_sse_stream(response, &tx, &debug).await {
+            if let Err(e) = process_sse_stream(response, &tx).await {
                 let _ = tx.send(LlmEvent::Error(e.to_string())).await;
             }
         });
@@ -536,7 +529,6 @@ impl LlmProvider for OpenAIProvider {
 async fn process_sse_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
-    debug: &DebugConfig,
 ) -> Result<(), ProviderError> {
     use futures::StreamExt;
 
@@ -559,7 +551,7 @@ async fn process_sse_stream(
             }
 
             if let Some(data) = line.strip_prefix("data: ") {
-                dump_response_chunk(debug, data);
+                tracing::debug!(target: "aion_providers", chunk = %data, "sse chunk received");
                 if data == "[DONE]" {
                     // Flush the deferred Done event now that the final
                     // usage-only chunk (choices:[]) has updated token counts.
@@ -702,7 +694,6 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aion_config::debug::DebugConfig;
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -720,7 +711,6 @@ mod tests {
             "key",
             "http://localhost",
             openai_compat(),
-            DebugConfig::default(),
         );
         let req = LlmRequest {
             model: "gpt-4o".into(),
@@ -743,7 +733,7 @@ mod tests {
             ..Default::default()
         };
         let provider =
-            OpenAIProvider::new("key", "http://localhost", compat, DebugConfig::default());
+            OpenAIProvider::new("key", "http://localhost", compat);
         let req = LlmRequest {
             model: "gpt-4o".into(),
             system: String::new(),

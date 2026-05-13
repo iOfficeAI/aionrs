@@ -13,9 +13,8 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError, dump_request_body, reset_response_dump};
+use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
-use aion_config::debug::DebugConfig;
 
 pub struct VertexProvider {
     client: reqwest::Client,
@@ -24,7 +23,6 @@ pub struct VertexProvider {
     auth: GcpAuth,
     cache_enabled: bool,
     compat: ProviderCompat,
-    debug: DebugConfig,
     /// Cached access token
     cached_token: Mutex<Option<CachedToken>>,
 }
@@ -48,7 +46,6 @@ impl VertexProvider {
         auth: GcpAuth,
         cache_enabled: bool,
         compat: ProviderCompat,
-        debug: DebugConfig,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -57,7 +54,6 @@ impl VertexProvider {
             auth,
             cache_enabled,
             compat,
-            debug,
             cached_token: Mutex::new(None),
         }
     }
@@ -263,8 +259,7 @@ impl LlmProvider for VertexProvider {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request);
 
-        dump_request_body(&self.debug, &body);
-        reset_response_dump(&self.debug);
+        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
         let access_token = self.get_access_token().await?;
 
@@ -299,11 +294,10 @@ impl LlmProvider for VertexProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
-        let debug = self.debug.clone();
 
         // Vertex uses standard SSE (same as Anthropic)
         tokio::spawn(async move {
-            if let Err(e) = anthropic_shared::process_sse_stream(response, &tx, &debug).await {
+            if let Err(e) = anthropic_shared::process_sse_stream(response, &tx).await {
                 let _ = tx.send(LlmEvent::Error(e.to_string())).await;
             }
         });
