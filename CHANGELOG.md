@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.22](https://github.com/iOfficeAI/aionrs/compare/v0.1.21...v0.1.22) (2026-05-13)
+
+
+### Features
+
+* **compact:** add autocompact_threshold_pct config option ([#95](https://github.com/iOfficeAI/aionrs/issues/95)) ([58d65a6](https://github.com/iOfficeAI/aionrs/commit/58d65a6d5c6acb75dceec1ca0d562db8c75166e4))
+* structured tracing-based logging system ([#96](https://github.com/iOfficeAI/aionrs/issues/96)) ([f568afd](https://github.com/iOfficeAI/aionrs/commit/f568afd30f77159a9b039963bf151bd9572ea18e))
+
+
+### Bug Fixes
+
+* **providers:** Gemini tool call compatibility ([#93](https://github.com/iOfficeAI/aionrs/issues/93)) ([c70c020](https://github.com/iOfficeAI/aionrs/commit/c70c020461ccac2e7349459f159b535fe6224029))
+
 ## [0.1.21](https://github.com/iOfficeAI/aionrs/compare/v0.1.20...v0.1.21) (2026-05-09)
 
 
