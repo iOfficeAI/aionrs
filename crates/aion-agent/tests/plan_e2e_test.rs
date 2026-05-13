@@ -196,6 +196,7 @@ fn tc_3_6_e2e_02_plan_mode_and_compaction_independent() {
                 id: id.clone(),
                 name: "Read".to_string(),
                 input: json!({}),
+                extra: None,
             }],
         ));
         messages.push(Message::new(

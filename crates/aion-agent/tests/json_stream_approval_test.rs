@@ -41,6 +41,7 @@ async fn test_tool_approval_approve_flow() {
             id: "call-1".to_string(),
             name: "exec_tool".to_string(),
             input: json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -109,6 +110,7 @@ async fn test_tool_approval_deny_flow() {
             id: "call-2".to_string(),
             name: "exec_tool".to_string(),
             input: json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -170,6 +172,7 @@ async fn test_auto_approve_bypasses_approval() {
             id: "call-3".to_string(),
             name: "exec_tool".to_string(),
             input: json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -220,6 +223,7 @@ async fn test_session_auto_approve_category() {
             id: "call-4".to_string(),
             name: "exec_tool".to_string(),
             input: json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -273,6 +277,7 @@ async fn test_client_disconnect_aborts() {
             id: "call-5".to_string(),
             name: "exec_tool".to_string(),
             input: json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,

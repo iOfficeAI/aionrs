@@ -56,6 +56,7 @@ impl MockLlmProvider {
                 id: id.to_string(),
                 name: name.to_string(),
                 input,
+                extra: None,
             },
             LlmEvent::Done {
                 stop_reason: StopReason::ToolUse,

@@ -233,7 +233,7 @@ async fn test_openai_stream_tool_call_aggregation() {
     assert_eq!(events.len(), 2, "expected 2 events, got: {:?}", events);
 
     match &events[0] {
-        LlmEvent::ToolUse { id, name, input } => {
+        LlmEvent::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "call_abc123");
             assert_eq!(name, "read_file");
             assert_eq!(input["path"], "/tmp/test.txt");
@@ -342,7 +342,7 @@ async fn test_openai_multiple_tool_calls() {
     assert_eq!(events.len(), 3, "expected 3 events, got: {:?}", events);
 
     match &events[0] {
-        LlmEvent::ToolUse { id, name, input } => {
+        LlmEvent::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "call_tool0");
             assert_eq!(name, "list_files");
             assert_eq!(input["dir"], "/tmp");
@@ -351,7 +351,7 @@ async fn test_openai_multiple_tool_calls() {
     }
 
     match &events[1] {
-        LlmEvent::ToolUse { id, name, input } => {
+        LlmEvent::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "call_tool1");
             assert_eq!(name, "read_file");
             assert_eq!(input["path"], "/etc/hosts");

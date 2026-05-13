@@ -200,6 +200,7 @@ mod tests {
             id: id.to_string(),
             name: name.to_string(),
             input: json!({}),
+            extra: None,
         }
     }
 

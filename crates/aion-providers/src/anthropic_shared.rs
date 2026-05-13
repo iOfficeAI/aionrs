@@ -33,7 +33,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     "type": "text",
                     "text": text
                 }),
-                ContentBlock::ToolUse { id, name, input } => {
+                ContentBlock::ToolUse { id, name, input, .. } => {
                     let tool_id = if id.is_empty() && compat.auto_tool_id() {
                         generate_tool_id()
                     } else {
@@ -330,6 +330,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                     id: state.tool_id.clone(),
                     name: state.tool_name.clone(),
                     input,
+                    extra: None,
                 });
                 state.tool_input_json.clear();
             }
@@ -419,6 +420,7 @@ mod tests {
                 id: "call_1".to_string(),
                 name: "bash".to_string(),
                 input: json!({"cmd": "ls"}),
+                extra: None,
             }],
         )];
         let result = build_messages(&messages, &default_compat());
@@ -539,6 +541,7 @@ mod tests {
                 id: String::new(),
                 name: "bash".into(),
                 input: json!({}),
+                extra: None,
             }],
         )];
         let compat = ProviderCompat {
@@ -559,6 +562,7 @@ mod tests {
                 id: "existing_id".into(),
                 name: "bash".into(),
                 input: json!({}),
+                extra: None,
             }],
         )];
         let compat = ProviderCompat {
@@ -683,7 +687,7 @@ mod tests {
         // assert
         assert_eq!(events.len(), 1);
         match &events[0] {
-            LlmEvent::ToolUse { id, name, input } => {
+            LlmEvent::ToolUse { id, name, input, .. } => {
                 assert_eq!(id, "id1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

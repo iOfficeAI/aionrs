@@ -19,6 +19,10 @@ pub enum ContentBlock {
         id: ToolUseId,
         name: String,
         input: Value,
+        /// Opaque provider-specific metadata (e.g. Gemini thought_signature).
+        /// Round-tripped verbatim so the provider can include it in follow-up requests.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extra: Option<Value>,
     },
 
     /// Result of a tool execution, sent back as user message
@@ -190,10 +194,11 @@ mod tests {
             id: "call_1".to_string(),
             name: "bash".to_string(),
             input: json!({"cmd": "ls"}),
+            extra: None,
         };
         // assert
         match &block {
-            ContentBlock::ToolUse { id, name, input } => {
+            ContentBlock::ToolUse { id, name, input, .. } => {
                 assert_eq!(id, "call_1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");
@@ -209,6 +214,7 @@ mod tests {
             id: "call_1".to_string(),
             name: "bash".to_string(),
             input: json!({}),
+            extra: None,
         };
         // act
         let value = serde_json::to_value(&block).unwrap();
@@ -319,6 +325,7 @@ mod tests {
                 id: "call_2".to_string(),
                 name: "search".to_string(),
                 input: json!({"query": "rust"}),
+                extra: None,
             },
         ];
         let msg = Message::new(Role::Assistant, content);

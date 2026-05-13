@@ -66,6 +66,7 @@ mod tests {
                 id: "call_1".into(),
                 name: "Bash".into(),
                 input,
+                extra: None,
             }],
         );
         let result = estimate_tokens_from_messages(&[msg]);
@@ -105,6 +106,7 @@ mod tests {
                         id: "c1".into(),
                         name: "Read".into(),
                         input: json!({"path": "/foo/bar.rs"}),
+                        extra: None,
                     },
                 ],
             ),

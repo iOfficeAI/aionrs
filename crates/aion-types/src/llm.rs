@@ -33,6 +33,8 @@ pub enum LlmEvent {
         id: ToolUseId,
         name: String,
         input: Value,
+        /// Opaque provider metadata (e.g. Gemini thought_signature) to round-trip.
+        extra: Option<Value>,
     },
     /// Thinking content (Anthropic only)
     ThinkingDelta(String),
@@ -98,9 +100,10 @@ mod tests {
             id: "call_1".to_string(),
             name: "bash".to_string(),
             input: json!({"cmd": "ls"}),
+            extra: None,
         };
         match &event {
-            LlmEvent::ToolUse { id, name, input } => {
+            LlmEvent::ToolUse { id, name, input, .. } => {
                 assert_eq!(id, "call_1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

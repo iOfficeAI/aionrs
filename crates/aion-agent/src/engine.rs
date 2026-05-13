@@ -427,10 +427,20 @@ impl AgentEngine {
                         self.output.emit_text_delta(&text, &self.current_msg_id);
                         assistant_text.push_str(&text);
                     }
-                    LlmEvent::ToolUse { id, name, input } => {
+                    LlmEvent::ToolUse {
+                        id,
+                        name,
+                        input,
+                        extra,
+                    } => {
                         let input_str = serde_json::to_string(&input).unwrap_or_default();
                         self.output.emit_tool_call(&name, &input_str);
-                        tool_calls.push(ContentBlock::ToolUse { id, name, input });
+                        tool_calls.push(ContentBlock::ToolUse {
+                            id,
+                            name,
+                            input,
+                            extra,
+                        });
                     }
                     LlmEvent::ThinkingDelta(text) => {
                         self.output.emit_thinking(&text, &self.current_msg_id);
@@ -1368,6 +1378,7 @@ mod compact_tests {
                 id: id.to_string(),
                 name: name.to_string(),
                 input: json!({}),
+                extra: None,
             }],
         )
     }

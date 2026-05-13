@@ -151,15 +151,25 @@ impl OpenAIProvider {
                         .content
                         .iter()
                         .filter_map(|b| {
-                            if let ContentBlock::ToolUse { id, name, input } = b {
-                                Some(json!({
+                            if let ContentBlock::ToolUse {
+                                id,
+                                name,
+                                input,
+                                extra,
+                            } = b
+                            {
+                                let mut tc_json = json!({
                                     "id": id,
                                     "type": "function",
                                     "function": {
                                         "name": name,
                                         "arguments": serde_json::to_string(input).unwrap_or_default()
                                     }
-                                }))
+                                });
+                                if let Some(extra_val) = extra {
+                                    tc_json["extra_content"] = extra_val.clone();
+                                }
+                                Some(tc_json)
                             } else {
                                 None
                             }
@@ -420,6 +430,7 @@ struct ToolCallAccumulator {
     id: String,
     name: String,
     arguments: String,
+    extra: Option<Value>,
 }
 
 struct StreamState {
@@ -468,6 +479,7 @@ impl StreamState {
                 id: String::new(),
                 name: String::new(),
                 arguments: String::new(),
+                extra: None,
             });
         }
         &mut self.tool_calls[index]
@@ -632,6 +644,9 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
             if let Some(args) = tc["function"]["arguments"].as_str() {
                 acc.arguments.push_str(args);
             }
+            if let Some(extra) = tc.get("extra_content").filter(|v| !v.is_null()) {
+                acc.extra = Some(extra.clone());
+            }
         }
     }
 
@@ -639,27 +654,10 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
     // chunk (choices:[]) can update token counts first.
     if let Some(finish_reason) = choice["finish_reason"].as_str() {
         match finish_reason {
-            "tool_calls" => {
-                // Emit accumulated tool calls immediately.
-                for tc in state.tool_calls.drain(..) {
-                    let input: Value = serde_json::from_str(&tc.arguments)
-                        .unwrap_or(Value::Object(serde_json::Map::new()));
-                    events.push(LlmEvent::ToolUse {
-                        id: tc.id,
-                        name: tc.name,
-                        input,
-                    });
-                }
-                state.pending_done = Some(LlmEvent::Done {
-                    stop_reason: StopReason::ToolUse,
-                    usage: TokenUsage::default(),
-                });
-            }
-            "stop" => {
+            "tool_calls" | "stop" => {
                 if !state.tool_calls.is_empty() {
-                    // Some providers (e.g. Gemini) use "stop" instead of
-                    // "tool_calls" as finish_reason even when tool calls
-                    // are present.
+                    // Emit accumulated tool calls. Gemini uses "stop" instead of
+                    // "tool_calls" as finish_reason, so we handle both here.
                     for tc in state.tool_calls.drain(..) {
                         let input: Value = serde_json::from_str(&tc.arguments)
                             .unwrap_or(Value::Object(serde_json::Map::new()));
@@ -667,15 +665,23 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
                             id: tc.id,
                             name: tc.name,
                             input,
+                            extra: tc.extra,
                         });
                     }
                     state.pending_done = Some(LlmEvent::Done {
                         stop_reason: StopReason::ToolUse,
                         usage: TokenUsage::default(),
                     });
-                } else {
+                } else if finish_reason == "stop" {
                     state.pending_done = Some(LlmEvent::Done {
                         stop_reason: StopReason::EndTurn,
+                        usage: TokenUsage::default(),
+                    });
+                } else {
+                    // "tool_calls" with empty accumulator — shouldn't happen,
+                    // but treat as ToolUse for safety.
+                    state.pending_done = Some(LlmEvent::Done {
+                        stop_reason: StopReason::ToolUse,
                         usage: TokenUsage::default(),
                     });
                 }
@@ -809,11 +815,13 @@ mod tests {
                         id: "tc1".into(),
                         name: "bash".into(),
                         input: json!({}),
+                        extra: None,
                     },
                     ContentBlock::ToolUse {
                         id: "tc2".into(),
                         name: "read".into(),
                         input: json!({}),
+                        extra: None,
                     },
                 ],
             ),
@@ -844,11 +852,13 @@ mod tests {
                         id: "tc1".into(),
                         name: "bash".into(),
                         input: json!({}),
+                        extra: None,
                     },
                     ContentBlock::ToolUse {
                         id: "tc2".into(),
                         name: "read".into(),
                         input: json!({}),
+                        extra: None,
                     },
                 ],
             ),
@@ -878,6 +888,7 @@ mod tests {
                     id: "tc1".into(),
                     name: "bash".into(),
                     input: json!({}),
+                    extra: None,
                 }],
             ),
             Message::new(
@@ -1055,7 +1066,7 @@ mod tests {
             .filter(|e| matches!(e, LlmEvent::ToolUse { .. }))
             .collect();
         assert_eq!(tool_events.len(), 1, "tool call should be emitted on stop");
-        if let LlmEvent::ToolUse { id, name, input } = &tool_events[0] {
+        if let LlmEvent::ToolUse { id, name, input, .. } = &tool_events[0] {
             assert_eq!(id, "call_abc123");
             assert_eq!(name, "Skill");
             assert_eq!(input["skill"], "test");

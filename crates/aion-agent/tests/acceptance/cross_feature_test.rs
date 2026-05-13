@@ -100,6 +100,7 @@ async fn tc_ax_01_multi_feature_collaboration() {
                 id: id.clone(),
                 name: "Read".to_string(),
                 input: json!({}),
+                extra: None,
             }],
         ));
         messages.push(Message::new(
