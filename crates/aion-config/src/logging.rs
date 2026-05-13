@@ -61,6 +61,49 @@ pub fn default_log_dir() -> PathBuf {
     }
 }
 
+pub use tracing_appender::non_blocking::WorkerGuard as LoggingGuard;
+
+use tracing::Subscriber;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::fmt;
+use tracing_subscriber::registry::LookupSpan;
+
+pub fn create_file_layer<S>(
+    config: &ResolvedLogging,
+) -> Result<(Box<dyn Layer<S> + Send + Sync>, WorkerGuard), LoggingError>
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+{
+    std::fs::create_dir_all(&config.dir).map_err(|source| LoggingError::CreateDir {
+        path: config.dir.clone(),
+        source,
+    })?;
+
+    let file_appender = tracing_appender::rolling::RollingFileAppender::builder()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_suffix("aionrs.log")
+        .build(&config.dir)
+        .map_err(|e| LoggingError::AppenderInit(e.to_string()))?;
+
+    let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+
+    let filter = EnvFilter::try_new(&config.level).map_err(|e| LoggingError::InvalidFilter {
+        filter: config.level.clone(),
+        reason: e.to_string(),
+    })?;
+
+    let layer = fmt::layer()
+        .json()
+        .with_writer(non_blocking)
+        .with_ansi(false)
+        .with_target(true)
+        .with_filter(filter);
+
+    Ok((Box::new(layer), guard))
+}
+
 impl LoggingConfig {
     pub fn merge(global: Self, project: Self) -> Self {
         Self {
