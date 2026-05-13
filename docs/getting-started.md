@@ -33,6 +33,8 @@ aionrs [OPTIONS] [PROMPT]...
 | `--auto-approve` | Skip all tool confirmations |
 | `--json-stream` | JSON Lines mode for host integration |
 | `--resume <id>` | Resume a previous session |
+| `--log-dir <path>` | Enable file logging to the given directory |
+| `--log-level <filter>` | Log level filter (e.g. `debug`, `info`, `aion_providers=debug`) |
 
 ---
 
@@ -117,6 +119,11 @@ max_entries = 100
 [plan]
 enabled = true
 plan_directory = ".aionrs/plans"
+
+# [logging]
+# enabled = true              # enable file logging (default: false)
+# level = "info"              # log level filter (default: "info")
+# dir = "/path/to/logs"       # log directory (default: platform-specific)
 ```
 
 ### API Key Resolution Order
