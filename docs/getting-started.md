@@ -111,6 +111,7 @@ max_sessions = 20
 [compact]
 compaction = "safe"   # off | safe | full
 toon = false          # Enable TOON encoding for JSON arrays
+# autocompact_threshold_pct = 50  # trigger autocompact at N% of context window
 
 [file_cache]
 enabled = true
