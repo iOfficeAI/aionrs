@@ -46,20 +46,20 @@ impl SlashCommand for CompactCommand {
 
                 if let Some(boundary) = ctx.messages.first_mut() {
                     for block in &mut boundary.content {
-                        if let aion_types::message::ContentBlock::Text { text } = block {
-                            if text.starts_with(auto::BOUNDARY_PREFIX) {
-                                let metadata = aion_types::compact::CompactMetadata {
-                                    trigger: CompactTrigger::Manual,
-                                    pre_compact_tokens: pre_tokens,
-                                    messages_summarized: msgs_summarized,
-                                };
-                                *text = format!(
-                                    "{}\n{}",
-                                    auto::BOUNDARY_PREFIX,
-                                    serde_json::to_string(&metadata)
-                                        .expect("metadata serialization cannot fail")
-                                );
-                            }
+                        if let aion_types::message::ContentBlock::Text { text } = block
+                            && text.starts_with(auto::BOUNDARY_PREFIX)
+                        {
+                            let metadata = aion_types::compact::CompactMetadata {
+                                trigger: CompactTrigger::Manual,
+                                pre_compact_tokens: pre_tokens,
+                                messages_summarized: msgs_summarized,
+                            };
+                            *text = format!(
+                                "{}\n{}",
+                                auto::BOUNDARY_PREFIX,
+                                serde_json::to_string(&metadata)
+                                    .expect("metadata serialization cannot fail")
+                            );
                         }
                     }
                 }
@@ -111,9 +111,7 @@ mod tests {
         let output = NullSink;
         let mut messages = vec![Message::new(
             Role::User,
-            vec![ContentBlock::Text {
-                text: "hi".into(),
-            }],
+            vec![ContentBlock::Text { text: "hi".into() }],
         )];
         let mut state = CompactState::new();
         let config = aion_config::compact::CompactConfig::default();
@@ -141,8 +139,17 @@ mod tests {
         let output = NullSink;
         let mut messages: Vec<Message> = (0..10)
             .map(|i| {
-                let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
-                Message::new(role, vec![ContentBlock::Text { text: format!("msg-{i}") }])
+                let role = if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                };
+                Message::new(
+                    role,
+                    vec![ContentBlock::Text {
+                        text: format!("msg-{i}"),
+                    }],
+                )
             })
             .collect();
         let mut state = CompactState::new();
