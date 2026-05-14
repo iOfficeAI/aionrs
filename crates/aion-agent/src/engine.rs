@@ -61,6 +61,7 @@ pub struct AgentEngine {
     cache_detector: CacheBreakDetector,
     compaction_level: aion_compact::CompactionLevel,
     toon_enabled: bool,
+    commands: crate::commands::CommandRegistry,
 }
 
 impl AgentEngine {
@@ -122,6 +123,7 @@ impl AgentEngine {
             cache_detector: CacheBreakDetector::new(),
             compaction_level: config.compact.compaction,
             toon_enabled: config.compact.toon,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -188,6 +190,7 @@ impl AgentEngine {
             cache_detector: CacheBreakDetector::new(),
             compaction_level: config.compact.compaction,
             toon_enabled: config.compact.toon,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -349,6 +352,42 @@ impl AgentEngine {
         }
 
         changes
+    }
+
+    /// Handle a slash command. Returns `None` if input is not a recognized command.
+    pub async fn handle_command(
+        &mut self,
+        input: &str,
+    ) -> Option<Result<crate::commands::CommandResult, anyhow::Error>> {
+        let input = input.trim();
+        let without_slash = input.strip_prefix('/')?;
+        let (name, args) = match without_slash.split_once(char::is_whitespace) {
+            Some((n, rest)) => (n, rest.trim()),
+            None => (without_slash, ""),
+        };
+
+        let cmd = self.commands.find(name)?;
+
+        // We need to borrow self mutably for CommandContext while also
+        // borrowing self.commands immutably (already done above via find()).
+        // Use a raw pointer to break the borrow conflict — safe because
+        // the command is not modified during execution.
+        let cmd_ptr = cmd as *const dyn crate::commands::SlashCommand;
+
+        let mut ctx = crate::commands::CommandContext {
+            messages: &mut self.messages,
+            compact_state: &mut self.compact_state,
+            compact_config: &self.compact_config,
+            provider: Arc::clone(&self.provider),
+            model: &self.model,
+            output: self.output.as_ref(),
+            registry: &self.commands,
+        };
+
+        // SAFETY: cmd_ptr points to a command inside self.commands which is only
+        // borrowed immutably and not mutated during execute().
+        let result = unsafe { &*cmd_ptr }.execute(&mut ctx, args).await;
+        Some(result)
     }
 
     /// Run the agent loop with user input
@@ -880,6 +919,7 @@ mod set_config_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1207,6 +1247,7 @@ mod phase6_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1409,6 +1450,7 @@ mod compact_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1675,6 +1717,7 @@ mod plan_mode_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1817,6 +1860,141 @@ mod plan_mode_tests {
         })]);
 
         assert!(engine.plan_state.is_active);
+    }
+}
+
+#[cfg(test)]
+mod handle_command_tests {
+    use std::sync::{Arc, Mutex};
+
+    use aion_providers::{LlmProvider, ProviderError};
+    use aion_tools::registry::ToolRegistry;
+    use aion_types::llm::{LlmEvent, LlmRequest};
+    use aion_types::message::{ContentBlock, Message, Role};
+
+    use crate::compact::state::CompactState;
+    use crate::confirm::ToolConfirmer;
+    use crate::output::OutputSink;
+
+    struct NullOutput;
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+    #[async_trait::async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(
+            &self,
+            _: &LlmRequest,
+        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    fn make_engine() -> super::AgentEngine {
+        super::AgentEngine {
+            provider: Arc::new(NullProvider),
+            tools: ToolRegistry::new(),
+            messages: vec![],
+            system_prompt: String::new(),
+            model: "test-model".to_string(),
+            max_tokens: 4096,
+            max_turns: Some(10),
+            total_usage: Default::default(),
+            thinking: None,
+            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
+            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
+            hooks: None,
+            session_manager: None,
+            current_session: None,
+            output: Arc::new(NullOutput),
+            current_msg_id: String::new(),
+            approval_manager: None,
+            protocol_writer: None,
+            allow_list: vec![],
+            current_reasoning_effort: None,
+            compact_config: aion_config::compact::CompactConfig::default(),
+            compact_state: CompactState::new(),
+            plan_state: Default::default(),
+            plan_active_flag: None,
+            cache_detector: super::CacheBreakDetector::new(),
+            compaction_level: aion_compact::CompactionLevel::default(),
+            toon_enabled: false,
+            commands: crate::commands::default_registry(),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_command_quit() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/quit").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Exit))
+        ));
+    }
+
+    #[tokio::test]
+    async fn handle_command_exit_alias() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/exit").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Exit))
+        ));
+    }
+
+    #[tokio::test]
+    async fn handle_command_unknown() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/nonexistent").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn handle_command_clear() {
+        let mut engine = make_engine();
+        engine.messages.push(Message::new(
+            Role::User,
+            vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        ));
+        assert_eq!(engine.messages.len(), 1);
+
+        let result = engine.handle_command("/clear").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Continue))
+        ));
+        assert!(engine.messages.is_empty());
+        assert_eq!(engine.compact_state.last_input_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn handle_command_with_args() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/help compact").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Continue))
+        ));
+    }
+
+    #[tokio::test]
+    async fn handle_command_not_a_command() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("hello world").await;
+        assert!(result.is_none());
     }
 }
 
