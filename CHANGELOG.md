@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.23](https://github.com/iOfficeAI/aionrs/compare/v0.1.22...v0.1.23) (2026-05-14)
+
+
+### Features
+
+* slash command system with engine-layer interception ([#97](https://github.com/iOfficeAI/aionrs/issues/97)) ([45859c5](https://github.com/iOfficeAI/aionrs/commit/45859c5fcd7b89db8c9399ece1bf64e66879cabd))
+
 ## [0.1.22](https://github.com/iOfficeAI/aionrs/compare/v0.1.21...v0.1.22) (2026-05-13)
 
 
