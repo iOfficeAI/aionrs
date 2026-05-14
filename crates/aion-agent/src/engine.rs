@@ -422,15 +422,25 @@ impl AgentEngine {
     ) -> Result<AgentResult, AgentError> {
         // Slash command interception — before any LLM call
         if let Some(result) = self.handle_command(user_input).await {
+            let cmd_name = user_input.trim().split_whitespace().next().unwrap_or(user_input);
             return match result {
-                Ok(crate::commands::CommandResult::Exit) => Err(AgentError::UserAborted),
-                Ok(crate::commands::CommandResult::Continue) => Ok(AgentResult {
-                    text: String::new(),
-                    stop_reason: StopReason::EndTurn,
-                    usage: TokenUsage::default(),
-                    turns: 0,
-                }),
-                Err(e) => Err(AgentError::ApiError(e.to_string())),
+                Ok(crate::commands::CommandResult::Exit) => {
+                    tracing::info!(command = cmd_name, "Slash command executed: exit");
+                    Err(AgentError::UserAborted)
+                }
+                Ok(crate::commands::CommandResult::Continue) => {
+                    tracing::info!(command = cmd_name, "Slash command executed");
+                    Ok(AgentResult {
+                        text: String::new(),
+                        stop_reason: StopReason::EndTurn,
+                        usage: TokenUsage::default(),
+                        turns: 0,
+                    })
+                }
+                Err(e) => {
+                    tracing::error!(command = cmd_name, error = %e, "Slash command failed");
+                    Err(AgentError::ApiError(e.to_string()))
+                }
             };
         }
 
