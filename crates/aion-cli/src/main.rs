@@ -317,8 +317,18 @@ async fn repl_loop(
         io::stdin().lock().read_line(&mut input)?;
         let input = input.trim();
 
-        if input.is_empty() || input == "/quit" || input == "/exit" {
+        if input.is_empty() {
             break;
+        }
+
+        if input.starts_with('/') {
+            match engine.handle_command(input).await {
+                Some(Ok(aion_agent::commands::CommandResult::Exit)) => break,
+                Some(Ok(aion_agent::commands::CommandResult::Continue)) => {}
+                Some(Err(e)) => output.emit_error(&e.to_string()),
+                None => output.emit_error(&format!("Unknown command: {}", input)),
+            }
+            continue;
         }
 
         match engine.run(input, "").await {
