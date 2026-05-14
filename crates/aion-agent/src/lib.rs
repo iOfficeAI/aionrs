@@ -3,6 +3,7 @@
 pub mod agents_md;
 pub mod bootstrap;
 pub mod cache_diagnostics;
+pub mod commands;
 pub mod compact;
 pub mod confirm;
 pub mod context;
