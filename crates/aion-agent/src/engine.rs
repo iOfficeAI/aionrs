@@ -406,11 +406,34 @@ impl AgentEngine {
         self.run_inner(user_input, msg_id).instrument(span).await
     }
 
+    /// Return metadata for all registered slash commands.
+    pub fn slash_command_list(&self) -> Vec<(String, String)> {
+        self.commands
+            .all()
+            .iter()
+            .map(|cmd| (cmd.name().to_string(), cmd.description().to_string()))
+            .collect()
+    }
+
     async fn run_inner(
         &mut self,
         user_input: &str,
         msg_id: &str,
     ) -> Result<AgentResult, AgentError> {
+        // Slash command interception — before any LLM call
+        if let Some(result) = self.handle_command(user_input).await {
+            return match result {
+                Ok(crate::commands::CommandResult::Exit) => Err(AgentError::UserAborted),
+                Ok(crate::commands::CommandResult::Continue) => Ok(AgentResult {
+                    text: String::new(),
+                    stop_reason: StopReason::EndTurn,
+                    usage: TokenUsage::default(),
+                    turns: 0,
+                }),
+                Err(e) => Err(AgentError::ApiError(e.to_string())),
+            };
+        }
+
         self.current_msg_id = msg_id.to_string();
         self.output.emit_stream_start(msg_id);
         self.messages.push(Message::now(
@@ -1995,6 +2018,33 @@ mod handle_command_tests {
         let mut engine = make_engine();
         let result = engine.handle_command("hello world").await;
         assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn run_intercepts_help_returns_zero_turns() {
+        let mut engine = make_engine();
+        let result = engine.run("/help", "msg-1").await.unwrap();
+        assert_eq!(result.turns, 0);
+        assert_eq!(result.usage.input_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn run_intercepts_quit_returns_user_aborted() {
+        let mut engine = make_engine();
+        let err = engine.run("/quit", "msg-1").await.unwrap_err();
+        assert!(matches!(err, super::AgentError::UserAborted));
+    }
+
+    #[test]
+    fn slash_command_list_returns_all() {
+        let engine = make_engine();
+        let list = engine.slash_command_list();
+        assert!(list.len() >= 4);
+        let names: Vec<&str> = list.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"help"));
+        assert!(names.contains(&"compact"));
+        assert!(names.contains(&"clear"));
+        assert!(names.contains(&"quit"));
     }
 }
 

@@ -321,27 +321,20 @@ async fn repl_loop(
             break;
         }
 
-        if input.starts_with('/') {
-            match engine.handle_command(input).await {
-                Some(Ok(aion_agent::commands::CommandResult::Exit)) => break,
-                Some(Ok(aion_agent::commands::CommandResult::Continue)) => {}
-                Some(Err(e)) => output.emit_error(&e.to_string()),
-                None => output.emit_error(&format!("Unknown command: {}", input)),
-            }
-            continue;
-        }
-
         match engine.run(input, "").await {
             Ok(result) => {
-                output.emit_stream_end(
-                    "",
-                    result.turns,
-                    result.usage.input_tokens,
-                    result.usage.output_tokens,
-                    result.usage.cache_creation_tokens,
-                    result.usage.cache_read_tokens,
-                );
+                if result.turns > 0 {
+                    output.emit_stream_end(
+                        "",
+                        result.turns,
+                        result.usage.input_tokens,
+                        result.usage.output_tokens,
+                        result.usage.cache_creation_tokens,
+                        result.usage.cache_read_tokens,
+                    );
+                }
             }
+            Err(aion_agent::engine::AgentError::UserAborted) => break,
             Err(e) => {
                 output.emit_error(&e.to_string());
             }
