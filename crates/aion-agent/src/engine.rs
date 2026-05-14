@@ -422,7 +422,7 @@ impl AgentEngine {
     ) -> Result<AgentResult, AgentError> {
         // Slash command interception — before any LLM call
         if let Some(result) = self.handle_command(user_input).await {
-            let cmd_name = user_input.trim().split_whitespace().next().unwrap_or(user_input);
+            let cmd_name = user_input.split_whitespace().next().unwrap_or(user_input);
             return match result {
                 Ok(crate::commands::CommandResult::Exit) => {
                     tracing::info!(command = cmd_name, "Slash command executed: exit");
