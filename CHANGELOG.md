@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/iOfficeAI/aionrs/compare/v0.1.23...v0.1.24) (2026-05-16)
+
+
+### Bug Fixes
+
+* **providers:** auto-generate tool call ID for OpenAI-compatible providers ([#99](https://github.com/iOfficeAI/aionrs/issues/99)) ([06fc04a](https://github.com/iOfficeAI/aionrs/commit/06fc04ae1fb74e8633d92e5b5e5683f6bac06fec))
+
 ## [0.1.23](https://github.com/iOfficeAI/aionrs/compare/v0.1.22...v0.1.23) (2026-05-14)
 
 
