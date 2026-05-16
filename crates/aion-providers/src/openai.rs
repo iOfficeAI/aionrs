@@ -1164,7 +1164,10 @@ mod tests {
             .expect("should emit ToolUse event");
 
         if let LlmEvent::ToolUse { id, .. } = tool_use {
-            assert!(id.is_empty(), "id should remain empty when auto_tool_id is disabled");
+            assert!(
+                id.is_empty(),
+                "id should remain empty when auto_tool_id is disabled"
+            );
         }
     }
 }
