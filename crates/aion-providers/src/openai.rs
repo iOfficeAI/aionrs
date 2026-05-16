@@ -283,6 +283,17 @@ impl OpenAIProvider {
     }
 }
 
+/// Generate a unique tool call ID in OpenAI `call_xxx` format.
+fn generate_call_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let rand: u64 = (ts as u64).wrapping_mul(6364136223846793005);
+    format!("call_{:016x}", rand)
+}
+
 /// Strip configured patterns from text content
 fn strip_patterns_from_text(text: &str, compat: &ProviderCompat) -> String {
     match &compat.strip_patterns {
@@ -515,9 +526,10 @@ impl LlmProvider for OpenAIProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
+        let auto_tool_id = self.compat.auto_tool_id();
 
         tokio::spawn(async move {
-            if let Err(e) = process_sse_stream(response, &tx).await {
+            if let Err(e) = process_sse_stream(response, &tx, auto_tool_id).await {
                 let _ = tx.send(LlmEvent::Error(e.to_string())).await;
             }
         });
@@ -529,6 +541,7 @@ impl LlmProvider for OpenAIProvider {
 async fn process_sse_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
+    auto_tool_id: bool,
 ) -> Result<(), ProviderError> {
     use futures::StreamExt;
 
@@ -561,7 +574,7 @@ async fn process_sse_stream(
                     return Ok(());
                 }
 
-                let events = parse_sse_chunk(data, &mut state);
+                let events = parse_sse_chunk(data, &mut state, auto_tool_id);
                 for event in events {
                     if tx.send(event).await.is_err() {
                         return Ok(());
@@ -574,7 +587,7 @@ async fn process_sse_stream(
     Ok(())
 }
 
-fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
+fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
     let mut events = Vec::new();
 
     let json: Value = match serde_json::from_str(data) {
@@ -651,10 +664,15 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
                     // Emit accumulated tool calls. Gemini uses "stop" instead of
                     // "tool_calls" as finish_reason, so we handle both here.
                     for tc in state.tool_calls.drain(..) {
+                        let id = if tc.id.is_empty() && auto_tool_id {
+                            generate_call_id()
+                        } else {
+                            tc.id
+                        };
                         let input: Value = serde_json::from_str(&tc.arguments)
                             .unwrap_or(Value::Object(serde_json::Map::new()));
                         events.push(LlmEvent::ToolUse {
-                            id: tc.id,
+                            id,
                             name: tc.name,
                             input,
                             extra: tc.extra,
@@ -909,7 +927,7 @@ mod tests {
 
         // chunk 1: finish_reason + text delta, no usage
         let chunk1 = r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#;
-        let events = parse_sse_chunk(chunk1, &mut state);
+        let events = parse_sse_chunk(chunk1, &mut state, false);
         // TextDelta is emitted immediately; Done is deferred.
         assert!(
             events.iter().all(|e| !matches!(e, LlmEvent::Done { .. })),
@@ -919,7 +937,7 @@ mod tests {
 
         // chunk 2: trailing usage-only chunk (choices:[])
         let chunk2 = r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#;
-        let events2 = parse_sse_chunk(chunk2, &mut state);
+        let events2 = parse_sse_chunk(chunk2, &mut state, false);
         assert!(events2.is_empty());
         assert_eq!(state.input_tokens, 10);
         assert_eq!(state.output_tokens, 5);
@@ -944,7 +962,7 @@ mod tests {
 
         // No text delta here, only finish_reason + usage in the same chunk.
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}"#;
-        let events = parse_sse_chunk(chunk, &mut state);
+        let events = parse_sse_chunk(chunk, &mut state, false);
         assert!(
             events.iter().all(|e| !matches!(e, LlmEvent::Done { .. })),
             "Done should be deferred even when usage is in the finish chunk"
@@ -996,7 +1014,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":500,"completion_tokens":100,"prompt_cache_hit_tokens":999500}}"#;
-        let _ = parse_sse_chunk(chunk, &mut state);
+        let _ = parse_sse_chunk(chunk, &mut state, false);
 
         assert_eq!(state.input_tokens, 1_000_000);
         assert_eq!(state.output_tokens, 100);
@@ -1009,7 +1027,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000000,"completion_tokens":100,"prompt_tokens_details":{"cached_tokens":999000}}}"#;
-        let _ = parse_sse_chunk(chunk, &mut state);
+        let _ = parse_sse_chunk(chunk, &mut state, false);
 
         // prompt_tokens is already the full total for OpenAI
         assert_eq!(state.input_tokens, 1_000_000);
@@ -1022,7 +1040,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":50000,"completion_tokens":200}}"#;
-        let _ = parse_sse_chunk(chunk, &mut state);
+        let _ = parse_sse_chunk(chunk, &mut state, false);
 
         assert_eq!(state.input_tokens, 50_000);
         assert_eq!(state.output_tokens, 200);
@@ -1036,14 +1054,14 @@ mod tests {
 
         // chunk 1: tool call delta (name + partial args)
         let chunk1 = r#"{"choices":[{"delta":{"role":"assistant","tool_calls":[{"extra_content":{},"function":{"arguments":"{\"skill\":\"test\",\"args\":\"hello\"}","name":"Skill"},"id":"call_abc123","type":"function"}]},"index":0}]}"#;
-        let events1 = parse_sse_chunk(chunk1, &mut state);
+        let events1 = parse_sse_chunk(chunk1, &mut state, false);
         assert!(events1.is_empty(), "no events until finish_reason");
         assert_eq!(state.tool_calls.len(), 1);
         assert_eq!(state.tool_calls[0].name, "Skill");
 
         // chunk 2: finish_reason:"stop" (not "tool_calls")
         let chunk2 = r#"{"choices":[{"delta":{"role":"assistant"},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}"#;
-        let events2 = parse_sse_chunk(chunk2, &mut state);
+        let events2 = parse_sse_chunk(chunk2, &mut state, false);
 
         // Tool call should be emitted
         let tool_events: Vec<_> = events2
@@ -1079,7 +1097,7 @@ mod tests {
 
         let chunk =
             r#"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}"#;
-        let events = parse_sse_chunk(chunk, &mut state);
+        let events = parse_sse_chunk(chunk, &mut state, false);
 
         let text_events: Vec<_> = events
             .iter()
@@ -1093,6 +1111,60 @@ mod tests {
                 assert_eq!(stop_reason, StopReason::EndTurn);
             }
             other => panic!("expected Done with EndTurn, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_auto_tool_id_generates_id_when_empty() {
+        let mut state = StreamState::new();
+
+        // Simulate a provider that returns tool_calls without an id field
+        let chunk = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"get_weather","arguments":"{\"city\":\"Beijing\"}"}}]},"finish_reason":"tool_calls","index":0}]}"#;
+        let events = parse_sse_chunk(chunk, &mut state, true);
+
+        let tool_use = events
+            .iter()
+            .find(|e| matches!(e, LlmEvent::ToolUse { .. }))
+            .expect("should emit ToolUse event");
+
+        if let LlmEvent::ToolUse { id, name, .. } = tool_use {
+            assert!(!id.is_empty(), "id should be auto-generated, not empty");
+            assert!(id.starts_with("call_"), "id should have call_ prefix");
+            assert_eq!(name, "get_weather");
+        }
+    }
+
+    #[test]
+    fn test_auto_tool_id_preserves_existing_id() {
+        let mut state = StreamState::new();
+
+        let chunk = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_existing_123","function":{"name":"read_file","arguments":"{}"}}]},"finish_reason":"tool_calls","index":0}]}"#;
+        let events = parse_sse_chunk(chunk, &mut state, true);
+
+        let tool_use = events
+            .iter()
+            .find(|e| matches!(e, LlmEvent::ToolUse { .. }))
+            .expect("should emit ToolUse event");
+
+        if let LlmEvent::ToolUse { id, .. } = tool_use {
+            assert_eq!(id, "call_existing_123", "existing id should be preserved");
+        }
+    }
+
+    #[test]
+    fn test_auto_tool_id_disabled_keeps_empty() {
+        let mut state = StreamState::new();
+
+        let chunk = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"get_weather","arguments":"{}"}}]},"finish_reason":"tool_calls","index":0}]}"#;
+        let events = parse_sse_chunk(chunk, &mut state, false);
+
+        let tool_use = events
+            .iter()
+            .find(|e| matches!(e, LlmEvent::ToolUse { .. }))
+            .expect("should emit ToolUse event");
+
+        if let LlmEvent::ToolUse { id, .. } = tool_use {
+            assert!(id.is_empty(), "id should remain empty when auto_tool_id is disabled");
         }
     }
 }

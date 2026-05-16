@@ -96,6 +96,7 @@ impl ProviderCompat {
             merge_assistant_messages: Some(true),
             clean_orphan_tool_calls: Some(true),
             dedup_tool_results: Some(true),
+            auto_tool_id: Some(true),
             supports_thinking: Some(false),
             supports_effort: Some(true),
             effort_levels: Some(vec!["low".into(), "medium".into(), "high".into()]),
