@@ -275,7 +275,9 @@ pub async fn process_sse_stream(
                     for event in events {
                         if matches!(
                             event,
-                            LlmEvent::TextDelta(_) | LlmEvent::ThinkingDelta(_) | LlmEvent::ToolUse { .. }
+                            LlmEvent::TextDelta(_)
+                                | LlmEvent::ThinkingDelta(_)
+                                | LlmEvent::ToolUse { .. }
                         ) {
                             emitted_content = true;
                         }

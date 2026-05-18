@@ -320,12 +320,26 @@ impl LlmProvider for VertexProvider {
                         let mut final_err = Some(e);
                         for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
                             backoff = crate::retry::backoff_sleep(attempt, backoff).await;
-                            match crate::retry::send_and_check(&client, &url_clone, &headers_clone, &body).await {
+                            match crate::retry::send_and_check(
+                                &client,
+                                &url_clone,
+                                &headers_clone,
+                                &body,
+                            )
+                            .await
+                            {
                                 Ok(resp) => {
-                                    let outcome = anthropic_shared::process_sse_stream(resp, &tx).await;
+                                    let outcome =
+                                        anthropic_shared::process_sse_stream(resp, &tx).await;
                                     match crate::retry::evaluate_outcome(outcome, attempt) {
-                                        Ok(None) => { final_err = None; break; }
-                                        Ok(Some(e)) => { final_err = Some(e); break; }
+                                        Ok(None) => {
+                                            final_err = None;
+                                            break;
+                                        }
+                                        Ok(Some(e)) => {
+                                            final_err = Some(e);
+                                            break;
+                                        }
                                         Err(_) => continue,
                                     }
                                 }

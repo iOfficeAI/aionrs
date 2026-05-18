@@ -7,8 +7,8 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
-use crate::{LlmProvider, ProviderError};
 use crate::anthropic_shared::StreamOutcome;
+use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
 
 pub struct OpenAIProvider {
@@ -544,12 +544,20 @@ impl LlmProvider for OpenAIProvider {
                         let mut final_err = Some(e);
                         for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
                             backoff = crate::retry::backoff_sleep(attempt, backoff).await;
-                            match crate::retry::send_and_check(&client, &url_clone, &headers, &body).await {
+                            match crate::retry::send_and_check(&client, &url_clone, &headers, &body)
+                                .await
+                            {
                                 Ok(resp) => {
                                     let outcome = process_sse_stream(resp, &tx, auto_tool_id).await;
                                     match crate::retry::evaluate_outcome(outcome, attempt) {
-                                        Ok(None) => { final_err = None; break; }
-                                        Ok(Some(e)) => { final_err = Some(e); break; }
+                                        Ok(None) => {
+                                            final_err = None;
+                                            break;
+                                        }
+                                        Ok(Some(e)) => {
+                                            final_err = Some(e);
+                                            break;
+                                        }
                                         Err(_) => continue,
                                     }
                                 }
@@ -625,7 +633,9 @@ async fn process_sse_stream(
                 for event in events {
                     if matches!(
                         event,
-                        LlmEvent::TextDelta(_) | LlmEvent::ThinkingDelta(_) | LlmEvent::ToolUse { .. }
+                        LlmEvent::TextDelta(_)
+                            | LlmEvent::ThinkingDelta(_)
+                            | LlmEvent::ToolUse { .. }
                     ) {
                         emitted_content = true;
                     }
@@ -639,7 +649,6 @@ async fn process_sse_stream(
 
     StreamOutcome::Ok
 }
-
 
 fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
     let mut events = Vec::new();

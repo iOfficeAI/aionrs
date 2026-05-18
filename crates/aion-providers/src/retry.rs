@@ -175,7 +175,9 @@ mod tests {
         let err = ProviderError::Connection("disconnect".into());
         let result = evaluate_outcome(StreamOutcome::FailedPartial(err), 1);
         // FailedPartial means content was already emitted — cannot retry regardless of attempt
-        let Ok(Some(e)) = result else { panic!("expected Ok(Some(err))") };
+        let Ok(Some(e)) = result else {
+            panic!("expected Ok(Some(err))")
+        };
         assert!(matches!(e, ProviderError::Connection(_)));
     }
 
@@ -183,7 +185,9 @@ mod tests {
     fn test_evaluate_outcome_failed_partial_on_last_attempt() {
         let err = ProviderError::Connection("disconnect".into());
         let result = evaluate_outcome(StreamOutcome::FailedPartial(err), MAX_STREAM_RETRIES);
-        let Ok(Some(_)) = result else { panic!("expected Ok(Some(err))") };
+        let Ok(Some(_)) = result else {
+            panic!("expected Ok(Some(err))")
+        };
     }
 
     #[test]
@@ -199,7 +203,9 @@ mod tests {
         let err = ProviderError::Connection("disconnect".into());
         // attempt == MAX_STREAM_RETRIES, should stop and return error
         let result = evaluate_outcome(StreamOutcome::FailedEmpty(err), MAX_STREAM_RETRIES);
-        let Ok(Some(e)) = result else { panic!("expected Ok(Some(err))") };
+        let Ok(Some(e)) = result else {
+            panic!("expected Ok(Some(err))")
+        };
         assert!(matches!(e, ProviderError::Connection(_)));
     }
 
