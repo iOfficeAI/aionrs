@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.25](https://github.com/iOfficeAI/aionrs/compare/v0.1.24...v0.1.25) (2026-05-18)
+
+
+### Bug Fixes
+
+* **providers:** retry SSE stream on mid-stream connection disconnect ([#101](https://github.com/iOfficeAI/aionrs/issues/101)) ([af34593](https://github.com/iOfficeAI/aionrs/commit/af34593a2b43de70d9cc41f6ec156d4b5b1fffc8))
+
 ## [0.1.24](https://github.com/iOfficeAI/aionrs/compare/v0.1.23...v0.1.24) (2026-05-16)
 
 
