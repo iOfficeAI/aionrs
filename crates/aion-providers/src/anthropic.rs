@@ -123,10 +123,45 @@ impl LlmProvider for AnthropicProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
+        let client = self.client.clone();
+        let headers = self.build_headers()?;
+        let url_clone = url.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = anthropic_shared::process_sse_stream(response, &tx).await {
-                let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+            match anthropic_shared::process_sse_stream(response, &tx).await {
+                anthropic_shared::StreamOutcome::Ok => {}
+                anthropic_shared::StreamOutcome::FailedPartial(e) => {
+                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                }
+                anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                    if e.is_retryable() {
+                        let mut backoff = std::time::Duration::from_secs(1);
+                        let mut final_err = Some(e);
+                        for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
+                            backoff = crate::retry::backoff_sleep(attempt, backoff).await;
+                            match crate::retry::send_and_check(&client, &url_clone, &headers, &body).await {
+                                Ok(resp) => {
+                                    let outcome = anthropic_shared::process_sse_stream(resp, &tx).await;
+                                    match crate::retry::evaluate_outcome(outcome, attempt) {
+                                        Ok(None) => { final_err = None; break; }
+                                        Ok(Some(e)) => { final_err = Some(e); break; }
+                                        Err(_) => continue,
+                                    }
+                                }
+                                Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
+                                    final_err = Some(e);
+                                    break;
+                                }
+                                Err(_) => continue,
+                            }
+                        }
+                        if let Some(err) = final_err {
+                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+                        }
+                    } else {
+                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                    }
+                }
             }
         });
 

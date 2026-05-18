@@ -8,6 +8,7 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use crate::{LlmProvider, ProviderError};
+use crate::anthropic_shared::StreamOutcome;
 use aion_config::compat::ProviderCompat;
 
 pub struct OpenAIProvider {
@@ -527,10 +528,45 @@ impl LlmProvider for OpenAIProvider {
 
         let (tx, rx) = mpsc::channel(64);
         let auto_tool_id = self.compat.auto_tool_id();
+        let client = self.client.clone();
+        let headers = self.build_headers()?;
+        let url_clone = url.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = process_sse_stream(response, &tx, auto_tool_id).await {
-                let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+            match process_sse_stream(response, &tx, auto_tool_id).await {
+                StreamOutcome::Ok => {}
+                StreamOutcome::FailedPartial(e) => {
+                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                }
+                StreamOutcome::FailedEmpty(e) => {
+                    if e.is_retryable() {
+                        let mut backoff = std::time::Duration::from_secs(1);
+                        let mut final_err = Some(e);
+                        for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
+                            backoff = crate::retry::backoff_sleep(attempt, backoff).await;
+                            match crate::retry::send_and_check(&client, &url_clone, &headers, &body).await {
+                                Ok(resp) => {
+                                    let outcome = process_sse_stream(resp, &tx, auto_tool_id).await;
+                                    match crate::retry::evaluate_outcome(outcome, attempt) {
+                                        Ok(None) => { final_err = None; break; }
+                                        Ok(Some(e)) => { final_err = Some(e); break; }
+                                        Err(_) => continue,
+                                    }
+                                }
+                                Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
+                                    final_err = Some(e);
+                                    break;
+                                }
+                                Err(_) => continue,
+                            }
+                        }
+                        if let Some(err) = final_err {
+                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+                        }
+                    } else {
+                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                    }
+                }
             }
         });
 
@@ -542,15 +578,26 @@ async fn process_sse_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
     auto_tool_id: bool,
-) -> Result<(), ProviderError> {
+) -> StreamOutcome {
     use futures::StreamExt;
 
     let mut state = StreamState::new();
     let mut buffer = String::new();
     let mut stream = response.bytes_stream();
+    let mut emitted_content = false;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                let err = ProviderError::Connection(e.to_string());
+                return if emitted_content {
+                    StreamOutcome::FailedPartial(err)
+                } else {
+                    StreamOutcome::FailedEmpty(err)
+                };
+            }
+        };
         let text = String::from_utf8_lossy(&chunk);
         buffer.push_str(&text);
 
@@ -571,21 +618,28 @@ async fn process_sse_stream(
                     if let Some(done) = state.flush_done() {
                         let _ = tx.send(done).await;
                     }
-                    return Ok(());
+                    return StreamOutcome::Ok;
                 }
 
                 let events = parse_sse_chunk(data, &mut state, auto_tool_id);
                 for event in events {
+                    if matches!(
+                        event,
+                        LlmEvent::TextDelta(_) | LlmEvent::ThinkingDelta(_) | LlmEvent::ToolUse { .. }
+                    ) {
+                        emitted_content = true;
+                    }
                     if tx.send(event).await.is_err() {
-                        return Ok(());
+                        return StreamOutcome::Ok;
                     }
                 }
             }
         }
     }
 
-    Ok(())
+    StreamOutcome::Ok
 }
+
 
 fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
     let mut events = Vec::new();

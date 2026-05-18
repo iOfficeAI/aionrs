@@ -288,8 +288,13 @@ impl LlmProvider for BedrockProvider {
 
         // AWS event stream uses binary framing
         tokio::spawn(async move {
-            if let Err(e) = process_aws_event_stream(response, &tx).await {
-                let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+            match process_aws_event_stream(response, &tx).await {
+                anthropic_shared::StreamOutcome::Ok => {}
+                anthropic_shared::StreamOutcome::FailedPartial(e)
+                | anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                    // Bedrock retry requires re-signing; not implemented yet.
+                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                }
             }
         });
 
@@ -301,15 +306,26 @@ impl LlmProvider for BedrockProvider {
 async fn process_aws_event_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
-) -> Result<(), ProviderError> {
+) -> anthropic_shared::StreamOutcome {
     use futures::StreamExt;
 
     let mut state = anthropic_shared::StreamState::new();
     let mut buffer = Vec::new();
     let mut stream = response.bytes_stream();
+    let mut emitted_content = false;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                let err = ProviderError::Connection(e.to_string());
+                return if emitted_content {
+                    anthropic_shared::StreamOutcome::FailedPartial(err)
+                } else {
+                    anthropic_shared::StreamOutcome::FailedEmpty(err)
+                };
+            }
+        };
         buffer.extend_from_slice(&chunk);
 
         // Parse complete AWS event stream messages from buffer
@@ -331,8 +347,14 @@ async fn process_aws_event_stream(
                             let events =
                                 anthropic_shared::parse_sse_data(event_type, &inner, &mut state);
                             for event in events {
+                                if matches!(
+                                    event,
+                                    LlmEvent::TextDelta(_) | LlmEvent::ThinkingDelta(_) | LlmEvent::ToolUse { .. }
+                                ) {
+                                    emitted_content = true;
+                                }
                                 if tx.send(event).await.is_err() {
-                                    return Ok(());
+                                    return anthropic_shared::StreamOutcome::Ok;
                                 }
                             }
                         }
@@ -357,7 +379,7 @@ async fn process_aws_event_stream(
             .await;
     }
 
-    Ok(())
+    anthropic_shared::StreamOutcome::Ok
 }
 
 /// Parse one AWS event stream message from the buffer.
