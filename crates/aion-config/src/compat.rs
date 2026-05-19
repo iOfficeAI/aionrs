@@ -157,6 +157,17 @@ impl ProviderCompat {
         }
     }
 
+    /// Defaults for the native Gemini API.
+    pub fn gemini_defaults() -> Self {
+        Self {
+            auto_tool_id: Some(true),
+            sanitize_schema: Some(true),
+            supports_thinking: Some(true),
+            supports_effort: Some(false),
+            ..Default::default()
+        }
+    }
+
     /// Merge user config over defaults (user wins on non-None fields)
     pub fn merge(defaults: Self, user: Self) -> Self {
         Self {
@@ -273,6 +284,7 @@ fn default_openai_assistant_text_strip_patterns() -> Vec<String> {
 
 /// Sanitize a JSON Schema for strict providers (e.g., Bedrock).
 /// - Root type must be "object" (wrap if not)
+/// - Recursively remove unsupported JSON Schema metadata like "$schema"
 /// - Recursively remove "additionalProperties"
 /// - Normalize array types: ["string", "null"] → "string"
 pub fn sanitize_json_schema(schema: &Value) -> Value {
@@ -289,9 +301,24 @@ pub fn sanitize_json_schema(schema: &Value) -> Value {
         });
     }
 
+    strip_unsupported_schema_metadata(&mut schema);
     strip_additional_properties(&mut schema);
     normalize_array_types(&mut schema);
     schema
+}
+
+fn strip_unsupported_schema_metadata(val: &mut Value) {
+    if let Some(obj) = val.as_object_mut() {
+        obj.remove("$schema");
+        obj.remove("$id");
+        for v in obj.values_mut() {
+            strip_unsupported_schema_metadata(v);
+        }
+    } else if let Some(arr) = val.as_array_mut() {
+        for v in arr.iter_mut() {
+            strip_unsupported_schema_metadata(v);
+        }
+    }
 }
 
 fn strip_additional_properties(val: &mut Value) {
@@ -382,6 +409,15 @@ mod tests {
     }
 
     #[test]
+    fn test_gemini_defaults() {
+        let compat = ProviderCompat::gemini_defaults();
+        assert!(compat.auto_tool_id());
+        assert!(compat.sanitize_schema());
+        assert!(compat.supports_thinking());
+        assert!(!compat.supports_effort());
+    }
+
+    #[test]
     fn test_merge_user_overrides_defaults() {
         let defaults = ProviderCompat::openai_defaults();
         let user = ProviderCompat {
@@ -437,6 +473,35 @@ mod tests {
             sanitized["properties"]["name"]
                 .get("additionalProperties")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn test_sanitize_schema_removes_unsupported_metadata() {
+        let schema = json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "tool.schema.json",
+            "type": "object",
+            "properties": {
+                "nested": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "$id": "nested.schema.json",
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "string"}
+                    }
+                }
+            }
+        });
+        let sanitized = sanitize_json_schema(&schema);
+
+        assert!(sanitized.get("$schema").is_none());
+        assert!(sanitized.get("$id").is_none());
+        assert!(sanitized["properties"]["nested"].get("$schema").is_none());
+        assert!(sanitized["properties"]["nested"].get("$id").is_none());
+        assert_eq!(
+            sanitized["properties"]["nested"]["properties"]["value"]["type"],
+            "string"
         );
     }
 

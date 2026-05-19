@@ -632,7 +632,7 @@ When spawned in `--json-stream` mode, all configuration is passed via CLI flags 
 
 ```bash
 aionrs --json-stream \
-  --provider <anthropic|openai|bedrock|vertex> \
+  --provider <anthropic|openai|gemini|bedrock|vertex> \
   --model <model-id> \
   --max-tokens <N> \
   --max-turns <N> \

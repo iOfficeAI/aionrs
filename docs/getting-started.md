@@ -25,7 +25,7 @@ aionrs [OPTIONS] [PROMPT]...
 
 | Parameter | Description |
 |-----------|-------------|
-| `--provider <name>` | Provider: `anthropic`, `openai`, `bedrock`, `vertex`, or a custom alias |
+| `--provider <name>` | Provider: `anthropic`, `openai`, `gemini`, `bedrock`, `vertex`, or a custom alias |
 | `--model <id>` | Model name |
 | `--profile <name>` | Named profile from config file |
 | `--compaction <level>` | Output compaction: `off`, `safe` (default), `full` |
@@ -153,7 +153,7 @@ base_url = "https://my-service.example.com/api/openai"
 ```
 
 - `default.provider` 和 `profile.provider` 都可以写 alias 名称
-- `providers.<alias>.provider` 必须声明底层类型，目前只能是 `anthropic`、`openai`、`bedrock`、`vertex`
+- `providers.<alias>.provider` 必须声明底层类型，目前只能是 `anthropic`、`openai`、`gemini`、`bedrock`、`vertex`
 - alias 条目会覆盖对应底层 provider 的默认配置
 
 ---

@@ -278,6 +278,7 @@ pub enum ProviderType {
     Anthropic,
     OpenAI,
     Copilot,
+    Gemini,
     Bedrock,
     Vertex,
 }
@@ -346,6 +347,7 @@ impl Config {
                 ProviderType::Anthropic => "https://api.anthropic.com".into(),
                 ProviderType::OpenAI => "https://api.openai.com".into(),
                 ProviderType::Copilot => "https://api.githubcopilot.com".into(),
+                ProviderType::Gemini => "https://generativelanguage.googleapis.com/v1beta".into(),
                 // Bedrock/Vertex URLs are constructed from region/project, not base_url
                 ProviderType::Bedrock | ProviderType::Vertex => String::new(),
             });
@@ -359,6 +361,7 @@ impl Config {
                 ProviderType::Anthropic => "claude-sonnet-4-20250514".into(),
                 ProviderType::OpenAI => "gpt-4o".into(),
                 ProviderType::Copilot => "gpt-4o".into(),
+                ProviderType::Gemini => "gemini-2.5-pro".into(),
                 ProviderType::Bedrock => "anthropic.claude-sonnet-4-20250514-v1:0".into(),
                 ProviderType::Vertex => "claude-sonnet-4@20250514".into(),
             });
@@ -396,6 +399,7 @@ impl Config {
             ProviderType::Anthropic => ProviderCompat::anthropic_defaults(),
             ProviderType::OpenAI => ProviderCompat::openai_defaults(),
             ProviderType::Copilot => ProviderCompat::copilot_defaults(),
+            ProviderType::Gemini => ProviderCompat::gemini_defaults(),
             ProviderType::Bedrock => ProviderCompat::bedrock_defaults(),
             ProviderType::Vertex => ProviderCompat::anthropic_defaults(),
         };
@@ -439,6 +443,7 @@ fn parse_builtin_provider(s: &str) -> Option<ProviderType> {
         "anthropic" => Some(ProviderType::Anthropic),
         "openai" => Some(ProviderType::OpenAI),
         "copilot" => Some(ProviderType::Copilot),
+        "gemini" | "google-gemini" => Some(ProviderType::Gemini),
         "bedrock" => Some(ProviderType::Bedrock),
         "vertex" => Some(ProviderType::Vertex),
         _ => None,
@@ -473,6 +478,7 @@ fn builtin_provider_name(provider: ProviderType) -> &'static str {
         ProviderType::Anthropic => "anthropic",
         ProviderType::OpenAI => "openai",
         ProviderType::Copilot => "copilot",
+        ProviderType::Gemini => "gemini",
         ProviderType::Bedrock => "bedrock",
         ProviderType::Vertex => "vertex",
     }
@@ -548,7 +554,7 @@ fn resolve_provider_alias(
 
     let alias_config = providers.get(requested).cloned().ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: '{}'. Expected a built-in provider (anthropic, openai, copilot, bedrock, vertex) \
+            "Unknown provider: '{}'. Expected a built-in provider (anthropic, openai, copilot, gemini, bedrock, vertex) \
              or a custom alias defined in [providers.{}].",
             requested,
             requested
@@ -558,7 +564,7 @@ fn resolve_provider_alias(
     let underlying = alias_config.provider.clone().ok_or_else(|| {
         anyhow::anyhow!(
             "Provider alias '{}' requires a 'provider' field in [providers.{}] \
-             that maps to a built-in type (anthropic, openai, copilot, bedrock, vertex).",
+             that maps to a built-in type (anthropic, openai, copilot, gemini, bedrock, vertex).",
             requested,
             requested
         )
@@ -567,7 +573,7 @@ fn resolve_provider_alias(
     let provider_type = parse_builtin_provider(&underlying).ok_or_else(|| {
         anyhow::anyhow!(
             "Provider alias '{}' maps to '{}', which is not a built-in provider. \
-             Use one of: anthropic, openai, copilot, bedrock, vertex.",
+             Use one of: anthropic, openai, copilot, gemini, bedrock, vertex.",
             requested,
             underlying
         )
@@ -621,6 +627,14 @@ fn resolve_api_key(
                 return Ok(key);
             }
         }
+        ProviderType::Gemini => {
+            if let Ok(key) = std::env::var("GEMINI_API_KEY") {
+                return Ok(key);
+            }
+            if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
+                return Ok(key);
+            }
+        }
         // Bedrock uses AWS credentials, Vertex uses GCP credentials
         // They don't need a traditional API key
         ProviderType::Bedrock | ProviderType::Vertex => {
@@ -650,7 +664,7 @@ fn resolve_api_key(
 
     anyhow::bail!(
         "No API key found. Provide via --api-key, config file, environment variable \
-         (API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY), or run \
+         (API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY), or run \
          'aionrs --provider {} --login'.",
         provider_label
     )
@@ -992,6 +1006,11 @@ max_tokens = 8192
 # model = "gpt-4o"
 # base_url = "https://api.githubcopilot.com"
 
+[providers.gemini]
+# api_key = "AIza..."             # can also use env: GEMINI_API_KEY or GOOGLE_API_KEY
+# model = "gemini-2.5-pro"
+# base_url = "https://generativelanguage.googleapis.com/v1beta"
+
 # Custom provider alias (maps to a built-in provider type)
 # [providers.my-service]
 # provider = "openai"
@@ -1156,6 +1175,12 @@ mod tests {
     fn test_provider_type_from_str_copilot() {
         let result = parse_builtin_provider("copilot");
         assert_eq!(result, Some(ProviderType::Copilot));
+    }
+
+    #[test]
+    fn test_provider_type_from_str_gemini() {
+        let result = parse_builtin_provider("gemini");
+        assert_eq!(result, Some(ProviderType::Gemini));
     }
 
     #[test]
@@ -1482,6 +1507,18 @@ mod tests {
         // Vertex uses GCP credentials, so an empty key is the expected success value.
         let result = resolve_api_key(None, None, ProviderType::Vertex, "vertex", None).unwrap();
         assert_eq!(result, "");
+    }
+
+    #[test]
+    fn test_api_key_gemini_uses_gemini_env() {
+        unsafe {
+            std::env::set_var("GEMINI_API_KEY", "gemini-key");
+        }
+        let result = resolve_api_key(None, None, ProviderType::Gemini, "gemini", None).unwrap();
+        assert_eq!(result, "gemini-key");
+        unsafe {
+            std::env::remove_var("GEMINI_API_KEY");
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -1908,6 +1945,7 @@ base_url = "https://my-service.example.com/api/openai"
             ("anthropic", ProviderType::Anthropic),
             ("openai", ProviderType::OpenAI),
             ("copilot", ProviderType::Copilot),
+            ("gemini", ProviderType::Gemini),
             ("bedrock", ProviderType::Bedrock),
             ("vertex", ProviderType::Vertex),
         ] {

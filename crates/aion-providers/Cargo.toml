@@ -1,6 +1,6 @@
 [package]
 name = "aion-providers"
-description = "LLM provider implementations for aionrs (Anthropic, OpenAI, Bedrock, Vertex)"
+description = "LLM provider implementations for aionrs (Anthropic, OpenAI, Gemini, Bedrock, Vertex)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

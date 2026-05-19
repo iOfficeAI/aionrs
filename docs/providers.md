@@ -6,8 +6,29 @@
 |----------|------------|-------|
 | Anthropic | API Key / OAuth | Prompt caching, streaming, vision |
 | OpenAI | API Key | Compatible with DeepSeek, Qwen, Ollama, vLLM |
+| Gemini | API Key | Native Gemini `streamGenerateContent` API, tools, thinking |
 | AWS Bedrock | SigV4 | Regional endpoints, AWS credential chain |
 | Google Vertex AI | GCP OAuth2 / Service Account | Metadata server auto-detection |
+
+---
+
+## Gemini
+
+Gemini uses Google's native Gemini API, not the OpenAI-compatible shim.
+
+```toml
+[default]
+provider = "gemini"
+model = "gemini-2.5-pro"
+
+[providers.gemini]
+# api_key = "AIza..." # or env: GEMINI_API_KEY / GOOGLE_API_KEY
+# base_url = "https://generativelanguage.googleapis.com/v1beta"
+```
+
+The provider sends tools as `functionDeclarations`, tool results as
+`functionResponse.response.output`, and streams from
+`models/<model>:streamGenerateContent?alt=sse`.
 
 ---
 
@@ -30,7 +51,7 @@ base_url = "https://my-service.example.com/api/openai"
 
 - `provider = "my-service"` 是配置层 alias
 - `[providers.my-service].provider` 必须指向底层内置 provider
-- 底层 provider 目前只能是 `anthropic`、`openai`、`bedrock`、`vertex`
+- 底层 provider 目前只能是 `anthropic`、`openai`、`gemini`、`bedrock`、`vertex`
 - alias 条目的 `model`、`api_key`、`base_url`、`compat` 会覆盖底层 provider 的默认配置
 
 这适合 DeepSeek 网关、内部 OpenAI-compatible 服务这类场景。

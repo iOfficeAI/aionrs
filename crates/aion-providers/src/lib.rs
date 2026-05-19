@@ -2,6 +2,7 @@ pub mod anthropic;
 pub mod anthropic_shared;
 pub mod bedrock;
 pub mod copilot;
+pub mod gemini;
 pub mod openai;
 pub mod retry;
 pub mod vertex;
@@ -56,15 +57,17 @@ pub enum ProviderError {
 
 impl ProviderError {
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            ProviderError::RateLimited { .. }
-                | ProviderError::Connection(_)
-                | ProviderError::Api {
-                    status: 500 | 502 | 503 | 504 | 529,
-                    ..
-                }
-        )
+        match self {
+            ProviderError::RateLimited { .. } | ProviderError::Connection(_) => true,
+            ProviderError::Http(error) => {
+                error.is_connect() || error.is_timeout() || error.is_body()
+            }
+            ProviderError::Api {
+                status: 408 | 409 | 499 | 500 | 502 | 503 | 504 | 529,
+                ..
+            } => true,
+            _ => false,
+        }
     }
 }
 
@@ -124,6 +127,11 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
             compat,
             debug,
             config.auth.clone(),
+        )),
+        ProviderType::Gemini => Arc::new(gemini::GeminiProvider::new(
+            &config.api_key,
+            &config.base_url,
+            compat,
         )),
         ProviderType::Bedrock => {
             let bc = config.bedrock.clone().unwrap_or_default();
