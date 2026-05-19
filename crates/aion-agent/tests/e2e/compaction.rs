@@ -59,6 +59,7 @@ fn openai_config(api_key: &str) -> Config {
         bedrock: None,
         vertex: None,
         mcp: McpConfig::default(),
+        logging: aion_config::logging::LoggingConfig::default(),
         debug: aion_config::debug::DebugConfig::default(),
     }
 }
@@ -137,6 +138,7 @@ async fn case_9_off_vs_safe_content() {
         id: "t1".to_string(),
         name: "check_tool".to_string(),
         input: json!({}),
+        extra: None,
     }];
 
     // Off
@@ -327,6 +329,7 @@ async fn case_11_toon_comprehension_and_system_prompt() {
         id: "t1".to_string(),
         name: "data_tool".to_string(),
         input: json!({}),
+        extra: None,
     }];
 
     let outcome = execute_tool_calls(

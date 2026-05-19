@@ -125,6 +125,7 @@ impl ProviderCompat {
             dedup_tool_results: Some(true),
             assistant_text_strip_patterns: Some(default_openai_assistant_text_strip_patterns()),
             reasoning_delta_fields: Some(vec!["reasoning_content".into(), "reasoning".into()]),
+            auto_tool_id: Some(true),
             supports_thinking: Some(false),
             supports_effort: Some(true),
             effort_levels: Some(vec!["low".into(), "medium".into(), "high".into()]),

@@ -98,7 +98,7 @@ pub fn scan_memory_files(dir: &Path) -> Result<Vec<MemoryHeader>> {
     }
 
     // Sort by mtime descending (newest first).
-    headers.sort_by(|a, b| b.mtime.cmp(&a.mtime));
+    headers.sort_by_key(|h| std::cmp::Reverse(h.mtime));
 
     // Cap at limit.
     headers.truncate(MAX_MEMORY_FILES);
@@ -210,10 +210,7 @@ fn parse_frontmatter(raw: &str, path: Option<&Path>) -> (MemoryFrontmatter, Stri
         Ok(fm) => fm,
         Err(e) => {
             if let Some(p) = path {
-                eprintln!(
-                    "warning: failed to parse frontmatter in {}: {e}",
-                    p.display()
-                );
+                tracing::warn!(target: "aion_memory", path = %p.display(), error = %e, "failed to parse memory frontmatter");
             }
             MemoryFrontmatter::default()
         }

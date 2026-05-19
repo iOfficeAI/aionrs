@@ -19,6 +19,7 @@ fn tool_use(id: &str, name: &str) -> ContentBlock {
         id: id.into(),
         name: name.into(),
         input: json!({}),
+        extra: None,
     }
 }
 

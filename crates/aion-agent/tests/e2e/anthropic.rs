@@ -49,6 +49,7 @@ fn anthropic_config(api_key: &str) -> Config {
         bedrock: None,
         vertex: None,
         mcp: McpConfig::default(),
+        logging: aion_config::logging::LoggingConfig::default(),
         debug: aion_config::debug::DebugConfig::default(),
     }
 }

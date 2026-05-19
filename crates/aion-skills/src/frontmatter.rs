@@ -157,7 +157,7 @@ fn parse_yaml_with_fallback(yaml_text: &str) -> FrontmatterData {
     match serde_yaml::from_str::<FrontmatterData>(yaml_text) {
         Ok(data) => return data,
         Err(e) => {
-            eprintln!("skills: frontmatter first-pass parse failed: {e}");
+            tracing::warn!(target: "aion_skills", error = %e, "frontmatter first-pass parse failed");
         }
     }
 
@@ -166,9 +166,7 @@ fn parse_yaml_with_fallback(yaml_text: &str) -> FrontmatterData {
     match serde_yaml::from_str::<FrontmatterData>(&fixed) {
         Ok(data) => data,
         Err(e) => {
-            eprintln!(
-                "skills: frontmatter second-pass parse failed: {e}; returning empty frontmatter"
-            );
+            tracing::warn!(target: "aion_skills", error = %e, "frontmatter second-pass parse failed, returning empty");
             FrontmatterData::default()
         }
     }

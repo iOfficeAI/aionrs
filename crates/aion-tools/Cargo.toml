@@ -11,6 +11,7 @@ aion-types.workspace    = true
 aion-protocol.workspace = true
 aion-config.workspace   = true
 
+tracing.workspace     = true
 tokio.workspace       = true
 futures.workspace     = true
 serde.workspace       = true

@@ -5,7 +5,7 @@ use aion_config::hooks::HookEngine;
 use aion_protocol::events::{
     OutputType, ProtocolEvent, ToolCategory, ToolInfo, ToolOutputStream, ToolStatus,
 };
-use aion_protocol::writer::ProtocolWriter;
+use aion_protocol::writer::ProtocolEmitter;
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
 use aion_types::message::ContentBlock;
 use aion_types::skill_types::ContextModifier;
@@ -132,7 +132,10 @@ fn confirm_call(
     confirmer: &Arc<Mutex<ToolConfirmer>>,
     call: &ContentBlock,
 ) -> Result<Option<ContentBlock>, ExecutionControl> {
-    let ContentBlock::ToolUse { id, name, input } = call else {
+    let ContentBlock::ToolUse {
+        id, name, input, ..
+    } = call
+    else {
         return Ok(None);
     };
 
@@ -161,9 +164,15 @@ async fn execute_single(
     toon_enabled: bool,
     mut output_observer: Option<ToolOutputObserver<'_>>,
 ) -> (ContentBlock, Option<ContextModifier>) {
-    let ContentBlock::ToolUse { id, name, input } = call else {
+    let ContentBlock::ToolUse {
+        id, name, input, ..
+    } = call
+    else {
         unreachable!("execute_single called with non-ToolUse block")
     };
+
+    let start = std::time::Instant::now();
+    tracing::info!(target: "aion_agent", tool = %name, call_id = %id, "tool execution started");
 
     // Run pre-tool-use hooks
     if let Some(hook_engine) = hooks
@@ -229,9 +238,12 @@ async fn execute_single(
             .run_post_tool_use(name, input, &result.content)
             .await;
         for msg in messages {
-            eprintln!("{}", msg);
+            tracing::info!(target: "aion_agent", hook_message = %msg, "post-tool-use hook output");
         }
     }
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    tracing::info!(target: "aion_agent", duration_ms, success = !result.is_error, "tool execution completed");
 
     (
         ContentBlock::ToolResult {
@@ -249,7 +261,7 @@ pub async fn execute_tool_calls_with_approval(
     registry: &ToolRegistry,
     tool_calls: &[ContentBlock],
     approval_manager: &Arc<ToolApprovalManager>,
-    writer: &Arc<ProtocolWriter>,
+    writer: &Arc<dyn ProtocolEmitter>,
     msg_id: &str,
     auto_approve: bool,
     allow_list: &[String],
@@ -261,7 +273,10 @@ pub async fn execute_tool_calls_with_approval(
     let mut modifiers = Vec::new();
 
     for call in tool_calls {
-        let ContentBlock::ToolUse { id, name, input } = call else {
+        let ContentBlock::ToolUse {
+            id, name, input, ..
+        } = call
+        else {
             continue;
         };
 
@@ -738,6 +753,7 @@ mod tests {
             id: "call_bash".into(),
             name: "Bash".into(),
             input: json!({"command": "echo observer-stream"}),
+            extra: None,
         };
         let mut chunks: Vec<(ToolOutputStream, String)> = Vec::new();
         let mut observer = |stream: ToolOutputStream, text: &str| {
@@ -776,6 +792,7 @@ mod tests {
             id: "call_1".into(),
             name: "MockDeferred".into(),
             input: json!({}),
+            extra: None,
         };
         let (result, _) = execute_single(
             &registry,
@@ -806,6 +823,7 @@ mod tests {
             id: "call_2".into(),
             name: "MockDeferred".into(),
             input: json!({"tasks": "not_an_array"}),
+            extra: None,
         };
         let (result, _) = execute_single(
             &registry,
@@ -835,6 +853,7 @@ mod tests {
             id: "call_3".into(),
             name: "MockDeferred".into(),
             input: json!({"tasks": [{"name": "t1", "prompt": "do x"}]}),
+            extra: None,
         };
         let (result, _) = execute_single(
             &registry,
@@ -863,6 +882,7 @@ mod tests {
             id: "call_4".into(),
             name: "MockNonDeferred".into(),
             input: json!({}),
+            extra: None,
         };
         let (result, _) = execute_single(
             &registry,

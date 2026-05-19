@@ -60,6 +60,7 @@ async fn test_engine_tool_use_executes_and_continues() {
             id: "tool-1".to_string(),
             name: "mock_tool".to_string(),
             input: json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -231,6 +232,7 @@ async fn test_engine_token_usage_tracking() {
             id: "tool-1".to_string(),
             name: "mock_tool".to_string(),
             input: json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -294,6 +296,7 @@ async fn test_engine_max_turns_returns_ok() {
                 id: "tool-1".to_string(),
                 name: "mock_tool".to_string(),
                 input: json!({}),
+                extra: None,
             },
             LlmEvent::Done {
                 stop_reason: StopReason::ToolUse,

@@ -198,9 +198,7 @@ impl SessionManager {
         }
 
         // Sort by created_at, remove oldest
-        index
-            .sessions
-            .sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        index.sessions.sort_by_key(|s| s.created_at);
         let to_remove = index.sessions.len() - self.max_sessions;
         let removed: Vec<_> = index.sessions.drain(..to_remove).collect();
 

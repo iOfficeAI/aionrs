@@ -20,6 +20,7 @@ fn tool_use_block(id: &str, name: &str) -> ContentBlock {
         id: id.to_string(),
         name: name.to_string(),
         input: json!({}),
+        extra: None,
     }
 }
 

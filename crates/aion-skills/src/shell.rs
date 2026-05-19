@@ -50,7 +50,7 @@ pub async fn execute_shell_commands(
     }
 
     // Replace from back to front to preserve byte offsets
-    pairs.sort_by(|a, b| b.0.cmp(&a.0));
+    pairs.sort_by_key(|p| std::cmp::Reverse(p.0));
 
     let mut result = content.to_owned();
     for (start, end, output) in pairs {

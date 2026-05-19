@@ -11,6 +11,7 @@ aion-types.workspace   = true
 aion-config.workspace  = true
 aion-mcp.workspace     = true
 
+tracing.workspace      = true
 serde.workspace        = true
 serde_json.workspace   = true
 serde_yaml.workspace   = true

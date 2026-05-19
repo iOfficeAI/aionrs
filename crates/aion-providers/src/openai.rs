@@ -219,17 +219,26 @@ impl OpenAIProvider {
                         .content
                         .iter()
                         .filter_map(|b| {
-                            if let ContentBlock::ToolUse { id, name, input } = b
+                            if let ContentBlock::ToolUse {
+                                id,
+                                name,
+                                input,
+                                extra,
+                            } = b
                                 && !id.is_empty()
                             {
-                                Some(json!({
+                                let mut tool_call = json!({
                                     "id": id,
                                     "type": "function",
                                     "function": {
                                         "name": name,
                                         "arguments": serde_json::to_string(input).unwrap_or_default()
                                     }
-                                }))
+                                });
+                                if let Some(extra) = extra {
+                                    tool_call["extra_content"] = extra.clone();
+                                }
+                                Some(tool_call)
                             } else {
                                 None
                             }
@@ -1025,6 +1034,7 @@ struct ToolCallAccumulator {
     item_id: Option<String>,
     name: String,
     arguments: String,
+    extra: Option<Value>,
 }
 
 struct StreamState {
@@ -1078,6 +1088,7 @@ impl StreamState {
                 item_id: None,
                 name: String::new(),
                 arguments: String::new(),
+                extra: None,
             });
         }
         &mut self.tool_calls[index]
@@ -1144,6 +1155,7 @@ impl StreamState {
             item_id: item_id.map(ToOwned::to_owned),
             name: String::new(),
             arguments: String::new(),
+            extra: None,
         });
         self.tool_calls
             .last_mut()
@@ -1562,6 +1574,7 @@ fn parse_openai_chunk_json(
                         id: tc.id,
                         name: tc.name,
                         input,
+                        extra: tc.extra,
                     });
                 }
                 state.pending_done = Some(LlmEvent::Done {
@@ -1607,6 +1620,9 @@ fn ingest_tool_calls(tool_calls: &[Value], state: &mut StreamState, use_index_fi
         }
         if let Some(args) = tc["function"]["arguments"].as_str() {
             acc.arguments.push_str(args);
+        }
+        if let Some(extra) = tc.get("extra_content").filter(|value| !value.is_null()) {
+            acc.extra = Some(extra.clone());
         }
     }
 }
@@ -2130,6 +2146,7 @@ fn parse_response_api_terminal_event(
                 id: tool_call.id,
                 name: tool_call.name,
                 input,
+                extra: tool_call.extra,
             });
         }
     } else {
@@ -2573,6 +2590,7 @@ mod tests {
                         id: String::new(),
                         name: "read_file".into(),
                         input: json!({"path": "README.md"}),
+                        extra: None,
                     }],
                 ),
                 Message::new(
@@ -3146,7 +3164,9 @@ mod tests {
         assert!(finish_events.terminal);
         assert_eq!(finish_events.events.len(), 2);
         match &finish_events.events[0] {
-            LlmEvent::ToolUse { id, name, input } => {
+            LlmEvent::ToolUse {
+                id, name, input, ..
+            } => {
                 assert_eq!(id, "call_1");
                 assert_eq!(name, "read_file");
                 assert_eq!(input["path"], "/tmp/a.txt");
@@ -3220,7 +3240,9 @@ mod tests {
         assert!(completed.terminal);
         assert_eq!(completed.events.len(), 2);
         match &completed.events[0] {
-            LlmEvent::ToolUse { id, name, input } => {
+            LlmEvent::ToolUse {
+                id, name, input, ..
+            } => {
                 assert_eq!(id, "call_42");
                 assert_eq!(name, "read_file");
                 assert_eq!(input["path"], "/tmp/a.txt");
@@ -3357,7 +3379,9 @@ mod tests {
         assert!(
             events.iter().any(|event| matches!(
                 event,
-                LlmEvent::ToolUse { id, name, input }
+                LlmEvent::ToolUse {
+                    id, name, input, ..
+                }
                     if id == "call_1" && name == "read_file" && input["path"] == "README.md"
             )),
             "expected message.tool_calls to produce ToolUse, got {events:?}"
@@ -3417,6 +3441,7 @@ mod tests {
                             id: "call_1".into(),
                             name: "read_file".into(),
                             input: json!({"path": "README.md"}),
+                            extra: None,
                         },
                     ],
                 ),
@@ -3452,6 +3477,7 @@ mod tests {
                         id: "call_1".into(),
                         name: "read_file".into(),
                         input: json!({"path": "README.md"}),
+                        extra: None,
                     }],
                 ),
                 Message::new(
@@ -3485,6 +3511,7 @@ mod tests {
                         id: "call_1".into(),
                         name: "read_file".into(),
                         input: json!({"path": "README.md"}),
+                        extra: None,
                     }],
                 ),
                 Message::new(
@@ -3562,11 +3589,13 @@ mod tests {
                         id: "tc1".into(),
                         name: "bash".into(),
                         input: json!({}),
+                        extra: None,
                     },
                     ContentBlock::ToolUse {
                         id: "tc2".into(),
                         name: "read".into(),
                         input: json!({}),
+                        extra: None,
                     },
                 ],
             ),
@@ -3597,11 +3626,13 @@ mod tests {
                         id: "tc1".into(),
                         name: "bash".into(),
                         input: json!({}),
+                        extra: None,
                     },
                     ContentBlock::ToolUse {
                         id: "tc2".into(),
                         name: "read".into(),
                         input: json!({}),
+                        extra: None,
                     },
                 ],
             ),
@@ -3631,6 +3662,7 @@ mod tests {
                     id: "tc1".into(),
                     name: "bash".into(),
                     input: json!({}),
+                    extra: None,
                 }],
             ),
             Message::new(

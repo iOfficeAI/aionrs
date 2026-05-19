@@ -9,9 +9,7 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use super::ProviderError;
-use crate::dump_response_chunk;
 use aion_config::compat::ProviderCompat;
-use aion_config::debug::DebugConfig;
 
 /// Convert internal Message format to Anthropic API message format.
 /// Compat flags control merging and alternation behavior.
@@ -33,7 +31,9 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     "type": "text",
                     "text": text
                 }),
-                ContentBlock::ToolUse { id, name, input } => {
+                ContentBlock::ToolUse {
+                    id, name, input, ..
+                } => {
                     let tool_id = if id.is_empty() && compat.auto_tool_id() {
                         generate_tool_id()
                     } else {
@@ -225,21 +225,39 @@ impl StreamState {
     }
 }
 
+/// Outcome of SSE stream processing — distinguishes "failed before any content
+/// was emitted" (safe to retry) from "failed after partial content" (not safe).
+pub enum StreamOutcome {
+    Ok,
+    FailedEmpty(ProviderError),
+    FailedPartial(ProviderError),
+}
+
 /// Process the SSE stream from an Anthropic-compatible API
 pub async fn process_sse_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
-    debug: &DebugConfig,
-) -> Result<(), ProviderError> {
+) -> StreamOutcome {
     use futures::StreamExt;
 
     let mut state = StreamState::new();
     let mut buffer = String::new();
     let mut current_event_type = String::new();
     let mut stream = response.bytes_stream();
+    let mut emitted_content = false;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                let err = ProviderError::Connection(e.to_string());
+                return if emitted_content {
+                    StreamOutcome::FailedPartial(err)
+                } else {
+                    StreamOutcome::FailedEmpty(err)
+                };
+            }
+        };
         let text = String::from_utf8_lossy(&chunk);
         buffer.push_str(&text);
 
@@ -252,11 +270,19 @@ pub async fn process_sse_stream(
                 if let Some(event_type) = line.strip_prefix("event: ") {
                     current_event_type = event_type.to_string();
                 } else if let Some(data) = line.strip_prefix("data: ") {
-                    dump_response_chunk(debug, data);
+                    tracing::debug!(target: "aion_providers", chunk = %data, "sse chunk received");
                     let events = parse_sse_data(&current_event_type, data, &mut state);
                     for event in events {
+                        if matches!(
+                            event,
+                            LlmEvent::TextDelta(_)
+                                | LlmEvent::ThinkingDelta(_)
+                                | LlmEvent::ToolUse { .. }
+                        ) {
+                            emitted_content = true;
+                        }
                         if tx.send(event).await.is_err() {
-                            return Ok(()); // receiver dropped
+                            return StreamOutcome::Ok; // receiver dropped
                         }
                     }
                 }
@@ -264,7 +290,7 @@ pub async fn process_sse_stream(
         }
     }
 
-    Ok(())
+    StreamOutcome::Ok
 }
 
 /// Parse a single SSE data payload into zero or more LlmEvents
@@ -330,6 +356,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                     id: state.tool_id.clone(),
                     name: state.tool_name.clone(),
                     input,
+                    extra: None,
                 });
                 state.tool_input_json.clear();
             }
@@ -419,6 +446,7 @@ mod tests {
                 id: "call_1".to_string(),
                 name: "bash".to_string(),
                 input: json!({"cmd": "ls"}),
+                extra: None,
             }],
         )];
         let result = build_messages(&messages, &default_compat());
@@ -539,6 +567,7 @@ mod tests {
                 id: String::new(),
                 name: "bash".into(),
                 input: json!({}),
+                extra: None,
             }],
         )];
         let compat = ProviderCompat {
@@ -559,6 +588,7 @@ mod tests {
                 id: "existing_id".into(),
                 name: "bash".into(),
                 input: json!({}),
+                extra: None,
             }],
         )];
         let compat = ProviderCompat {
@@ -683,7 +713,9 @@ mod tests {
         // assert
         assert_eq!(events.len(), 1);
         match &events[0] {
-            LlmEvent::ToolUse { id, name, input } => {
+            LlmEvent::ToolUse {
+                id, name, input, ..
+            } => {
                 assert_eq!(id, "id1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

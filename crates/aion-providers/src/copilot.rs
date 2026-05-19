@@ -11,6 +11,7 @@ use aion_config::compat::ProviderCompat;
 use aion_config::debug::DebugConfig;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
+use crate::anthropic_shared::StreamOutcome;
 use crate::{
     LlmProvider, ProviderError, anthropic_shared, dump_request_body, openai, reset_response_dump,
 };
@@ -312,10 +313,12 @@ impl CopilotProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
-        let debug = self.debug.clone();
         tokio::spawn(async move {
-            if let Err(err) = anthropic_shared::process_sse_stream(response, &tx, &debug).await {
-                let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+            match anthropic_shared::process_sse_stream(response, &tx).await {
+                StreamOutcome::Ok => {}
+                StreamOutcome::FailedEmpty(err) | StreamOutcome::FailedPartial(err) => {
+                    let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+                }
             }
         });
 

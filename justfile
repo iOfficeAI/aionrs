@@ -62,6 +62,10 @@ test-acceptance-compact:
 lint:
     vx cargo clippy --workspace --all-targets -- -D warnings
 
+lint-fix:
+    vx cargo fix --allow-dirty --allow-staged
+    vx cargo clippy --fix --workspace --all-targets --allow-dirty --allow-staged -- -D warnings
+
 fmt:
     vx cargo fmt --all
 
@@ -93,12 +97,16 @@ version:
 clean:
     vx cargo clean
 
-# ── Pre-push gate (format, lint, test, then push) ────────────────────────
-push *ARGS:
-    vx cargo fmt --all
-    vx cargo clippy --workspace --all-targets -- -D warnings
-    vx cargo test --workspace
+# ── Pre-push gate (lint-fix, format, auto-commit fixes, test, then push) ─
+push *ARGS: lint-fix fmt _auto-commit-fixes test
     git push {{ ARGS }}
+
+_auto-commit-fixes:
+    #!/usr/bin/env bash
+    if [ -n "$(git diff --name-only)" ]; then
+        git add -A
+        git commit -m "chore: auto-commit lint/fmt fixes in just push recipe"
+    fi
 
 # ── All checks (mirrors CI exactly) ───────────────────────────────────────
 check-all: fmt-check lint test-ci hakari-verify audit

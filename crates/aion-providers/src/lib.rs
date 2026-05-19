@@ -70,8 +70,7 @@ impl ProviderError {
 
 /// Write the request body to the configured dump path (if set).
 ///
-/// This is a shared helper called by each provider's `stream()` method.
-/// Errors are silently ignored — debug output must never break requests.
+/// Errors are ignored so diagnostic output never breaks provider requests.
 pub fn dump_request_body(debug: &DebugConfig, body: &serde_json::Value) {
     if let Some(path) = &debug.dump_request_path {
         let pretty = serde_json::to_string_pretty(body).unwrap_or_default();
@@ -107,7 +106,7 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
 
     match config.provider {
         ProviderType::Anthropic => Arc::new(
-            anthropic::AnthropicProvider::new(&config.api_key, &config.base_url, compat, debug)
+            anthropic::AnthropicProvider::new(&config.api_key, &config.base_url, compat)
                 .with_cache(config.prompt_caching),
         ),
         ProviderType::OpenAI => Arc::new(openai::OpenAIProvider::new(
@@ -140,7 +139,6 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
                 credentials,
                 config.prompt_caching,
                 compat,
-                debug,
             ))
         }
         ProviderType::Vertex => {
@@ -157,7 +155,6 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
                 auth,
                 config.prompt_caching,
                 compat,
-                debug,
             ))
         }
     }

@@ -56,6 +56,7 @@ impl MockLlmProvider {
                 id: id.to_string(),
                 name: name.to_string(),
                 input,
+                extra: None,
             },
             LlmEvent::Done {
                 stop_reason: StopReason::ToolUse,
@@ -266,6 +267,7 @@ pub fn test_config() -> Config {
         bedrock: None,
         vertex: None,
         mcp: McpConfig::default(),
+        logging: aion_config::logging::LoggingConfig::default(),
         debug: aion_config::debug::DebugConfig::default(),
     }
 }

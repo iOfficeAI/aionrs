@@ -42,6 +42,12 @@ pub struct CompactConfig {
     #[serde(default = "default_compactable_tools")]
     pub compactable_tools: Vec<String>,
 
+    /// Optional percentage override for the autocompact trigger threshold.
+    /// When set, threshold = context_window * pct / 100, ignoring
+    /// output_reserve and autocompact_buffer.
+    #[serde(default)]
+    pub autocompact_threshold_pct: Option<u8>,
+
     /// Whether the compaction system is enabled.
     /// When false, microcompact and autocompact are skipped
     /// (emergency truncation still applies).
@@ -72,6 +78,7 @@ impl Default for CompactConfig {
             micro_keep_recent: default_micro_keep_recent(),
             micro_gap_seconds: default_micro_gap_seconds(),
             compactable_tools: default_compactable_tools(),
+            autocompact_threshold_pct: None,
             enabled: default_true(),
             cache_diagnostics: false,
             compaction: aion_compact::CompactionLevel::default(),
@@ -132,6 +139,7 @@ mod tests {
         assert_eq!(cfg.micro_keep_recent, 5);
         assert_eq!(cfg.micro_gap_seconds, 3600);
         assert!(cfg.enabled);
+        assert_eq!(cfg.autocompact_threshold_pct, None);
         assert_eq!(
             cfg.compactable_tools,
             vec!["Read", "Bash", "Grep", "Glob", "Write", "Edit"]
@@ -254,5 +262,19 @@ cache_diagnostics = true
         assert_eq!(back.context_window, 100_000);
         assert_eq!(back.output_reserve, 15_000);
         assert_eq!(back.autocompact_buffer, cfg.autocompact_buffer);
+    }
+
+    #[test]
+    fn toml_autocompact_threshold_pct() {
+        let toml_str = r#"autocompact_threshold_pct = 50"#;
+        let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.autocompact_threshold_pct, Some(50));
+    }
+
+    #[test]
+    fn toml_absent_threshold_pct_is_none() {
+        let toml_str = r#"context_window = 128000"#;
+        let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.autocompact_threshold_pct, None);
     }
 }

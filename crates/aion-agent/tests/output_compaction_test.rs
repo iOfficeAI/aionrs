@@ -28,6 +28,7 @@ fn make_tool_use(id: &str, name: &str) -> ContentBlock {
         id: id.to_string(),
         name: name.to_string(),
         input: json!({}),
+        extra: None,
     }
 }
 
@@ -280,6 +281,7 @@ async fn case_6_compressed_content_reaches_llm() {
                     id: "t1".to_string(),
                     name: "test_tool".to_string(),
                     input: json!({}),
+                    extra: None,
                 },
                 LlmEvent::Done {
                     stop_reason: StopReason::ToolUse,

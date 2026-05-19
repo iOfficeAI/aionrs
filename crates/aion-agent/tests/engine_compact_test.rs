@@ -141,6 +141,7 @@ async fn tc_2_6_03_emergency_returns_error() {
             id: "t1".to_string(),
             name: "mock_tool".to_string(),
             input: serde_json::json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -198,6 +199,7 @@ async fn tc_2_6_04_autocompact_then_continue() {
             id: "t1".to_string(),
             name: "mock_tool".to_string(),
             input: serde_json::json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -251,6 +253,7 @@ async fn tc_2_6_05_session_save_after_compact() {
             id: "t1".to_string(),
             name: "mock_tool".to_string(),
             input: serde_json::json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -348,6 +351,7 @@ async fn tc_2_6_06b_disabled_still_fires_emergency() {
             id: "t1".to_string(),
             name: "mock_tool".to_string(),
             input: serde_json::json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -397,6 +401,7 @@ async fn tc_2_6_07_input_tokens_tracked() {
             id: "t1".to_string(),
             name: "mock_tool".to_string(),
             input: serde_json::json!({}),
+            extra: None,
         },
         LlmEvent::Done {
             stop_reason: StopReason::ToolUse,
@@ -501,6 +506,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
                         id: format!("t{count}"),
                         name: "mock_tool".to_string(),
                         input: serde_json::json!({}),
+                        extra: None,
                     },
                     LlmEvent::Done {
                         stop_reason: StopReason::ToolUse,
@@ -655,6 +661,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
                         id: format!("t{count}"),
                         name: "mock_tool".to_string(),
                         input: serde_json::json!({}),
+                        extra: None,
                     },
                     LlmEvent::Done {
                         stop_reason: StopReason::ToolUse,
@@ -776,6 +783,7 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
                         id: format!("t{idx}"),
                         name: "mock_tool".to_string(),
                         input: serde_json::json!({}),
+                        extra: None,
                     },
                     LlmEvent::Done {
                         stop_reason: StopReason::ToolUse,

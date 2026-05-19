@@ -1,5 +1,86 @@
 # Changelog
 
+## [0.1.25](https://github.com/iOfficeAI/aionrs/compare/v0.1.24...v0.1.25) (2026-05-18)
+
+
+### Bug Fixes
+
+* **providers:** retry SSE stream on mid-stream connection disconnect ([#101](https://github.com/iOfficeAI/aionrs/issues/101)) ([af34593](https://github.com/iOfficeAI/aionrs/commit/af34593a2b43de70d9cc41f6ec156d4b5b1fffc8))
+
+## [0.1.24](https://github.com/iOfficeAI/aionrs/compare/v0.1.23...v0.1.24) (2026-05-16)
+
+
+### Bug Fixes
+
+* **providers:** auto-generate tool call ID for OpenAI-compatible providers ([#99](https://github.com/iOfficeAI/aionrs/issues/99)) ([06fc04a](https://github.com/iOfficeAI/aionrs/commit/06fc04ae1fb74e8633d92e5b5e5683f6bac06fec))
+
+## [0.1.23](https://github.com/iOfficeAI/aionrs/compare/v0.1.22...v0.1.23) (2026-05-14)
+
+
+### Features
+
+* slash command system with engine-layer interception ([#97](https://github.com/iOfficeAI/aionrs/issues/97)) ([45859c5](https://github.com/iOfficeAI/aionrs/commit/45859c5fcd7b89db8c9399ece1bf64e66879cabd))
+
+## [0.1.22](https://github.com/iOfficeAI/aionrs/compare/v0.1.21...v0.1.22) (2026-05-13)
+
+
+### Features
+
+* **compact:** add autocompact_threshold_pct config option ([#95](https://github.com/iOfficeAI/aionrs/issues/95)) ([58d65a6](https://github.com/iOfficeAI/aionrs/commit/58d65a6d5c6acb75dceec1ca0d562db8c75166e4))
+* structured tracing-based logging system ([#96](https://github.com/iOfficeAI/aionrs/issues/96)) ([f568afd](https://github.com/iOfficeAI/aionrs/commit/f568afd30f77159a9b039963bf151bd9572ea18e))
+
+
+### Bug Fixes
+
+* **providers:** Gemini tool call compatibility ([#93](https://github.com/iOfficeAI/aionrs/issues/93)) ([c70c020](https://github.com/iOfficeAI/aionrs/commit/c70c020461ccac2e7349459f159b535fe6224029))
+
+## [0.1.21](https://github.com/iOfficeAI/aionrs/compare/v0.1.20...v0.1.21) (2026-05-09)
+
+
+### Bug Fixes
+
+* **deps:** resolve rustls-webpki security vulnerabilities ([#90](https://github.com/iOfficeAI/aionrs/issues/90)) ([b2f46b3](https://github.com/iOfficeAI/aionrs/commit/b2f46b3c7d3463499381b75ac82c5cbb53fb44e9))
+
+## [0.1.20](https://github.com/iOfficeAI/aionrs/compare/v0.1.19...v0.1.20) (2026-05-08)
+
+
+### Features
+
+* **config:** add project_dir to CliArgs for non-CWD config loading ([#87](https://github.com/iOfficeAI/aionrs/issues/87)) ([f0a5fd7](https://github.com/iOfficeAI/aionrs/commit/f0a5fd7be8582675357ab7994fce96ff4c472004))
+
+## [0.1.19](https://github.com/iOfficeAI/aionrs/compare/v0.1.18...v0.1.19) (2026-05-07)
+
+
+### Bug Fixes
+
+* **compact:** autocompact token watermark for prefix-caching providers ([#84](https://github.com/iOfficeAI/aionrs/issues/84)) ([581f11d](https://github.com/iOfficeAI/aionrs/commit/581f11d0c7e72c04bfd93dac711ded6e7daf89dc))
+
+## [0.1.18](https://github.com/iOfficeAI/aionrs/compare/v0.1.17...v0.1.18) (2026-04-30)
+
+
+### Bug Fixes
+
+* **openai:** preserve reasoning_content in multi-turn conversations ([#80](https://github.com/iOfficeAI/aionrs/issues/80)) ([88bdf06](https://github.com/iOfficeAI/aionrs/commit/88bdf061883043a50a21d25e241a4e6eee9623da))
+
+## [0.1.17](https://github.com/iOfficeAI/aionrs/compare/v0.1.16...v0.1.17) (2026-04-29)
+
+
+### Code Refactoring
+
+* extract ProtocolEmitter trait for backend integration ([#75](https://github.com/iOfficeAI/aionrs/issues/75)) ([b792d74](https://github.com/iOfficeAI/aionrs/commit/b792d74a0171708de4f6c2019f1b3f3864375b0b))
+
+## [0.1.16](https://github.com/iOfficeAI/aionrs/compare/v0.1.15...v0.1.16) (2026-04-26)
+
+
+### Features
+
+* add AgentBootstrap builder for consistent engine initialization ([#73](https://github.com/iOfficeAI/aionrs/issues/73)) ([a9392ba](https://github.com/iOfficeAI/aionrs/commit/a9392ba353d664c0c8429ea1e7a754e493e9ff29))
+
+
+### Bug Fixes
+
+* cross-platform shell execution for Windows support ([#70](https://github.com/iOfficeAI/aionrs/issues/70)) ([402d4ff](https://github.com/iOfficeAI/aionrs/commit/402d4ff7311ec47892733dfb79dcd9e83fbfce9c))
+
 ## [0.1.15](https://github.com/iOfficeAI/aionrs/compare/v0.1.14...v0.1.15) (2026-04-24)
 
 

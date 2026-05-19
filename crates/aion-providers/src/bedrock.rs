@@ -18,11 +18,8 @@ use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{StopReason, TokenUsage};
 
 use super::anthropic_shared;
-use crate::{
-    LlmProvider, ProviderError, dump_request_body, dump_response_chunk, reset_response_dump,
-};
+use crate::{LlmProvider, ProviderError};
 use aion_config::compat::{self, ProviderCompat};
-use aion_config::debug::DebugConfig;
 
 pub struct BedrockProvider {
     client: reqwest::Client,
@@ -30,7 +27,6 @@ pub struct BedrockProvider {
     credentials: AwsCredentials,
     cache_enabled: bool,
     compat: ProviderCompat,
-    debug: DebugConfig,
 }
 
 #[derive(Debug, Clone)]
@@ -50,7 +46,6 @@ impl BedrockProvider {
         credentials: AwsCredentials,
         cache_enabled: bool,
         compat: ProviderCompat,
-        debug: DebugConfig,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -58,7 +53,6 @@ impl BedrockProvider {
             credentials,
             cache_enabled,
             compat,
-            debug,
         }
     }
 
@@ -254,8 +248,7 @@ impl LlmProvider for BedrockProvider {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request);
 
-        dump_request_body(&self.debug, &body);
-        reset_response_dump(&self.debug);
+        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
         let body_bytes = serde_json::to_vec(&body)
             .map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))?;
@@ -292,12 +285,16 @@ impl LlmProvider for BedrockProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
-        let debug = self.debug.clone();
 
         // AWS event stream uses binary framing
         tokio::spawn(async move {
-            if let Err(e) = process_aws_event_stream(response, &tx, &debug).await {
-                let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+            match process_aws_event_stream(response, &tx).await {
+                anthropic_shared::StreamOutcome::Ok => {}
+                anthropic_shared::StreamOutcome::FailedPartial(e)
+                | anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                    // Bedrock retry requires re-signing; not implemented yet.
+                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                }
             }
         });
 
@@ -309,16 +306,26 @@ impl LlmProvider for BedrockProvider {
 async fn process_aws_event_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
-    debug: &DebugConfig,
-) -> Result<(), ProviderError> {
+) -> anthropic_shared::StreamOutcome {
     use futures::StreamExt;
 
     let mut state = anthropic_shared::StreamState::new();
     let mut buffer = Vec::new();
     let mut stream = response.bytes_stream();
+    let mut emitted_content = false;
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| ProviderError::Connection(e.to_string()))?;
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                let err = ProviderError::Connection(e.to_string());
+                return if emitted_content {
+                    anthropic_shared::StreamOutcome::FailedPartial(err)
+                } else {
+                    anthropic_shared::StreamOutcome::FailedEmpty(err)
+                };
+            }
+        };
         buffer.extend_from_slice(&chunk);
 
         // Parse complete AWS event stream messages from buffer
@@ -333,15 +340,23 @@ async fn process_aws_event_stream(
                         && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64)
                         && let Ok(inner) = String::from_utf8(decoded)
                     {
-                        dump_response_chunk(debug, &inner);
+                        tracing::debug!(target: "aion_providers", chunk = %inner, "bedrock event chunk");
                         // Inner payload is JSON with event type hints
                         if let Ok(json_val) = serde_json::from_str::<Value>(&inner) {
                             let event_type = json_val["type"].as_str().unwrap_or("");
                             let events =
                                 anthropic_shared::parse_sse_data(event_type, &inner, &mut state);
                             for event in events {
+                                if matches!(
+                                    event,
+                                    LlmEvent::TextDelta(_)
+                                        | LlmEvent::ThinkingDelta(_)
+                                        | LlmEvent::ToolUse { .. }
+                                ) {
+                                    emitted_content = true;
+                                }
                                 if tx.send(event).await.is_err() {
-                                    return Ok(());
+                                    return anthropic_shared::StreamOutcome::Ok;
                                 }
                             }
                         }
@@ -366,7 +381,7 @@ async fn process_aws_event_stream(
             .await;
     }
 
-    Ok(())
+    anthropic_shared::StreamOutcome::Ok
 }
 
 /// Parse one AWS event stream message from the buffer.

@@ -6,9 +6,8 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError, dump_request_body, reset_response_dump};
+use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
-use aion_config::debug::DebugConfig;
 
 pub struct AnthropicProvider {
     client: reqwest::Client,
@@ -16,18 +15,16 @@ pub struct AnthropicProvider {
     base_url: String,
     cache_enabled: bool,
     compat: ProviderCompat,
-    debug: DebugConfig,
 }
 
 impl AnthropicProvider {
-    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat, debug: DebugConfig) -> Self {
+    pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat) -> Self {
         Self {
             client: reqwest::Client::new(),
             api_key: api_key.to_string(),
             base_url: base_url.to_string(),
             cache_enabled: true,
             compat,
-            debug,
         }
     }
 
@@ -101,8 +98,7 @@ impl LlmProvider for AnthropicProvider {
         let url = format!("{}{}", self.base_url, self.compat.messages_api_path());
         let body = self.build_request_body(request);
 
-        dump_request_body(&self.debug, &body);
-        reset_response_dump(&self.debug);
+        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
         let response = self
             .client
@@ -127,11 +123,54 @@ impl LlmProvider for AnthropicProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
-        let debug = self.debug.clone();
+        let client = self.client.clone();
+        let headers = self.build_headers()?;
+        let url_clone = url.clone();
 
         tokio::spawn(async move {
-            if let Err(e) = anthropic_shared::process_sse_stream(response, &tx, &debug).await {
-                let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+            match anthropic_shared::process_sse_stream(response, &tx).await {
+                anthropic_shared::StreamOutcome::Ok => {}
+                anthropic_shared::StreamOutcome::FailedPartial(e) => {
+                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                }
+                anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                    if e.is_retryable() {
+                        let mut backoff = std::time::Duration::from_secs(1);
+                        let mut final_err = Some(e);
+                        for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
+                            backoff = crate::retry::backoff_sleep(attempt, backoff).await;
+                            match crate::retry::send_and_check(&client, &url_clone, &headers, &body)
+                                .await
+                            {
+                                Ok(resp) => {
+                                    let outcome =
+                                        anthropic_shared::process_sse_stream(resp, &tx).await;
+                                    match crate::retry::evaluate_outcome(outcome, attempt) {
+                                        Ok(None) => {
+                                            final_err = None;
+                                            break;
+                                        }
+                                        Ok(Some(e)) => {
+                                            final_err = Some(e);
+                                            break;
+                                        }
+                                        Err(_) => continue,
+                                    }
+                                }
+                                Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
+                                    final_err = Some(e);
+                                    break;
+                                }
+                                Err(_) => continue,
+                            }
+                        }
+                        if let Some(err) = final_err {
+                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+                        }
+                    } else {
+                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                    }
+                }
             }
         });
 

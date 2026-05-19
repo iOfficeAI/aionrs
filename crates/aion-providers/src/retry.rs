@@ -2,8 +2,11 @@ use std::future::Future;
 use std::time::Duration;
 
 use rand::Rng;
+use reqwest::header::HeaderMap;
+use serde_json::Value;
 
 use super::ProviderError;
+use super::anthropic_shared::StreamOutcome;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RetryAttempt {
@@ -107,6 +110,66 @@ fn jitter_delay(delay: Duration) -> Duration {
 fn jitter_delay_with_factor(delay: Duration, factor: f64) -> Duration {
     let millis = delay.as_millis() as f64 * factor;
     Duration::from_millis(millis.round().max(1.0) as u64)
+}
+
+pub const MAX_STREAM_RETRIES: u32 = 2;
+const MAX_STREAM_BACKOFF: Duration = Duration::from_secs(15);
+
+/// Send an HTTP request and check status, returning the response on success.
+pub async fn send_and_check(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &HeaderMap,
+    body: &Value,
+) -> Result<reqwest::Response, ProviderError> {
+    let response = client
+        .post(url)
+        .headers(headers.clone())
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| ProviderError::Connection(e.to_string()))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body_text = response.text().await.unwrap_or_default();
+        return Err(ProviderError::Api {
+            status: status.as_u16(),
+            message: body_text,
+        });
+    }
+
+    Ok(response)
+}
+
+/// Sleep with exponential backoff before retrying an empty failed stream.
+pub async fn backoff_sleep(attempt: u32, current_backoff: Duration) -> Duration {
+    tracing::warn!(
+        target: "aion_providers",
+        attempt,
+        max = MAX_STREAM_RETRIES,
+        "retrying stream after mid-stream disconnect"
+    );
+    tokio::time::sleep(current_backoff).await;
+    (current_backoff * 2).min(MAX_STREAM_BACKOFF)
+}
+
+/// Evaluate a stream outcome inside a retry loop.
+pub fn evaluate_outcome(
+    outcome: StreamOutcome,
+    attempt: u32,
+) -> Result<Option<ProviderError>, ProviderError> {
+    match outcome {
+        StreamOutcome::Ok => Ok(None),
+        StreamOutcome::FailedPartial(e) => Ok(Some(e)),
+        StreamOutcome::FailedEmpty(e) => {
+            if attempt == MAX_STREAM_RETRIES {
+                Ok(Some(e))
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 #[cfg(test)]

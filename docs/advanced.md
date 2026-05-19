@@ -139,6 +139,100 @@ VCR_MODE=replay VCR_CASSETTE=tests/cassettes/my_test.json \
 
 ---
 
+## Logging
+
+Structured JSON file logging with daily rotation, powered by the `tracing` crate. All internal events (LLM requests/responses, tool execution, MCP connections, compaction) are captured with structured fields.
+
+### Enabling
+
+Three ways to enable logging, from highest to lowest priority:
+
+1. **CLI parameter**: `--log-dir /path/to/logs` (automatically enables logging)
+2. **Config file**: add a `[logging]` section (global or project-level)
+3. **Default**: logging is disabled unless explicitly configured
+
+```bash
+# CLI — logs to /tmp/aionrs-logs at debug level
+aionrs --log-dir /tmp/aionrs-logs --log-level debug "Read Cargo.toml"
+```
+
+### Configuration
+
+```toml
+[logging]
+enabled = true       # enable file logging (default: false; auto-enabled when dir is set)
+level = "info"       # tracing filter directives (default: "info")
+dir = "/path/to/logs"  # log directory (default: platform-specific, see below)
+```
+
+The `level` field accepts standard tracing filter directives:
+
+| Value | Effect |
+|-------|--------|
+| `"info"` | Info and above for all targets |
+| `"debug"` | Debug and above for all targets |
+| `"aion_providers=debug,info"` | Debug for providers, info for everything else |
+
+### Default Log Directory
+
+When `dir` is not set, logs go to the platform-specific location:
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Logs/aionrs/` |
+| Linux | `$XDG_STATE_HOME/aionrs/logs/` or `~/.local/state/aionrs/logs/` |
+| Windows | `{data_local_dir}/aionrs/logs/` |
+
+### Log Format
+
+Each line is a JSON object with structured fields:
+
+```json
+{"timestamp":"2026-05-13T12:12:52.431Z","level":"INFO","fields":{"message":"mcp server connected","server":"sentry","tools":20},"target":"aion_mcp","spans":[{"name":"agent_run","session_id":"abc-123","msg_id":"msg-456"}]}
+```
+
+Key fields:
+
+| Field | Description |
+|-------|-------------|
+| `target` | Source crate (`aion_agent`, `aion_providers`, `aion_mcp`, etc.) |
+| `spans[].session_id` | Session ID for correlating events within a conversation |
+| `spans[].msg_id` | Message ID for correlating events within a single turn |
+
+### Session Correlation
+
+All events during `engine.run()` — LLM streaming, tool execution, compaction — are wrapped in an `agent_run` span carrying `session_id` and `msg_id`. This allows filtering all logs for a specific conversation:
+
+```bash
+# Find all events for a specific session
+grep '"session_id":"abc-123"' 2026-05-13.aionrs.log | jq .
+```
+
+### Library Integration
+
+When aionrs is used as a library (e.g. embedded in a backend server), the `create_file_layer()` API provides a composable tracing layer:
+
+```rust
+use aion_config::logging::{ResolvedLogging, create_file_layer};
+
+let resolved = ResolvedLogging {
+    enabled: true,
+    level: "aion_agent=debug,aion_providers=debug".to_string(),
+    dir: log_dir.to_path_buf(),
+};
+let (layer, guard) = create_file_layer(&resolved)?;
+
+// Compose with your existing subscriber
+tracing_subscriber::registry()
+    .with(your_app_layer)
+    .with(layer)  // aionrs logs → separate aionrs.log file
+    .init();
+```
+
+The host application owns the global subscriber; aionrs library crates only emit tracing events and never initialize a subscriber themselves.
+
+---
+
 ## AGENTS.md Hierarchical Loading
 
 AGENTS.md files provide project-specific instructions that are automatically injected into the system prompt. Files are discovered hierarchically and merged from remote to near:
@@ -276,7 +370,7 @@ A three-tier automatic compaction strategy that prevents context window overflow
 
 - **Microcompact** runs automatically: replaces old Read/Bash/Grep/Glob/Write/Edit results with `[Tool result cleared]`, keeping the 5 most recent results intact. Triggered by count (>10 compactable results) or time (>1 hour since last assistant message).
 
-- **Autocompact** triggers when input tokens reach `context_window - output_reserve - autocompact_buffer` (default: 200,000 - 20,000 - 13,000 = 167,000 tokens). The agent calls the LLM to produce a conversation summary, then replaces history with a compact boundary marker. A circuit breaker stops retrying after 3 consecutive failures.
+- **Autocompact** triggers when input tokens reach a threshold. By default this is `context_window - output_reserve - autocompact_buffer` (200,000 - 20,000 - 13,000 = 167,000 tokens). Alternatively, set `autocompact_threshold_pct` to trigger at a percentage of the context window (e.g. `50` = 50% of 200k = 100k tokens). The agent calls the LLM to produce a conversation summary, then replaces history with a compact boundary marker. A circuit breaker stops retrying after 3 consecutive failures.
 
 - **Emergency** is the last safety net at `context_window - emergency_buffer` (default: 197,000 tokens). Always active regardless of config. Blocks API calls and prompts the user to compact or start a new conversation.
 
@@ -291,6 +385,7 @@ autocompact_buffer = 13000  # Buffer before autocompact triggers
 emergency_buffer = 3000     # Buffer before emergency block
 max_failures = 3            # Circuit breaker threshold
 micro_keep_recent = 5       # Keep N most recent tool results
+# autocompact_threshold_pct = 50  # Override: trigger at N% of context_window
 ```
 
 ---

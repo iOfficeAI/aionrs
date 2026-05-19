@@ -95,10 +95,7 @@ impl RuntimeDiscovery {
                             .unwrap_or(&current);
 
                         if is_path_gitignored(containing_dir, resolved_cwd).await {
-                            eprintln!(
-                                "[skills] Skipped gitignored skills dir: {}",
-                                skill_dir.display()
-                            );
+                            tracing::debug!(target: "aion_skills", path = %skill_dir.display(), "skipping gitignored skills directory");
                         } else {
                             new_dirs.push(skill_dir);
                         }
@@ -115,11 +112,7 @@ impl RuntimeDiscovery {
         }
 
         // Sort deepest-first: more path components = deeper
-        new_dirs.sort_by(|a, b| {
-            let depth_b = b.components().count();
-            let depth_a = a.components().count();
-            depth_b.cmp(&depth_a)
-        });
+        new_dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
 
         new_dirs
     }
@@ -167,11 +160,7 @@ impl RuntimeDiscovery {
         let added = new_count.saturating_sub(previous_count);
 
         if added > 0 {
-            eprintln!(
-                "[skills] Dynamically discovered {} new skill(s) from {} director(ies)",
-                added,
-                dirs.len()
-            );
+            tracing::info!(target: "aion_skills", added, directories = dirs.len(), "dynamically discovered new skills");
         }
 
         added

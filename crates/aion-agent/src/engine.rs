@@ -10,10 +10,11 @@ use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
+use tracing::Instrument;
 
 use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::compact::state::CompactState;
-use crate::compact::{auto, emergency, micro};
+use crate::compact::{auto, emergency, estimate, micro};
 use crate::confirm::ToolConfirmer;
 use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
@@ -42,7 +43,7 @@ pub struct AgentEngine {
     output: Arc<dyn OutputSink>,
     current_msg_id: String,
     approval_manager: Option<Arc<aion_protocol::ToolApprovalManager>>,
-    protocol_writer: Option<Arc<aion_protocol::writer::ProtocolWriter>>,
+    protocol_writer: Option<Arc<dyn aion_protocol::writer::ProtocolEmitter>>,
     allow_list: Vec<String>,
     /// Persisted reasoning effort, updated by skill context modifiers.
     /// Carried into each turn's LlmRequest.reasoning_effort.
@@ -60,6 +61,7 @@ pub struct AgentEngine {
     cache_detector: CacheBreakDetector,
     compaction_level: aion_compact::CompactionLevel,
     toon_enabled: bool,
+    commands: crate::commands::CommandRegistry,
 }
 
 impl AgentEngine {
@@ -121,6 +123,7 @@ impl AgentEngine {
             cache_detector: CacheBreakDetector::new(),
             compaction_level: config.compact.compaction,
             toon_enabled: config.compact.toon,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -187,6 +190,7 @@ impl AgentEngine {
             cache_detector: CacheBreakDetector::new(),
             compaction_level: config.compact.compaction,
             toon_enabled: config.compact.toon,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -226,6 +230,7 @@ impl AgentEngine {
     ) -> anyhow::Result<()> {
         if let Some(mgr) = &self.session_manager {
             let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
+            tracing::info!(target: "aion_agent", session_id = %session.id, provider = %provider_name, model = %self.model, "session started");
             self.current_session = Some(session);
         }
         Ok(())
@@ -245,7 +250,7 @@ impl AgentEngine {
         self.approval_manager = Some(mgr);
     }
 
-    pub fn set_protocol_writer(&mut self, writer: Arc<aion_protocol::writer::ProtocolWriter>) {
+    pub fn set_protocol_writer(&mut self, writer: Arc<dyn aion_protocol::writer::ProtocolEmitter>) {
         self.protocol_writer = Some(writer);
     }
 
@@ -354,8 +359,96 @@ impl AgentEngine {
         changes
     }
 
+    /// Handle a slash command. Returns `None` if input is not a recognized command.
+    pub async fn handle_command(
+        &mut self,
+        input: &str,
+    ) -> Option<Result<crate::commands::CommandResult, anyhow::Error>> {
+        let input = input.trim();
+        let without_slash = input.strip_prefix('/')?;
+        let (name, args) = match without_slash.split_once(char::is_whitespace) {
+            Some((n, rest)) => (n, rest.trim()),
+            None => (without_slash, ""),
+        };
+
+        let cmd = self.commands.find(name)?;
+
+        // We need to borrow self mutably for CommandContext while also
+        // borrowing self.commands immutably (already done above via find()).
+        // Use a raw pointer to break the borrow conflict — safe because
+        // the command is not modified during execution.
+        let cmd_ptr = cmd as *const dyn crate::commands::SlashCommand;
+
+        let mut ctx = crate::commands::CommandContext {
+            messages: &mut self.messages,
+            compact_state: &mut self.compact_state,
+            compact_config: &self.compact_config,
+            provider: Arc::clone(&self.provider),
+            model: &self.model,
+            output: self.output.as_ref(),
+            registry: &self.commands,
+        };
+
+        // SAFETY: cmd_ptr points to a command inside self.commands which is only
+        // borrowed immutably and not mutated during execute().
+        let result = unsafe { &*cmd_ptr }.execute(&mut ctx, args).await;
+        Some(result)
+    }
+
     /// Run the agent loop with user input
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
+        let session_id = self
+            .current_session
+            .as_ref()
+            .map(|s| s.id.clone())
+            .unwrap_or_default();
+        let span = tracing::info_span!(
+            target: "aion_agent",
+            "agent_run",
+            session_id = %session_id,
+            msg_id = %msg_id,
+        );
+        self.run_inner(user_input, msg_id).instrument(span).await
+    }
+
+    /// Return metadata for all registered slash commands.
+    pub fn slash_command_list(&self) -> Vec<(String, String)> {
+        self.commands
+            .all()
+            .iter()
+            .map(|cmd| (cmd.name().to_string(), cmd.description().to_string()))
+            .collect()
+    }
+
+    async fn run_inner(
+        &mut self,
+        user_input: &str,
+        msg_id: &str,
+    ) -> Result<AgentResult, AgentError> {
+        // Slash command interception — before any LLM call
+        if let Some(result) = self.handle_command(user_input).await {
+            let cmd_name = user_input.split_whitespace().next().unwrap_or(user_input);
+            return match result {
+                Ok(crate::commands::CommandResult::Exit) => {
+                    tracing::info!(command = cmd_name, "Slash command executed: exit");
+                    Err(AgentError::UserAborted)
+                }
+                Ok(crate::commands::CommandResult::Continue) => {
+                    tracing::info!(command = cmd_name, "Slash command executed");
+                    Ok(AgentResult {
+                        text: String::new(),
+                        stop_reason: StopReason::EndTurn,
+                        usage: TokenUsage::default(),
+                        turns: 0,
+                    })
+                }
+                Err(e) => {
+                    tracing::error!(command = cmd_name, error = %e, "Slash command failed");
+                    Err(AgentError::ApiError(e.to_string()))
+                }
+            };
+        }
+
         self.current_msg_id = msg_id.to_string();
         self.output.emit_stream_start(msg_id);
         self.messages.push(Message::now(
@@ -449,10 +542,20 @@ impl AgentEngine {
                         self.output.emit_text_delta(&text, &self.current_msg_id);
                         assistant_text.push_str(&text);
                     }
-                    LlmEvent::ToolUse { id, name, input } => {
+                    LlmEvent::ToolUse {
+                        id,
+                        name,
+                        input,
+                        extra,
+                    } => {
                         let input_str = serde_json::to_string(&input).unwrap_or_default();
                         self.output.emit_tool_call(&name, &input_str);
-                        tool_calls.push(ContentBlock::ToolUse { id, name, input });
+                        tool_calls.push(ContentBlock::ToolUse {
+                            id,
+                            name,
+                            input,
+                            extra,
+                        });
                     }
                     LlmEvent::ThinkingDelta(text) => {
                         self.output.emit_thinking(&text, &self.current_msg_id);
@@ -476,8 +579,23 @@ impl AgentEngine {
             self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
             self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
 
-            // Track per-turn input tokens for compaction watermark
-            self.compact_state.last_input_tokens = turn_usage.input_tokens;
+            // Track per-turn input tokens for compaction watermark.
+            // Use max(provider_reported, local_estimate) as a safety net:
+            // some providers (e.g. DeepSeek with prefix caching) underreport
+            // prompt_tokens, causing compaction to never trigger.
+            let local_estimate = estimate::estimate_tokens_from_messages(&self.messages);
+            let effective_watermark = turn_usage.input_tokens.max(local_estimate);
+
+            if local_estimate > turn_usage.input_tokens
+                && local_estimate.saturating_sub(turn_usage.input_tokens) > 10_000
+            {
+                self.output.emit_info(&format!(
+                    "Token watermark override: provider={}, local_estimate={}, using={}",
+                    turn_usage.input_tokens, local_estimate, effective_watermark
+                ));
+            }
+
+            self.compact_state.last_input_tokens = effective_watermark;
 
             // Cache break detection
             let cache_stats = CacheStats {
@@ -636,6 +754,23 @@ impl AgentEngine {
         let mut compacted = false;
         let should_compact =
             auto::should_autocompact(self.compact_state.last_input_tokens, &self.compact_config);
+        if should_compact {
+            tracing::info!(target: "aion_agent", last_input_tokens = self.compact_state.last_input_tokens, "context compaction triggered");
+            let threshold = if let Some(pct) = self.compact_config.autocompact_threshold_pct {
+                let t = self.compact_config.context_window * pct as usize / 100;
+                self.output.emit_info(&format!(
+                    "Autocompact threshold: {} tokens ({}% of {})",
+                    t, pct, self.compact_config.context_window
+                ));
+                t
+            } else {
+                self.compact_config
+                    .context_window
+                    .saturating_sub(self.compact_config.output_reserve)
+                    .saturating_sub(self.compact_config.autocompact_buffer)
+            };
+            let _ = threshold;
+        }
         if should_compact && !self.compact_state.is_circuit_broken(&self.compact_config) {
             let provider = Arc::clone(&self.provider);
             match auto::autocompact(
@@ -670,11 +805,14 @@ impl AgentEngine {
                 self.compact_state.consecutive_failures, self.compact_state.last_input_tokens
             ));
         } else if !self.compact_config.enabled {
-            let threshold = self
-                .compact_config
-                .context_window
-                .saturating_sub(self.compact_config.output_reserve)
-                .saturating_sub(self.compact_config.autocompact_buffer);
+            let threshold = if let Some(pct) = self.compact_config.autocompact_threshold_pct {
+                self.compact_config.context_window * pct as usize / 100
+            } else {
+                self.compact_config
+                    .context_window
+                    .saturating_sub(self.compact_config.output_reserve)
+                    .saturating_sub(self.compact_config.autocompact_buffer)
+            };
             if self.compact_state.last_input_tokens as usize >= threshold {
                 self.output.emit_info(&format!(
                     "Autocompact: disabled (compact.enabled=false, \
@@ -708,7 +846,7 @@ impl AgentEngine {
         if let Some(hook_engine) = &self.hooks {
             let messages = hook_engine.run_stop().await;
             for msg in messages {
-                eprintln!("{}", msg);
+                tracing::info!(target: "aion_agent", hook_message = %msg, "stop hook output");
             }
         }
     }
@@ -836,6 +974,7 @@ mod set_config_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1163,6 +1302,7 @@ mod phase6_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1365,6 +1505,7 @@ mod compact_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1375,6 +1516,7 @@ mod compact_tests {
                 id: id.to_string(),
                 name: name.to_string(),
                 input: json!({}),
+                extra: None,
             }],
         )
     }
@@ -1630,6 +1772,7 @@ mod plan_mode_tests {
             cache_detector: super::CacheBreakDetector::new(),
             compaction_level: aion_compact::CompactionLevel::default(),
             toon_enabled: false,
+            commands: crate::commands::default_registry(),
         }
     }
 
@@ -1772,6 +1915,168 @@ mod plan_mode_tests {
         })]);
 
         assert!(engine.plan_state.is_active);
+    }
+}
+
+#[cfg(test)]
+mod handle_command_tests {
+    use std::sync::{Arc, Mutex};
+
+    use aion_providers::{LlmProvider, ProviderError};
+    use aion_tools::registry::ToolRegistry;
+    use aion_types::llm::{LlmEvent, LlmRequest};
+    use aion_types::message::{ContentBlock, Message, Role};
+
+    use crate::compact::state::CompactState;
+    use crate::confirm::ToolConfirmer;
+    use crate::output::OutputSink;
+
+    struct NullOutput;
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+    #[async_trait::async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(
+            &self,
+            _: &LlmRequest,
+        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    fn make_engine() -> super::AgentEngine {
+        super::AgentEngine {
+            provider: Arc::new(NullProvider),
+            tools: ToolRegistry::new(),
+            messages: vec![],
+            system_prompt: String::new(),
+            model: "test-model".to_string(),
+            max_tokens: 4096,
+            max_turns: Some(10),
+            total_usage: Default::default(),
+            thinking: None,
+            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
+            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
+            hooks: None,
+            session_manager: None,
+            current_session: None,
+            output: Arc::new(NullOutput),
+            current_msg_id: String::new(),
+            approval_manager: None,
+            protocol_writer: None,
+            allow_list: vec![],
+            current_reasoning_effort: None,
+            compact_config: aion_config::compact::CompactConfig::default(),
+            compact_state: CompactState::new(),
+            plan_state: Default::default(),
+            plan_active_flag: None,
+            cache_detector: super::CacheBreakDetector::new(),
+            compaction_level: aion_compact::CompactionLevel::default(),
+            toon_enabled: false,
+            commands: crate::commands::default_registry(),
+        }
+    }
+
+    #[tokio::test]
+    async fn handle_command_quit() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/quit").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Exit))
+        ));
+    }
+
+    #[tokio::test]
+    async fn handle_command_exit_alias() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/exit").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Exit))
+        ));
+    }
+
+    #[tokio::test]
+    async fn handle_command_unknown() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/nonexistent").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn handle_command_clear() {
+        let mut engine = make_engine();
+        engine.messages.push(Message::new(
+            Role::User,
+            vec![ContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        ));
+        assert_eq!(engine.messages.len(), 1);
+
+        let result = engine.handle_command("/clear").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Continue))
+        ));
+        assert!(engine.messages.is_empty());
+        assert_eq!(engine.compact_state.last_input_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn handle_command_with_args() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("/help compact").await;
+        assert!(matches!(
+            result,
+            Some(Ok(crate::commands::CommandResult::Continue))
+        ));
+    }
+
+    #[tokio::test]
+    async fn handle_command_not_a_command() {
+        let mut engine = make_engine();
+        let result = engine.handle_command("hello world").await;
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn run_intercepts_help_returns_zero_turns() {
+        let mut engine = make_engine();
+        let result = engine.run("/help", "msg-1").await.unwrap();
+        assert_eq!(result.turns, 0);
+        assert_eq!(result.usage.input_tokens, 0);
+    }
+
+    #[tokio::test]
+    async fn run_intercepts_quit_returns_user_aborted() {
+        let mut engine = make_engine();
+        let err = engine.run("/quit", "msg-1").await.unwrap_err();
+        assert!(matches!(err, super::AgentError::UserAborted));
+    }
+
+    #[test]
+    fn slash_command_list_returns_all() {
+        let engine = make_engine();
+        let list = engine.slash_command_list();
+        assert!(list.len() >= 4);
+        let names: Vec<&str> = list.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"help"));
+        assert!(names.contains(&"compact"));
+        assert!(names.contains(&"clear"));
+        assert!(names.contains(&"quit"));
     }
 }
 

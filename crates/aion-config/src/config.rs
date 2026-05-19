@@ -9,6 +9,7 @@ use crate::compat::ProviderCompat;
 use crate::debug::DebugConfig;
 use crate::file_cache::FileCacheConfig;
 use crate::hooks::HooksConfig;
+use crate::logging::LoggingConfig;
 use crate::plan::PlanConfig;
 use aion_types::llm::ThinkingConfig;
 
@@ -108,6 +109,9 @@ pub struct ConfigFile {
 
     #[serde(default)]
     pub mcp: McpConfig,
+
+    #[serde(default)]
+    pub logging: LoggingConfig,
 
     #[serde(default)]
     pub debug: DebugConfig,
@@ -265,6 +269,7 @@ pub struct Config {
     pub bedrock: Option<BedrockConfig>,
     pub vertex: Option<VertexConfig>,
     pub mcp: McpConfig,
+    pub logging: LoggingConfig,
     pub debug: DebugConfig,
 }
 
@@ -295,6 +300,7 @@ pub struct CliArgs {
     pub system_prompt: Option<String>,
     pub profile: Option<String>,
     pub auto_approve: bool,
+    pub project_dir: Option<PathBuf>,
 }
 
 impl Config {
@@ -303,8 +309,13 @@ impl Config {
         // 1. Load global config
         let global = load_config_file(&global_config_path());
 
-        // 2. Load project config (cwd)
-        let project = load_config_file(&project_config_path());
+        // 2. Load project config (from project_dir if specified, else CWD)
+        let project_path = cli
+            .project_dir
+            .as_ref()
+            .map(|d| d.join(".aionrs.toml"))
+            .unwrap_or_else(project_config_path);
+        let project = load_config_file(&project_path);
 
         // 3. Merge: global <- project
         let mut merged = merge_config_files(global, project);
@@ -417,6 +428,7 @@ impl Config {
             bedrock: merged.bedrock,
             vertex: merged.vertex,
             mcp: merged.mcp,
+            logging: merged.logging,
             debug: merged.debug,
         })
     }
@@ -702,7 +714,7 @@ fn project_config_path() -> PathBuf {
 fn load_config_file(path: &Path) -> ConfigFile {
     match std::fs::read_to_string(path) {
         Ok(content) => toml::from_str(&content).unwrap_or_else(|e| {
-            eprintln!("Warning: failed to parse {}: {}", path.display(), e);
+            tracing::warn!(target: "aion_config", path = %path.display(), error = %e, "failed to parse config file");
             ConfigFile::default()
         }),
         Err(_) => ConfigFile::default(),
@@ -832,6 +844,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         global.compact
     };
 
+    let logging = LoggingConfig::merge(global.logging, project.logging);
     let debug = DebugConfig::merge(global.debug, project.debug);
 
     ConfigFile {
@@ -848,6 +861,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         vertex,
         auth,
         mcp,
+        logging,
         debug,
     }
 }
@@ -944,14 +958,14 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
 pub fn init_config() -> anyhow::Result<()> {
     let path = global_config_path();
     if path.exists() {
-        eprintln!("Config already exists: {}", path.display());
+        tracing::info!(target: "aion_config", path = %path.display(), "config file already exists");
         return Ok(());
     }
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
     std::fs::write(&path, DEFAULT_CONFIG_TEMPLATE)?;
-    eprintln!("Config created: {}", path.display());
+    tracing::info!(target: "aion_config", path = %path.display(), "config file created");
     Ok(())
 }
 
@@ -1089,6 +1103,12 @@ max_sessions = 20                # auto-cleanup oldest
 # [[hooks.stop]]
 # name = "final-lint"
 # command = "cargo clippy --quiet 2>&1 | tail -5"
+
+# Logging configuration
+# [logging]
+# enabled = true                   # enable file logging (default: false)
+# level = "info"                   # log level filter (default: "info")
+# dir = "~/Library/Logs/aionrs"    # log directory (default: platform-specific)
 
 # MCP (Model Context Protocol) servers
 # [mcp.servers.filesystem]
@@ -2138,5 +2158,54 @@ enabled = false
             !merged.file_cache.enabled,
             "project enabled=false should override global"
         );
+    }
+
+    #[test]
+    fn test_resolve_with_project_dir_loads_project_config() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project_toml = tmp.path().join(".aionrs.toml");
+        std::fs::write(
+            &project_toml,
+            r#"
+[default]
+max_tokens = 1234
+"#,
+        )
+        .unwrap();
+
+        let cli_args = CliArgs {
+            provider: Some("anthropic".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli_args).unwrap();
+        assert_eq!(config.max_tokens, 1234);
+    }
+
+    #[test]
+    fn test_resolve_without_project_dir_uses_cwd() {
+        let cli_args = CliArgs {
+            provider: Some("anthropic".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: None,
+        };
+
+        let config = Config::resolve(&cli_args);
+        assert!(config.is_ok());
     }
 }

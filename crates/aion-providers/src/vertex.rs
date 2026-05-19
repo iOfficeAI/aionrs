@@ -13,9 +13,8 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError, dump_request_body, reset_response_dump};
+use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
-use aion_config::debug::DebugConfig;
 
 pub struct VertexProvider {
     client: reqwest::Client,
@@ -24,7 +23,6 @@ pub struct VertexProvider {
     auth: GcpAuth,
     cache_enabled: bool,
     compat: ProviderCompat,
-    debug: DebugConfig,
     /// Cached access token
     cached_token: Mutex<Option<CachedToken>>,
 }
@@ -48,7 +46,6 @@ impl VertexProvider {
         auth: GcpAuth,
         cache_enabled: bool,
         compat: ProviderCompat,
-        debug: DebugConfig,
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -57,7 +54,6 @@ impl VertexProvider {
             auth,
             cache_enabled,
             compat,
-            debug,
             cached_token: Mutex::new(None),
         }
     }
@@ -263,8 +259,7 @@ impl LlmProvider for VertexProvider {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request);
 
-        dump_request_body(&self.debug, &body);
-        reset_response_dump(&self.debug);
+        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
         let access_token = self.get_access_token().await?;
 
@@ -299,12 +294,69 @@ impl LlmProvider for VertexProvider {
         }
 
         let (tx, rx) = mpsc::channel(64);
-        let debug = self.debug.clone();
+        let client = self.client.clone();
+        let url_clone = url.clone();
+        let headers_clone = {
+            let mut h = HeaderMap::new();
+            h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            h.insert(
+                AUTHORIZATION,
+                HeaderValue::from_str(&format!("Bearer {}", access_token))
+                    .map_err(|e| ProviderError::Connection(format!("Header error: {}", e)))?,
+            );
+            h
+        };
 
         // Vertex uses standard SSE (same as Anthropic)
         tokio::spawn(async move {
-            if let Err(e) = anthropic_shared::process_sse_stream(response, &tx, &debug).await {
-                let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+            match anthropic_shared::process_sse_stream(response, &tx).await {
+                anthropic_shared::StreamOutcome::Ok => {}
+                anthropic_shared::StreamOutcome::FailedPartial(e) => {
+                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                }
+                anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                    if e.is_retryable() {
+                        let mut backoff = std::time::Duration::from_secs(1);
+                        let mut final_err = Some(e);
+                        for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
+                            backoff = crate::retry::backoff_sleep(attempt, backoff).await;
+                            match crate::retry::send_and_check(
+                                &client,
+                                &url_clone,
+                                &headers_clone,
+                                &body,
+                            )
+                            .await
+                            {
+                                Ok(resp) => {
+                                    let outcome =
+                                        anthropic_shared::process_sse_stream(resp, &tx).await;
+                                    match crate::retry::evaluate_outcome(outcome, attempt) {
+                                        Ok(None) => {
+                                            final_err = None;
+                                            break;
+                                        }
+                                        Ok(Some(e)) => {
+                                            final_err = Some(e);
+                                            break;
+                                        }
+                                        Err(_) => continue,
+                                    }
+                                }
+                                Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
+                                    final_err = Some(e);
+                                    break;
+                                }
+                                Err(_) => continue,
+                            }
+                        }
+                        if let Some(err) = final_err {
+                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+                        }
+                    } else {
+                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                    }
+                }
             }
         });
 

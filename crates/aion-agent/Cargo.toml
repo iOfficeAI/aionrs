@@ -17,6 +17,7 @@ aion-skills.workspace    = true
 aion-memory.workspace    = true
 aion-compact.workspace   = true
 
+tracing.workspace     = true
 tokio.workspace       = true
 futures.workspace     = true
 serde.workspace       = true

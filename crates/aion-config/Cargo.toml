@@ -25,9 +25,14 @@ url.workspace        = true
 sha2                 = "0.10"
 rand                 = "0.8"
 
+tracing.workspace            = true
+tracing-appender.workspace   = true
+tracing-subscriber.workspace = true
+
 workspace-hack.workspace = true
 
 [dev-dependencies]
-wiremock.workspace   = true
-tokio-test.workspace = true
-tempfile.workspace   = true
+wiremock.workspace            = true
+tokio-test.workspace          = true
+tempfile.workspace            = true
+tracing-subscriber.workspace  = true

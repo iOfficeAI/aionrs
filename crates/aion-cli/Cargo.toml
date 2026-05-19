@@ -24,9 +24,11 @@ aion-protocol.workspace = true
 aion-skills.workspace   = true
 aion-types.workspace    = true
 
-tokio.workspace  = true
-anyhow.workspace = true
-clap.workspace   = true
-chrono.workspace = true
+tokio.workspace              = true
+anyhow.workspace             = true
+clap.workspace               = true
+chrono.workspace             = true
+tracing.workspace            = true
+tracing-subscriber.workspace = true
 
 workspace-hack.workspace = true
