@@ -501,35 +501,40 @@ impl LlmProvider for OpenAIProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = format!("{}{}", self.base_url, self.compat.api_path());
         let body = self.build_request_body(request);
+        let headers = self.build_headers()?;
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
-        let response = self
-            .client
-            .post(&url)
-            .headers(self.build_headers()?)
-            .json(&body)
-            .send()
-            .await?;
+        let response = crate::retry::with_initial_connect_retry(|| async {
+            let response = self
+                .client
+                .post(&url)
+                .headers(headers.clone())
+                .json(&body)
+                .send()
+                .await?;
 
-        let status = response.status();
-        if !status.is_success() {
-            let body_text = response.text().await.unwrap_or_default();
-            if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 5000,
+            let status = response.status();
+            if !status.is_success() {
+                let body_text = response.text().await.unwrap_or_default();
+                if status.as_u16() == 429 {
+                    return Err(ProviderError::RateLimited {
+                        retry_after_ms: 5000,
+                    });
+                }
+                return Err(ProviderError::Api {
+                    status: status.as_u16(),
+                    message: body_text,
                 });
             }
-            return Err(ProviderError::Api {
-                status: status.as_u16(),
-                message: body_text,
-            });
-        }
+
+            Ok(response)
+        })
+        .await?;
 
         let (tx, rx) = mpsc::channel(64);
         let auto_tool_id = self.compat.auto_tool_id();
         let client = self.client.clone();
-        let headers = self.build_headers()?;
         let url_clone = url.clone();
 
         tokio::spawn(async move {

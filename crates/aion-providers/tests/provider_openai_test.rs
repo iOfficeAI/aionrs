@@ -1,9 +1,13 @@
+use std::time::Duration;
+
 use aion_config::compat::ProviderCompat;
 use aion_providers::LlmProvider;
 use aion_providers::openai::OpenAIProvider;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason};
 use serde_json::json;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpListener;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -49,6 +53,30 @@ fn build_sse_body(data_lines: &[&str]) -> String {
     }
     body.push_str("data: [DONE]\n\n");
     body
+}
+
+async fn start_server_after_initial_connect_refusal(sse_body: String) -> String {
+    let probe = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = probe.local_addr().unwrap();
+    drop(probe);
+
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let (mut second, _) = listener.accept().await.unwrap();
+        let mut buf = [0_u8; 4096];
+        let _ = second.read(&mut buf).await.unwrap();
+
+        let response = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            sse_body.len(),
+            sse_body
+        );
+        second.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    format!("http://{addr}")
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +163,58 @@ async fn test_openai_stream_text_response() {
             assert_eq!(usage.input_tokens, 25);
             assert_eq!(usage.output_tokens, 10);
         }
+        e => panic!("expected Done, got: {:?}", e),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// test_openai_initial_connect_error_is_retried
+// ---------------------------------------------------------------------------
+
+/// Verify that the provider retries when the initial HTTP request fails before
+/// receiving any response. This covers transient connect/TLS failures where no
+/// model output has been emitted yet.
+#[tokio::test]
+async fn test_openai_initial_connect_error_is_retried() {
+    let chunk = json!({
+        "id": "chatcmpl-retry",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": { "role": "assistant", "content": "Recovered" },
+            "finish_reason": null
+        }]
+    })
+    .to_string();
+    let finish = json!({
+        "id": "chatcmpl-retry",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+        }]
+    })
+    .to_string();
+    let sse_body = build_sse_body(&[&chunk, &finish]);
+    let base_url = start_server_after_initial_connect_refusal(sse_body).await;
+
+    let provider = OpenAIProvider::new("test-key", &base_url, ProviderCompat::openai_defaults());
+    let rx = provider.stream(&make_request()).await.unwrap();
+    let events = collect_events(rx).await;
+
+    assert_eq!(
+        events.len(),
+        2,
+        "expected retry success events, got: {:?}",
+        events
+    );
+    match &events[0] {
+        LlmEvent::TextDelta(text) => assert_eq!(text, "Recovered"),
+        e => panic!("expected TextDelta, got: {:?}", e),
+    }
+    match &events[1] {
+        LlmEvent::Done { stop_reason, .. } => assert_eq!(*stop_reason, StopReason::EndTurn),
         e => panic!("expected Done, got: {:?}", e),
     }
 }

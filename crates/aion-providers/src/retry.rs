@@ -29,7 +29,45 @@ where
 }
 
 pub const MAX_STREAM_RETRIES: u32 = 2;
+pub const MAX_INITIAL_CONNECT_RETRIES: u32 = 2;
 const MAX_BACKOFF: Duration = Duration::from_secs(15);
+const INITIAL_CONNECT_BACKOFF: Duration = Duration::from_millis(300);
+const MAX_INITIAL_CONNECT_BACKOFF: Duration = Duration::from_secs(2);
+
+/// Retry initial request failures that occur before an HTTP response exists.
+/// HTTP status errors and rate limits are intentionally not retried here.
+pub async fn with_initial_connect_retry<F, Fut, T>(f: F) -> Result<T, ProviderError>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T, ProviderError>>,
+{
+    let mut backoff = INITIAL_CONNECT_BACKOFF;
+    for attempt in 0..=MAX_INITIAL_CONNECT_RETRIES {
+        match f().await {
+            Ok(val) => return Ok(val),
+            Err(e) if is_initial_connect_error(&e) && attempt < MAX_INITIAL_CONNECT_RETRIES => {
+                tracing::warn!(
+                    attempt = attempt + 1,
+                    max_retries = MAX_INITIAL_CONNECT_RETRIES,
+                    error = %e,
+                    "retrying initial provider request after connect failure"
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(MAX_INITIAL_CONNECT_BACKOFF);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!()
+}
+
+fn is_initial_connect_error(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::Http(err) => err.is_connect(),
+        ProviderError::Connection(_) => true,
+        _ => false,
+    }
+}
 
 /// Send an HTTP request and check status, returning the response on success.
 /// Used by provider-specific retry loops to avoid duplicating request logic.
@@ -159,6 +197,51 @@ mod tests {
 
         // Non-retryable errors should fail immediately without retrying
         assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_initial_connect_retry_succeeds_after_connection_failures() {
+        tokio::time::pause();
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let result = with_initial_connect_retry(|| {
+            let counter = Arc::clone(&counter);
+            async move {
+                let attempt = counter.fetch_add(1, Ordering::SeqCst);
+                if attempt < 2 {
+                    Err(ProviderError::Connection("connection refused".into()))
+                } else {
+                    Ok(attempt)
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.unwrap(), 2);
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_initial_connect_retry_does_not_retry_rate_limit() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let result = with_initial_connect_retry(|| {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(ProviderError::RateLimited {
+                    retry_after_ms: 5000,
+                })
+            }
+        })
+        .await;
+
+        assert!(matches!(
+            result.unwrap_err(),
+            ProviderError::RateLimited {
+                retry_after_ms: 5000
+            }
+        ));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
 
