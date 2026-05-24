@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -40,11 +41,12 @@ fn default_hook_timeout() -> u64 {
 /// Event-driven hook engine
 pub struct HookEngine {
     config: HooksConfig,
+    cwd: PathBuf,
 }
 
 impl HookEngine {
-    pub fn new(config: HooksConfig) -> Self {
-        Self { config }
+    pub fn new(config: HooksConfig, cwd: PathBuf) -> Self {
+        Self { config, cwd }
     }
 
     /// Run pre-tool-use hooks. Returns Err if any hook blocks execution.
@@ -62,7 +64,7 @@ impl HookEngine {
 
         for hook in matching {
             let env = build_env_vars(tool_name, tool_input);
-            let result = run_hook_command(&hook.command, &env, hook.timeout_ms).await?;
+            let result = run_hook_command(&hook.command, &env, hook.timeout_ms, &self.cwd).await?;
             if !result.success {
                 return Err(HookError::Blocked {
                     hook_name: hook.name.clone(),
@@ -92,7 +94,7 @@ impl HookEngine {
             let mut env = build_env_vars(tool_name, tool_input);
             env.insert("TOOL_OUTPUT".to_string(), tool_output.to_string());
 
-            match run_hook_command(&hook.command, &env, hook.timeout_ms).await {
+            match run_hook_command(&hook.command, &env, hook.timeout_ms, &self.cwd).await {
                 Ok(result) => {
                     if !result.output.is_empty() {
                         messages.push(format!("[hook:{}] {}", hook.name, result.output.trim()));
@@ -110,7 +112,7 @@ impl HookEngine {
     pub async fn run_stop(&self) -> Vec<String> {
         let mut messages = Vec::new();
         for hook in &self.config.stop {
-            match run_hook_command(&hook.command, &HashMap::new(), hook.timeout_ms).await {
+            match run_hook_command(&hook.command, &HashMap::new(), hook.timeout_ms, &self.cwd).await {
                 Ok(result) => {
                     if !result.output.is_empty() {
                         messages.push(format!("[hook:{}] {}", hook.name, result.output.trim()));
@@ -223,6 +225,7 @@ async fn run_hook_command(
     command: &str,
     env_vars: &HashMap<String, String>,
     timeout_ms: u64,
+    cwd: &Path,
 ) -> Result<HookResult, HookError> {
     let interpolated = interpolate_command(command, env_vars);
     let timeout = Duration::from_millis(timeout_ms);
@@ -230,6 +233,7 @@ async fn run_hook_command(
     let result = tokio::time::timeout(timeout, async {
         shell_command_builder(&interpolated)
             .envs(env_vars)
+            .current_dir(cwd)
             .output()
             .await
     })
@@ -307,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_has_hooks_empty() {
-        let engine = HookEngine::new(HooksConfig::default());
+        let engine = HookEngine::new(HooksConfig::default(), std::env::temp_dir());
         assert!(!engine.has_hooks());
     }
 
@@ -318,7 +322,7 @@ mod tests {
             post_tool_use: vec![],
             stop: vec![],
         };
-        let engine = HookEngine::new(config);
+        let engine = HookEngine::new(config, std::env::temp_dir());
         assert!(engine.has_hooks());
     }
 
@@ -331,7 +335,7 @@ mod tests {
             post_tool_use: vec![],
             stop: vec![],
         };
-        let engine = HookEngine::new(config);
+        let engine = HookEngine::new(config, std::env::temp_dir());
         let result = engine.run_pre_tool_use("Read", &json!({})).await;
         assert!(result.is_ok());
     }
@@ -343,7 +347,7 @@ mod tests {
             post_tool_use: vec![],
             stop: vec![],
         };
-        let engine = HookEngine::new(config);
+        let engine = HookEngine::new(config, std::env::temp_dir());
         let result = engine.run_pre_tool_use("Read", &json!({})).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), HookError::Blocked { .. }));
@@ -356,7 +360,7 @@ mod tests {
             post_tool_use: vec![make_hook("post", vec!["Read"], "echo done")],
             stop: vec![],
         };
-        let engine = HookEngine::new(config);
+        let engine = HookEngine::new(config, std::env::temp_dir());
         let messages = engine.run_post_tool_use("Read", &json!({}), "output").await;
         assert!(!messages.is_empty());
         assert!(messages[0].contains("done"));
@@ -375,7 +379,7 @@ mod tests {
             post_tool_use: vec![],
             stop: vec![],
         };
-        let engine = HookEngine::new(config);
+        let engine = HookEngine::new(config, std::env::temp_dir());
         let result = engine.run_pre_tool_use("Read", &json!({})).await;
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), HookError::Timeout(_)));
@@ -411,7 +415,7 @@ mod phase11_tests {
     // TC-11.30: pre_tool_use count accumulates correctly
     #[test]
     fn tc_11_30_pre_tool_use_count_accumulates() {
-        let mut engine = HookEngine::new(make_config_pre(&["pre-a"]));
+        let mut engine = HookEngine::new(make_config_pre(&["pre-a"]), std::env::temp_dir());
         let additional = HooksConfig {
             pre_tool_use: vec![make_hook("pre-b"), make_hook("pre-c")],
             post_tool_use: vec![],
@@ -424,7 +428,7 @@ mod phase11_tests {
     // TC-11.31: post_tool_use count accumulates correctly
     #[test]
     fn tc_11_31_post_tool_use_count_accumulates() {
-        let mut engine = HookEngine::new(HooksConfig::default());
+        let mut engine = HookEngine::new(HooksConfig::default(), std::env::temp_dir());
         let additional = HooksConfig {
             pre_tool_use: vec![],
             post_tool_use: vec![make_hook("post-a")],
@@ -442,7 +446,7 @@ mod phase11_tests {
             post_tool_use: vec![],
             stop: vec![make_hook("stop-a")],
         };
-        let mut engine = HookEngine::new(initial);
+        let mut engine = HookEngine::new(initial, std::env::temp_dir());
         let additional = HooksConfig {
             pre_tool_use: vec![],
             post_tool_use: vec![],
@@ -455,7 +459,7 @@ mod phase11_tests {
     // TC-11.33: merging empty config doesn't change existing hooks
     #[test]
     fn tc_11_33_merge_empty_does_not_change_existing() {
-        let mut engine = HookEngine::new(make_config_pre(&["pre-a", "pre-b"]));
+        let mut engine = HookEngine::new(make_config_pre(&["pre-a", "pre-b"]), std::env::temp_dir());
         engine.merge_hooks(HooksConfig::default());
         assert_eq!(engine.config.pre_tool_use.len(), 2);
     }
@@ -463,7 +467,7 @@ mod phase11_tests {
     // TC-11.34: has_hooks() is true after merging
     #[test]
     fn tc_11_34_has_hooks_true_after_merge() {
-        let mut engine = HookEngine::new(HooksConfig::default());
+        let mut engine = HookEngine::new(HooksConfig::default(), std::env::temp_dir());
         assert!(
             !engine.has_hooks(),
             "precondition: engine starts with no hooks"
@@ -478,7 +482,7 @@ mod phase11_tests {
     // TC-11.35: multiple successive merges accumulate correctly (different names)
     #[test]
     fn tc_11_35_successive_merges_accumulate() {
-        let mut engine = HookEngine::new(HooksConfig::default());
+        let mut engine = HookEngine::new(HooksConfig::default(), std::env::temp_dir());
         engine.merge_hooks(make_config_pre(&["a"]));
         engine.merge_hooks(make_config_pre(&["b"]));
         engine.merge_hooks(make_config_pre(&["c"]));
@@ -488,7 +492,7 @@ mod phase11_tests {
     // TC-11.36: merging stop hooks does not affect pre_tool_use
     #[test]
     fn tc_11_36_merge_stop_does_not_affect_pre() {
-        let mut engine = HookEngine::new(make_config_pre(&["pre-a"]));
+        let mut engine = HookEngine::new(make_config_pre(&["pre-a"]), std::env::temp_dir());
         let additional = HooksConfig {
             pre_tool_use: vec![],
             post_tool_use: vec![],
@@ -506,7 +510,7 @@ mod phase11_tests {
     // TC-11.37: same-name hook not duplicated (idempotent dedup — C-4)
     #[test]
     fn tc_11_37_same_name_hook_not_duplicated() {
-        let mut engine = HookEngine::new(HooksConfig::default());
+        let mut engine = HookEngine::new(HooksConfig::default(), std::env::temp_dir());
         let config = make_config_pre(&["skill:my-skill:pre_tool_use:0"]);
         engine.merge_hooks(config.clone());
         engine.merge_hooks(config);
@@ -520,7 +524,7 @@ mod phase11_tests {
     // TC-11.38: different-name hooks both appended (no false dedup — C-4)
     #[test]
     fn tc_11_38_different_name_hooks_both_appended() {
-        let mut engine = HookEngine::new(HooksConfig::default());
+        let mut engine = HookEngine::new(HooksConfig::default(), std::env::temp_dir());
         engine.merge_hooks(make_config_pre(&["hook-a"]));
         engine.merge_hooks(make_config_pre(&["hook-b"]));
         assert_eq!(
