@@ -14,7 +14,11 @@ use common::{MockLlmProvider, test_config};
 
 fn make_spawn_tool() -> SpawnTool {
     let provider = Arc::new(MockLlmProvider::with_text_response("ok"));
-    let spawner = Arc::new(AgentSpawner::new(provider, test_config(), std::env::temp_dir()));
+    let spawner = Arc::new(AgentSpawner::new(
+        provider,
+        test_config(),
+        std::env::temp_dir(),
+    ));
     SpawnTool::new(spawner)
 }
 

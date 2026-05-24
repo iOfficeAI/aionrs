@@ -125,7 +125,11 @@ async fn test_spawn_shares_provider() {
 
     // Both sub-agents share the same underlying provider via Arc.
     let provider_dyn: Arc<dyn aion_providers::LlmProvider> = provider;
-    let spawner = AgentSpawner::new(Arc::clone(&provider_dyn), test_config(), std::env::temp_dir());
+    let spawner = AgentSpawner::new(
+        Arc::clone(&provider_dyn),
+        test_config(),
+        std::env::temp_dir(),
+    );
 
     let result1 = spawner.spawn_one(make_sub_config("seq-1")).await;
     let result2 = spawner.spawn_one(make_sub_config("seq-2")).await;

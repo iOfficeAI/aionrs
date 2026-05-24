@@ -112,7 +112,8 @@ impl HookEngine {
     pub async fn run_stop(&self) -> Vec<String> {
         let mut messages = Vec::new();
         for hook in &self.config.stop {
-            match run_hook_command(&hook.command, &HashMap::new(), hook.timeout_ms, &self.cwd).await {
+            match run_hook_command(&hook.command, &HashMap::new(), hook.timeout_ms, &self.cwd).await
+            {
                 Ok(result) => {
                     if !result.output.is_empty() {
                         messages.push(format!("[hook:{}] {}", hook.name, result.output.trim()));
@@ -459,7 +460,8 @@ mod phase11_tests {
     // TC-11.33: merging empty config doesn't change existing hooks
     #[test]
     fn tc_11_33_merge_empty_does_not_change_existing() {
-        let mut engine = HookEngine::new(make_config_pre(&["pre-a", "pre-b"]), std::env::temp_dir());
+        let mut engine =
+            HookEngine::new(make_config_pre(&["pre-a", "pre-b"]), std::env::temp_dir());
         engine.merge_hooks(HooksConfig::default());
         assert_eq!(engine.config.pre_tool_use.len(), 2);
     }

@@ -117,7 +117,13 @@ async fn tc_2_6_01_first_turn_no_compaction() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(
+        provider.clone(),
+        config,
+        registry,
+        output,
+        std::env::temp_dir(),
+    );
     let result = engine.run("Hi", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Hello");
@@ -169,7 +175,13 @@ async fn tc_2_6_03_emergency_returns_error() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(
+        provider.clone(),
+        config,
+        registry,
+        output,
+        std::env::temp_dir(),
+    );
     let err = engine.run("Do something", "msg-1").await.unwrap_err();
 
     match err {
@@ -230,7 +242,13 @@ async fn tc_2_6_04_autocompact_then_continue() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(
+        provider.clone(),
+        config,
+        registry,
+        output,
+        std::env::temp_dir(),
+    );
     let result = engine
         .run("Start work", "msg-1")
         .await
@@ -286,7 +304,8 @@ async fn tc_2_6_05_session_save_after_compact() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     engine
         .init_session("test", "/tmp", None)
         .expect("init session");
@@ -336,7 +355,13 @@ async fn tc_2_6_06_disabled_skips_micro_auto() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(
+        provider.clone(),
+        config,
+        registry,
+        output,
+        std::env::temp_dir(),
+    );
     let result = engine.run("Hi", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Normal response");
@@ -381,7 +406,8 @@ async fn tc_2_6_06b_disabled_still_fires_emergency() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let err = engine.run("Go", "msg-1").await.unwrap_err();
 
     assert!(
@@ -425,7 +451,8 @@ async fn tc_2_6_07_input_tokens_tracked() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Work", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.turns, 2);
@@ -564,7 +591,8 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Start", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Done after compact");
@@ -719,7 +747,8 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Work", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "After cooperative compact");
@@ -841,7 +870,8 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
     )));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Work", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Final");

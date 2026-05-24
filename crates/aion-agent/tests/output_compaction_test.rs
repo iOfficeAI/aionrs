@@ -307,7 +307,13 @@ async fn case_6_compressed_content_reaches_llm() {
     registry.register(Box::new(MockTool::new("test_tool", TEST_OUTPUT, false)));
 
     let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-    let mut engine = AgentEngine::new_with_provider(Arc::new(provider), config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(
+        Arc::new(provider),
+        config,
+        registry,
+        output,
+        std::env::temp_dir(),
+    );
 
     engine
         .run("call test_tool", "")
