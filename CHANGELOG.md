@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/iOfficeAI/aionrs/compare/v0.1.25...v0.1.26) (2026-05-24)
+
+
+### Bug Fixes
+
+* inject workspace cwd into tools and hooks ([#110](https://github.com/iOfficeAI/aionrs/issues/110)) ([6ef52cc](https://github.com/iOfficeAI/aionrs/commit/6ef52ccd81df6af3760931b63f8c1c8c92fc590a))
+
 ## [0.1.25](https://github.com/iOfficeAI/aionrs/compare/v0.1.24...v0.1.25) (2026-05-18)
 
 
