@@ -71,6 +71,8 @@ impl Tool for GlobTool {
             PathBuf::from(root)
         };
 
+        tracing::debug!(cwd = %self.cwd.display(), resolved_root = %root_path.display(), pattern = %pattern, "GlobTool scanning");
+
         // Build full glob pattern
         let full_pattern = if pattern.starts_with('/') {
             pattern.to_string()

@@ -53,6 +53,8 @@ impl AgentSpawner {
         config.session.enabled = false;
         config.tools.auto_approve = true;
 
+        tracing::info!(target: "aion_agent", cwd = %self.cwd.display(), "sub-agent spawned with workspace cwd");
+
         let tools = build_tool_registry(&[], &self.cwd);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
         let mut engine = AgentEngine::new_with_provider(

@@ -76,6 +76,8 @@ impl AgentBootstrap {
         let cwd = &self.workspace;
         let cwd_path = std::path::Path::new(cwd);
 
+        tracing::info!(target: "aion_agent", workspace = %cwd, "agent bootstrap: workspace cwd resolved");
+
         let provider = self
             .provider
             .unwrap_or_else(|| aion_providers::create_provider(&self.config));

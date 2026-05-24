@@ -231,6 +231,8 @@ async fn run_hook_command(
     let interpolated = interpolate_command(command, env_vars);
     let timeout = Duration::from_millis(timeout_ms);
 
+    tracing::debug!(cwd = %cwd.display(), command = %interpolated, "hook executing");
+
     let result = tokio::time::timeout(timeout, async {
         shell_command_builder(&interpolated)
             .envs(env_vars)

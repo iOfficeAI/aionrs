@@ -76,6 +76,8 @@ impl Tool for BashTool {
             };
         };
 
+        tracing::debug!(cwd = %self.cwd.display(), command = %command, "BashTool executing");
+
         let timeout_ms = input["timeout"]
             .as_u64()
             .unwrap_or(DEFAULT_TIMEOUT_MS)

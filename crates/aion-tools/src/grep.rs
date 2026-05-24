@@ -79,6 +79,8 @@ impl Tool for GrepTool {
             raw_path.to_owned()
         };
 
+        tracing::debug!(cwd = %self.cwd.display(), resolved_path = %path, pattern = %pattern, "GrepTool searching");
+
         let glob_pattern = input["glob"].as_str();
         let case_insensitive = input["case_insensitive"].as_bool().unwrap_or(false);
 
