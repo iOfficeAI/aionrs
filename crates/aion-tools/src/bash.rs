@@ -1,9 +1,10 @@
+use std::path::PathBuf;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use aion_config::shell::shell_command;
+use aion_config::shell::shell_command_builder;
 use aion_protocol::events::ToolCategory;
 use aion_types::tool::{JsonSchema, ToolResult};
 
@@ -12,7 +13,15 @@ use crate::Tool;
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 
-pub struct BashTool;
+pub struct BashTool {
+    cwd: PathBuf,
+}
+
+impl BashTool {
+    pub fn new(cwd: PathBuf) -> Self {
+        Self { cwd }
+    }
+}
 
 #[async_trait]
 impl Tool for BashTool {
@@ -74,7 +83,14 @@ impl Tool for BashTool {
 
         let timeout = Duration::from_millis(timeout_ms);
 
-        let result = tokio::time::timeout(timeout, async { shell_command(command).await }).await;
+        let cwd = self.cwd.clone();
+        let result = tokio::time::timeout(timeout, async {
+            shell_command_builder(command)
+                .current_dir(&cwd)
+                .output()
+                .await
+        })
+        .await;
 
         match result {
             Ok(Ok(output)) => {
@@ -120,7 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_echo_returns_stdout() {
-        let tool = BashTool;
+        let tool = BashTool::new(std::env::temp_dir());
         let input = json!({"command": "echo hello_bash"});
         let result = tool.execute(input).await;
         assert!(!result.is_error, "unexpected error: {}", result.content);
@@ -129,9 +145,26 @@ mod tests {
 
     #[tokio::test]
     async fn execute_invalid_command_returns_error() {
-        let tool = BashTool;
+        let tool = BashTool::new(std::env::temp_dir());
         let input = json!({"command": "nonexistent_command_xyz_123"});
         let result = tool.execute(input).await;
         assert!(result.is_error);
+    }
+
+    #[tokio::test]
+    async fn execute_respects_cwd() {
+        let tmp = std::env::temp_dir();
+        let tool = BashTool::new(tmp.clone());
+        let cmd = if cfg!(windows) { "cd" } else { "pwd" };
+        let input = json!({"command": cmd});
+        let result = tool.execute(input).await;
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        let expected = tmp.canonicalize().unwrap_or(tmp);
+        assert!(
+            result.content.contains(expected.to_string_lossy().as_ref()),
+            "output should contain cwd '{}', got: {}",
+            expected.display(),
+            result.content
+        );
     }
 }

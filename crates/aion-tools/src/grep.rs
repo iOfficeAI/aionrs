@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use tokio::process::Command;
@@ -7,7 +9,15 @@ use aion_types::tool::{JsonSchema, ToolResult};
 
 use crate::Tool;
 
-pub struct GrepTool;
+pub struct GrepTool {
+    cwd: PathBuf,
+}
+
+impl GrepTool {
+    pub fn new(cwd: PathBuf) -> Self {
+        Self { cwd }
+    }
+}
 
 #[async_trait]
 impl Tool for GrepTool {
@@ -62,19 +72,24 @@ impl Tool for GrepTool {
             };
         };
 
-        let path = input["path"].as_str().unwrap_or(".");
+        let raw_path = input["path"].as_str().unwrap_or(".");
+        let path = if std::path::Path::new(raw_path).is_relative() {
+            self.cwd.join(raw_path).to_string_lossy().into_owned()
+        } else {
+            raw_path.to_owned()
+        };
 
         let glob_pattern = input["glob"].as_str();
         let case_insensitive = input["case_insensitive"].as_bool().unwrap_or(false);
 
         // Try ripgrep first, fallback to grep
-        let result = try_ripgrep(pattern, path, glob_pattern, case_insensitive).await;
+        let result = try_ripgrep(pattern, &path, glob_pattern, case_insensitive).await;
 
         match result {
             Ok(output) => output,
             Err(_) => {
                 // Fallback to grep
-                try_grep(pattern, path, case_insensitive).await
+                try_grep(pattern, &path, case_insensitive).await
             }
         }
     }
@@ -89,8 +104,8 @@ impl Tool for GrepTool {
 
     fn describe(&self, input: &Value) -> String {
         let pattern = input.get("pattern").and_then(|v| v.as_str()).unwrap_or("");
-        let path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
-        format!("Grep '{}' in {}", pattern, path)
+        let raw_path = input.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+        format!("Grep '{}' in {}", pattern, raw_path)
     }
 }
 
@@ -187,7 +202,7 @@ mod tests {
 
     #[tokio::test]
     async fn grep_tool_finds_pattern_in_own_source() {
-        let tool = GrepTool;
+        let tool = GrepTool::new(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
         let input = json!({
             "pattern": "GrepTool",
             "path": env!("CARGO_MANIFEST_DIR")
@@ -195,5 +210,22 @@ mod tests {
         let result = tool.execute(input).await;
         assert!(!result.is_error, "grep failed: {}", result.content);
         assert!(result.content.contains("GrepTool"));
+    }
+
+    #[tokio::test]
+    async fn execute_uses_cwd_for_relative_path() {
+        use std::fs;
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("searchable.txt"), "unique_grep_marker_xyz").unwrap();
+
+        let tool = GrepTool::new(tmp.path().to_path_buf());
+        let input = json!({"pattern": "unique_grep_marker_xyz", "path": "."});
+        let result = tool.execute(input).await;
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(
+            result.content.contains("unique_grep_marker_xyz"),
+            "should find pattern, got: {}",
+            result.content
+        );
     }
 }

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -10,7 +10,15 @@ use crate::Tool;
 
 const MAX_RESULTS: usize = 100;
 
-pub struct GlobTool;
+pub struct GlobTool {
+    cwd: PathBuf,
+}
+
+impl GlobTool {
+    pub fn new(cwd: PathBuf) -> Self {
+        Self { cwd }
+    }
+}
 
 #[async_trait]
 impl Tool for GlobTool {
@@ -57,7 +65,11 @@ impl Tool for GlobTool {
         };
 
         let root = input["path"].as_str().unwrap_or(".");
-        let root_path = Path::new(root);
+        let root_path = if Path::new(root).is_relative() {
+            self.cwd.join(root)
+        } else {
+            PathBuf::from(root)
+        };
 
         // Build full glob pattern
         let full_pattern = if pattern.starts_with('/') {
@@ -97,7 +109,7 @@ impl Tool for GlobTool {
 
             // Make path relative to root
             let display_path = path
-                .strip_prefix(root_path)
+                .strip_prefix(&root_path)
                 .unwrap_or(&path)
                 .display()
                 .to_string();
@@ -137,12 +149,13 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::fs;
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     use aion_types::tool::ToolResult;
 
     async fn run_glob(pattern: &str, path: &str) -> ToolResult {
-        let tool = GlobTool;
+        let tool = GlobTool::new(PathBuf::from(path));
         let input = json!({ "pattern": pattern, "path": path });
         tool.execute(input).await
     }
@@ -249,6 +262,22 @@ mod tests {
         assert!(
             !result.content.contains("skip.rs"),
             "should not include .rs files"
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_uses_cwd_for_relative_path() {
+        let tmp = tempdir().unwrap();
+        fs::write(tmp.path().join("marker.txt"), "hello").unwrap();
+
+        let tool = GlobTool::new(tmp.path().to_path_buf());
+        let input = json!({"pattern": "marker.txt"});
+        let result = tool.execute(input).await;
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(
+            result.content.contains("marker.txt"),
+            "should find marker.txt, got: {}",
+            result.content
         );
     }
 }

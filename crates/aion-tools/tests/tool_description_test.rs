@@ -3,6 +3,8 @@
 //! These are black-box tests that verify each tool's description contains
 //! the key guidance information specified in the test plan.
 
+use std::path::PathBuf;
+
 use aion_tools::Tool;
 use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
@@ -12,11 +14,16 @@ use aion_tools::read::ReadTool;
 use aion_tools::registry::ToolRegistry;
 use aion_tools::write::WriteTool;
 
+fn test_cwd() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
 // --- TC-4.2-01: Bash tool description contains key guidance ---
 
 #[test]
 fn bash_description_references_dedicated_tools() {
-    let desc = BashTool.description();
+    let tool = BashTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         desc.contains("Glob"),
         "Bash description should cross-reference Glob tool"
@@ -37,7 +44,8 @@ fn bash_description_references_dedicated_tools() {
 
 #[test]
 fn bash_description_contains_timeout_info() {
-    let desc = BashTool.description();
+    let tool = BashTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         desc.contains("120") || desc.to_lowercase().contains("timeout"),
         "Bash description should mention timeout"
@@ -46,7 +54,8 @@ fn bash_description_contains_timeout_info() {
 
 #[test]
 fn bash_description_contains_parallel_guidance() {
-    let desc = BashTool.description();
+    let tool = BashTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         desc.contains("parallel") || desc.contains("&&"),
         "Bash description should contain parallel command guidance"
@@ -153,7 +162,8 @@ fn write_description_prefers_edit() {
 
 #[test]
 fn glob_description_mentions_result_limit() {
-    let desc = GlobTool.description();
+    let tool = GlobTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         desc.contains("100"),
         "Glob description should mention the 100 result limit"
@@ -162,7 +172,8 @@ fn glob_description_mentions_result_limit() {
 
 #[test]
 fn glob_description_mentions_sort_order() {
-    let desc = GlobTool.description();
+    let tool = GlobTool::new(test_cwd());
+    let desc = tool.description();
     let lower = desc.to_lowercase();
     assert!(
         lower.contains("modification time") || lower.contains("newest"),
@@ -174,7 +185,8 @@ fn glob_description_mentions_sort_order() {
 
 #[test]
 fn grep_description_forbids_bash_grep() {
-    let desc = GrepTool.description();
+    let tool = GrepTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         desc.contains("NEVER") || desc.contains("never"),
         "Grep description should forbid using grep in Bash"
@@ -183,7 +195,8 @@ fn grep_description_forbids_bash_grep() {
 
 #[test]
 fn grep_description_mentions_regex() {
-    let desc = GrepTool.description();
+    let tool = GrepTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         desc.contains("regex"),
         "Grep description should mention regex support"
@@ -192,7 +205,8 @@ fn grep_description_mentions_regex() {
 
 #[test]
 fn grep_description_mentions_result_limit() {
-    let desc = GrepTool.description();
+    let tool = GrepTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         desc.contains("250"),
         "Grep description should mention the 250 result limit"
@@ -203,7 +217,8 @@ fn grep_description_mentions_result_limit() {
 
 #[test]
 fn grep_description_does_not_say_at_most_matches() {
-    let desc = GrepTool.description();
+    let tool = GrepTool::new(test_cwd());
+    let desc = tool.description();
     assert!(
         !desc.contains("at most 250 matches"),
         "Grep description should not say 'at most 250 matches' (was per-file, not global)"
@@ -219,12 +234,12 @@ fn grep_description_does_not_say_at_most_matches() {
 #[test]
 fn tool_def_description_matches_tool_instance() {
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(BashTool));
+    registry.register(Box::new(BashTool::new(test_cwd())));
     registry.register(Box::new(ReadTool::new(None)));
     registry.register(Box::new(EditTool::new(None)));
     registry.register(Box::new(WriteTool::new(None)));
-    registry.register(Box::new(GlobTool));
-    registry.register(Box::new(GrepTool));
+    registry.register(Box::new(GlobTool::new(test_cwd())));
+    registry.register(Box::new(GrepTool::new(test_cwd())));
 
     let defs = registry.to_tool_defs();
 
