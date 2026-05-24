@@ -10,13 +10,15 @@ use aion_tools::grep::GrepTool;
 use serde_json::json;
 use tempfile::tempdir;
 
+// Windows `cd` outputs 8.3 short names (RUNNER~1) that don't match canonicalized paths;
+// bash_tool_with_file_operations_uses_correct_cwd covers the same behavior reliably.
+#[cfg(not(windows))]
 #[tokio::test]
 async fn bash_tool_executes_in_injected_cwd_not_process_cwd() {
     let workspace = tempdir().unwrap();
     let tool = BashTool::new(workspace.path().to_path_buf());
 
-    let cmd = if cfg!(windows) { "cd" } else { "pwd" };
-    let result = tool.execute(json!({"command": cmd})).await;
+    let result = tool.execute(json!({"command": "pwd"})).await;
 
     assert!(!result.is_error, "unexpected error: {}", result.content);
     let expected = workspace
