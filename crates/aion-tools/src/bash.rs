@@ -155,17 +155,20 @@ mod tests {
 
     #[tokio::test]
     async fn execute_respects_cwd() {
-        let tmp = std::env::temp_dir();
-        let tool = BashTool::new(tmp.clone());
-        let cmd = if cfg!(windows) { "cd" } else { "pwd" };
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("cwd_proof.txt"), "proof").unwrap();
+        let tool = BashTool::new(dir.path().to_path_buf());
+        let cmd = if cfg!(windows) {
+            "type cwd_proof.txt"
+        } else {
+            "cat cwd_proof.txt"
+        };
         let input = json!({"command": cmd});
         let result = tool.execute(input).await;
         assert!(!result.is_error, "unexpected error: {}", result.content);
-        let expected = tmp.canonicalize().unwrap_or(tmp);
         assert!(
-            result.content.contains(expected.to_string_lossy().as_ref()),
-            "output should contain cwd '{}', got: {}",
-            expected.display(),
+            result.content.contains("proof"),
+            "BashTool should execute in injected cwd, got: {}",
             result.content
         );
     }
