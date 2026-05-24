@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -65,9 +66,14 @@ pub struct AgentEngine {
 }
 
 impl AgentEngine {
-    pub fn new(config: Config, tools: ToolRegistry, output: Arc<dyn OutputSink>) -> Self {
+    pub fn new(
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        cwd: PathBuf,
+    ) -> Self {
         let provider = create_provider(&config);
-        Self::new_with_provider(provider, config, tools, output)
+        Self::new_with_provider(provider, config, tools, output, cwd)
     }
 
     /// Create an engine with an externally-provided provider (for sub-agent sharing)
@@ -76,6 +82,7 @@ impl AgentEngine {
         config: Config,
         tools: ToolRegistry,
         output: Arc<dyn OutputSink>,
+        cwd: PathBuf,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
         let confirmer =
@@ -105,9 +112,7 @@ impl AgentEngine {
             thinking: config.thinking,
             compat: config.compat.clone(),
             confirmer: Arc::new(Mutex::new(confirmer)),
-            // Always initialise Some so that skill-declared hooks can be merged in
-            // even when the global config has no static hooks configured.
-            hooks: Some(HookEngine::new(config.hooks.clone())),
+            hooks: Some(HookEngine::new(config.hooks.clone(), cwd.clone())),
             session_manager,
             current_session: None,
             output,
@@ -133,9 +138,10 @@ impl AgentEngine {
         tools: ToolRegistry,
         output: Arc<dyn OutputSink>,
         session: Session,
+        cwd: PathBuf,
     ) -> Self {
         let provider = create_provider(&config);
-        Self::resume_with_provider(provider, config, tools, output, session)
+        Self::resume_with_provider(provider, config, tools, output, session, cwd)
     }
 
     /// Create from a resumed session with an externally-provided provider
@@ -145,6 +151,7 @@ impl AgentEngine {
         tools: ToolRegistry,
         output: Arc<dyn OutputSink>,
         session: Session,
+        cwd: PathBuf,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
         let confirmer =
@@ -174,7 +181,7 @@ impl AgentEngine {
             thinking: config.thinking,
             compat: config.compat.clone(),
             confirmer: Arc::new(Mutex::new(confirmer)),
-            hooks: Some(HookEngine::new(config.hooks.clone())),
+            hooks: Some(HookEngine::new(config.hooks.clone(), cwd)),
             session_manager,
             current_session: Some(session),
             output,

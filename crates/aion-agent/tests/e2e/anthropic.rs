@@ -65,7 +65,7 @@ async fn test_anthropic_single_turn_completion() {
     let output: Arc<dyn OutputSink> = Arc::new(TerminalSink::new(true));
     let registry = ToolRegistry::new();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Say 'hello world' and nothing else.", "")
         .await
@@ -100,7 +100,7 @@ async fn test_anthropic_tool_use() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(ReadTool::new(None)));
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let prompt = format!(
         "Read the file at path '{}' and tell me what it contains. Be brief.",
         path

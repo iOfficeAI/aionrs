@@ -36,7 +36,7 @@ async fn test_engine_text_response_ends_turn() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Hi", "").await.expect("engine should succeed");
 
     assert_eq!(result.text, "Hello, world!");
@@ -91,7 +91,7 @@ async fn test_engine_tool_use_executes_and_continues() {
     registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Use the tool", "")
         .await
@@ -127,7 +127,7 @@ async fn test_engine_max_tokens_handling() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Give me a long answer", "")
         .await
@@ -186,7 +186,7 @@ async fn test_engine_message_accumulation() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config.clone(), registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config.clone(), registry, output, std::env::temp_dir());
 
     // Initialize session so save_session() has a session to persist
     engine
@@ -263,7 +263,7 @@ async fn test_engine_token_usage_tracking() {
     registry.register(Box::new(MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Do work", "")
         .await
@@ -322,7 +322,7 @@ async fn test_engine_max_turns_returns_ok() {
     registry.register(Box::new(MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Keep calling tools", "")
         .await
@@ -347,7 +347,7 @@ async fn test_engine_api_error_handling() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let err = engine
         .run("Hello", "")
         .await

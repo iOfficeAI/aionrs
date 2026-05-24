@@ -29,7 +29,7 @@ fn make_sub_config(name: &str) -> SubAgentConfig {
 #[tokio::test]
 async fn test_spawn_single_agent() {
     let provider = Arc::new(MockLlmProvider::with_text_response("Sub-agent done"));
-    let spawner = AgentSpawner::new(provider, test_config());
+    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir());
 
     let result = spawner.spawn_one(make_sub_config("agent-1")).await;
 
@@ -64,7 +64,7 @@ async fn test_spawn_parallel_agents() {
         make_turn("result-C"),
     ]));
 
-    let spawner = AgentSpawner::new(provider, test_config());
+    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir());
 
     let sub_configs = vec![
         make_sub_config("agent-A"),
@@ -125,7 +125,7 @@ async fn test_spawn_shares_provider() {
 
     // Both sub-agents share the same underlying provider via Arc.
     let provider_dyn: Arc<dyn aion_providers::LlmProvider> = provider;
-    let spawner = AgentSpawner::new(Arc::clone(&provider_dyn), test_config());
+    let spawner = AgentSpawner::new(Arc::clone(&provider_dyn), test_config(), std::env::temp_dir());
 
     let result1 = spawner.spawn_one(make_sub_config("seq-1")).await;
     let result2 = spawner.spawn_one(make_sub_config("seq-2")).await;
@@ -145,7 +145,7 @@ async fn test_spawn_agent_error_captured() {
         "provider failed".to_string(),
     )]));
 
-    let spawner = AgentSpawner::new(provider, test_config());
+    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir());
 
     let result = spawner.spawn_one(make_sub_config("error-agent")).await;
 

@@ -188,7 +188,7 @@ async fn case_9_off_vs_safe_content() {
     let mut registry2 = ToolRegistry::new();
     registry2.register(Box::new(FixedOutputTool::new("check_tool", TEST_OUTPUT)));
     let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry2, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry2, output, std::env::temp_dir());
 
     let prompt = "Call check_tool, then answer: does the tool output contain ANSI color escape codes (sequences starting with \\x1b)? Answer only 'yes' or 'no'.";
     let result = engine
@@ -251,7 +251,7 @@ async fn case_10_off_vs_full_token_savings() {
     registry_off.register(Box::new(FixedOutputTool::new("big_tool", &large_output)));
     let output_off: Arc<dyn OutputSink> = Arc::new(NullSink);
     let mut engine_off =
-        AgentEngine::new_with_provider(provider_off, config_off, registry_off, output_off);
+        AgentEngine::new_with_provider(provider_off, config_off, registry_off, output_off, std::env::temp_dir());
 
     let prompt = "Call big_tool, then say 'done'.";
     let result_off = engine_off
@@ -267,7 +267,7 @@ async fn case_10_off_vs_full_token_savings() {
     registry_full.register(Box::new(FixedOutputTool::new("big_tool", &large_output)));
     let output_full: Arc<dyn OutputSink> = Arc::new(NullSink);
     let mut engine_full =
-        AgentEngine::new_with_provider(provider_full, config_full, registry_full, output_full);
+        AgentEngine::new_with_provider(provider_full, config_full, registry_full, output_full, std::env::temp_dir());
 
     let result_full = engine_full
         .run(prompt, "")
@@ -357,7 +357,7 @@ async fn case_11_toon_comprehension_and_system_prompt() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(FixedOutputTool::new("data_tool", TOON_INPUT)));
     let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output);
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
 
     let prompt = "Call data_tool, then answer: what is the name of the second record? Answer with just the name, nothing else.";
     let result = engine

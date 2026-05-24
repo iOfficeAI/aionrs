@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -29,13 +30,15 @@ pub use aion_types::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentRe
 pub struct AgentSpawner {
     provider: Arc<dyn LlmProvider>,
     base_config: Config,
+    cwd: PathBuf,
 }
 
 impl AgentSpawner {
-    pub fn new(provider: Arc<dyn LlmProvider>, config: Config) -> Self {
+    pub fn new(provider: Arc<dyn LlmProvider>, config: Config, cwd: PathBuf) -> Self {
         Self {
             provider,
             base_config: config,
+            cwd,
         }
     }
 
@@ -50,10 +53,15 @@ impl AgentSpawner {
         config.session.enabled = false;
         config.tools.auto_approve = true;
 
-        let tools = build_tool_registry(&[]);
+        let tools = build_tool_registry(&[], &self.cwd);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-        let mut engine =
-            AgentEngine::new_with_provider(self.provider.clone(), config, tools, output);
+        let mut engine = AgentEngine::new_with_provider(
+            self.provider.clone(),
+            config,
+            tools,
+            output,
+            self.cwd.clone(),
+        );
 
         match engine.run(&sub_config.prompt, "").await {
             Ok(result) => SubAgentResult {
@@ -103,6 +111,7 @@ impl AgentSpawner {
         Self {
             provider: self.provider.clone(),
             base_config: self.base_config.clone(),
+            cwd: self.cwd.clone(),
         }
     }
 }
@@ -126,10 +135,15 @@ impl Spawner for AgentSpawner {
             config.model = model;
         }
 
-        let tools = build_tool_registry(&overrides.allowed_tools);
+        let tools = build_tool_registry(&overrides.allowed_tools, &self.cwd);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-        let mut engine =
-            AgentEngine::new_with_provider(self.provider.clone(), config, tools, output);
+        let mut engine = AgentEngine::new_with_provider(
+            self.provider.clone(),
+            config,
+            tools,
+            output,
+            self.cwd.clone(),
+        );
         engine.set_initial_reasoning_effort(overrides.effort.clone());
 
         match engine.run(&sub_config.prompt, "").await {
@@ -151,22 +165,20 @@ impl Spawner for AgentSpawner {
     }
 }
 
-type ToolFactory = fn() -> Box<dyn aion_tools::Tool>;
-
-fn build_tool_registry(allowed: &[String]) -> ToolRegistry {
-    let all: &[(&str, ToolFactory)] = &[
-        ("Read", || Box::new(ReadTool::new(None))),
-        ("Write", || Box::new(WriteTool::new(None))),
-        ("Edit", || Box::new(EditTool::new(None))),
-        ("Bash", || Box::new(BashTool)),
-        ("Grep", || Box::new(GrepTool)),
-        ("Glob", || Box::new(GlobTool)),
+fn build_tool_registry(allowed: &[String], cwd: &Path) -> ToolRegistry {
+    let all_tools: Vec<(&str, Box<dyn aion_tools::Tool>)> = vec![
+        ("Read", Box::new(ReadTool::new(None))),
+        ("Write", Box::new(WriteTool::new(None))),
+        ("Edit", Box::new(EditTool::new(None))),
+        ("Bash", Box::new(BashTool::new(cwd.to_path_buf()))),
+        ("Grep", Box::new(GrepTool::new(cwd.to_path_buf()))),
+        ("Glob", Box::new(GlobTool::new(cwd.to_path_buf()))),
     ];
 
     let mut registry = ToolRegistry::new();
-    for (name, make_tool) in all {
-        if allowed.is_empty() || allowed.iter().any(|a| a.as_str() == *name) {
-            registry.register(make_tool());
+    for (name, tool) in all_tools {
+        if allowed.is_empty() || allowed.iter().any(|a| a.as_str() == name) {
+            registry.register(tool);
         }
     }
     registry
@@ -186,7 +198,7 @@ mod phase7_tests {
 
     #[test]
     fn tc_7_40_build_tool_registry_empty_allowed_registers_all() {
-        let registry = build_tool_registry(&[]);
+        let registry = build_tool_registry(&[], &std::env::temp_dir());
         for name in &["Read", "Write", "Edit", "Bash", "Grep", "Glob"] {
             assert!(
                 registry.get(name).is_some(),
@@ -198,7 +210,7 @@ mod phase7_tests {
     #[test]
     fn tc_7_43_build_tool_registry_filters_to_allowed() {
         let allowed = vec!["Bash".to_string(), "Read".to_string()];
-        let registry = build_tool_registry(&allowed);
+        let registry = build_tool_registry(&allowed, &std::env::temp_dir());
         assert!(registry.get("Bash").is_some());
         assert!(registry.get("Read").is_some());
         assert!(registry.get("Write").is_none());

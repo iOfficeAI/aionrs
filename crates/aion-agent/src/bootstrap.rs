@@ -98,9 +98,15 @@ impl AgentBootstrap {
             file_cache.clone(),
         )));
         registry.register(Box::new(aion_tools::edit::EditTool::new(file_cache)));
-        registry.register(Box::new(aion_tools::bash::BashTool));
-        registry.register(Box::new(aion_tools::grep::GrepTool));
-        registry.register(Box::new(aion_tools::glob::GlobTool));
+        registry.register(Box::new(aion_tools::bash::BashTool::new(
+            cwd_path.to_path_buf(),
+        )));
+        registry.register(Box::new(aion_tools::grep::GrepTool::new(
+            cwd_path.to_path_buf(),
+        )));
+        registry.register(Box::new(aion_tools::glob::GlobTool::new(
+            cwd_path.to_path_buf(),
+        )));
 
         let builtin_names: Vec<String> = registry.tool_names();
 
@@ -166,6 +172,7 @@ impl AgentBootstrap {
         let spawner = Arc::new(crate::spawner::AgentSpawner::new(
             provider.clone(),
             self.config.clone(),
+            cwd_path.to_path_buf(),
         ));
         registry.register(Box::new(crate::spawn_tool::SpawnTool::new(spawner)));
 
@@ -191,9 +198,16 @@ impl AgentBootstrap {
                 registry,
                 self.output,
                 session,
+                cwd_path.to_path_buf(),
             )
         } else {
-            AgentEngine::new_with_provider(provider.clone(), self.config, registry, self.output)
+            AgentEngine::new_with_provider(
+                provider.clone(),
+                self.config,
+                registry,
+                self.output,
+                cwd_path.to_path_buf(),
+            )
         };
         engine.set_plan_active_flag(plan_active_flag);
 

@@ -240,7 +240,7 @@ async fn test_pre_hook_blocks_tool() {
         post_tool_use: vec![],
         stop: vec![],
     };
-    let mut hook_engine = HookEngine::new(hook_config);
+    let mut hook_engine = HookEngine::new(hook_config, std::env::temp_dir());
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("echo", "should not appear", false)));
@@ -286,7 +286,7 @@ async fn test_post_hook_runs_after_tool() {
         post_tool_use: vec![make_post_hook("post-logger", "echo", "echo done")],
         stop: vec![],
     };
-    let mut hook_engine = HookEngine::new(hook_config);
+    let mut hook_engine = HookEngine::new(hook_config, std::env::temp_dir());
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("echo", "result", false)));
