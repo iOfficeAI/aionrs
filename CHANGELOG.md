@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.27](https://github.com/iOfficeAI/aionrs/compare/v0.1.26...v0.1.27) (2026-05-26)
+
+
+### Bug Fixes
+
+* **agent:** release pending tool-use abort handling ([#113](https://github.com/iOfficeAI/aionrs/issues/113)) ([415bd5c](https://github.com/iOfficeAI/aionrs/commit/415bd5ce9329124702b0010eefe8786cc3bf5b4c))
+
 ## [0.1.26](https://github.com/iOfficeAI/aionrs/compare/v0.1.25...v0.1.26) (2026-05-24)
 
 
