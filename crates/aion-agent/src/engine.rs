@@ -533,6 +533,20 @@ impl AgentEngine {
                         input,
                         extra,
                     } => {
+                        if id.trim().is_empty() {
+                            tracing::error!(
+                                target: "aion_agent",
+                                tool = %name,
+                                "provider emitted tool call with empty tool_use_id"
+                            );
+                        } else {
+                            tracing::debug!(
+                                target: "aion_agent",
+                                tool_use_id = %id,
+                                tool = %name,
+                                "provider tool call received"
+                            );
+                        }
                         let input_str = serde_json::to_string(&input).unwrap_or_default();
                         self.output.emit_tool_call(&id, &name, &input_str);
                         tool_calls.push(ContentBlock::ToolUse {
@@ -706,6 +720,23 @@ impl AgentEngine {
                             None
                         })
                         .unwrap_or("unknown");
+                    let status = if *is_error { "error" } else { "completed" };
+                    if tool_use_id.trim().is_empty() {
+                        tracing::error!(
+                            target: "aion_agent",
+                            tool = %tool_name,
+                            status,
+                            "tool result has empty tool_use_id"
+                        );
+                    } else {
+                        tracing::debug!(
+                            target: "aion_agent",
+                            tool_use_id = %tool_use_id,
+                            tool = %tool_name,
+                            status,
+                            "tool result emitted"
+                        );
+                    }
                     self.output
                         .emit_tool_result(tool_use_id, tool_name, *is_error, content);
                 }
