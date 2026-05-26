@@ -922,6 +922,59 @@ impl AgentEngine {
             }
         }
     }
+
+    /// Close a partially recorded turn after the host cancels execution.
+    ///
+    /// Providers in the Anthropic family require every assistant `tool_use` to
+    /// be followed immediately by user `tool_result` blocks. If the host drops
+    /// `run()` while tools are executing, the assistant `tool_use` message may
+    /// already be in memory without its matching results. Add synthetic error
+    /// results so the next request can safely reuse this history.
+    pub fn abort_current_turn(&mut self, reason: &str) {
+        let Some(last_message) = self.messages.last() else {
+            return;
+        };
+        if last_message.role != Role::Assistant {
+            return;
+        }
+
+        let pending_results: Vec<_> = last_message
+            .content
+            .iter()
+            .filter_map(|block| {
+                let ContentBlock::ToolUse { id, name, .. } = block else {
+                    return None;
+                };
+                Some((id.clone(), name.clone()))
+            })
+            .collect();
+
+        if pending_results.is_empty() {
+            return;
+        }
+
+        let result_blocks = pending_results
+            .into_iter()
+            .map(|(tool_use_id, name)| {
+                tracing::info!(
+                    target: "aion_agent",
+                    tool_use_id = %tool_use_id,
+                    tool = %name,
+                    "closing pending tool_use after abort"
+                );
+                self.output
+                    .emit_tool_result(&tool_use_id, &name, true, reason);
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    content: reason.to_string(),
+                    is_error: true,
+                }
+            })
+            .collect();
+
+        self.messages.push(Message::now(Role::User, result_blocks));
+        self.save_session();
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1478,6 +1531,29 @@ mod compact_tests {
         fn emit_info(&self, _: &str) {}
     }
 
+    #[derive(Default)]
+    struct RecordingOutput {
+        tool_results: Mutex<Vec<(String, String, bool, String)>>,
+    }
+
+    impl OutputSink for RecordingOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, tool_use_id: &str, name: &str, is_error: bool, content: &str) {
+            self.tool_results.lock().unwrap().push((
+                tool_use_id.to_string(),
+                name.to_string(),
+                is_error,
+                content.to_string(),
+            ));
+        }
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
     struct NullProvider;
     #[async_trait::async_trait]
     impl LlmProvider for NullProvider {
@@ -1495,6 +1571,20 @@ mod compact_tests {
         compact_state: CompactState,
         messages: Vec<Message>,
     ) -> super::AgentEngine {
+        make_compact_engine_with_output(
+            compact_config,
+            compact_state,
+            messages,
+            Arc::new(NullOutput),
+        )
+    }
+
+    fn make_compact_engine_with_output(
+        compact_config: CompactConfig,
+        compact_state: CompactState,
+        messages: Vec<Message>,
+        output: Arc<dyn OutputSink>,
+    ) -> super::AgentEngine {
         super::AgentEngine {
             provider: Arc::new(NullProvider),
             tools: ToolRegistry::new(),
@@ -1510,7 +1600,7 @@ mod compact_tests {
             hooks: None,
             session_manager: None,
             current_session: None,
-            output: Arc::new(NullOutput),
+            output,
             current_msg_id: String::new(),
             approval_manager: None,
             protocol_writer: None,
@@ -1539,6 +1629,26 @@ mod compact_tests {
         )
     }
 
+    fn tool_use_msg_with_two_calls(first_id: &str, second_id: &str) -> Message {
+        Message::new(
+            Role::Assistant,
+            vec![
+                ContentBlock::ToolUse {
+                    id: first_id.to_string(),
+                    name: "Read".to_string(),
+                    input: json!({}),
+                    extra: None,
+                },
+                ContentBlock::ToolUse {
+                    id: second_id.to_string(),
+                    name: "Bash".to_string(),
+                    input: json!({}),
+                    extra: None,
+                },
+            ],
+        )
+    }
+
     fn tool_result_msg(id: &str, content: &str) -> Message {
         Message::new(
             Role::User,
@@ -1548,6 +1658,60 @@ mod compact_tests {
                 is_error: false,
             }],
         )
+    }
+
+    #[test]
+    fn abort_current_turn_closes_pending_tool_uses() {
+        let output = Arc::new(RecordingOutput::default());
+        let mut engine = make_compact_engine_with_output(
+            CompactConfig::default(),
+            CompactState::new(),
+            vec![
+                Message::new(
+                    Role::User,
+                    vec![ContentBlock::Text {
+                        text: "run tools".to_string(),
+                    }],
+                ),
+                tool_use_msg_with_two_calls("call_read", "call_bash"),
+            ],
+            output.clone(),
+        );
+
+        engine.abort_current_turn("Tool execution canceled by user");
+
+        let last = engine.messages.last().expect("synthetic result message");
+        assert_eq!(last.role, Role::User);
+        assert_eq!(last.content.len(), 2);
+        assert!(
+            matches!(&last.content[0], ContentBlock::ToolResult { tool_use_id, content, is_error }
+                if tool_use_id == "call_read" && content == "Tool execution canceled by user" && *is_error)
+        );
+        assert!(
+            matches!(&last.content[1], ContentBlock::ToolResult { tool_use_id, content, is_error }
+                if tool_use_id == "call_bash" && content == "Tool execution canceled by user" && *is_error)
+        );
+
+        let emitted = output.tool_results.lock().unwrap();
+        assert_eq!(emitted.len(), 2);
+        assert_eq!(
+            emitted[0],
+            (
+                "call_read".into(),
+                "Read".into(),
+                true,
+                "Tool execution canceled by user".into()
+            )
+        );
+        assert_eq!(
+            emitted[1],
+            (
+                "call_bash".into(),
+                "Bash".into(),
+                true,
+                "Tool execution canceled by user".into()
+            )
+        );
     }
 
     // -- Emergency check fires when at limit --
