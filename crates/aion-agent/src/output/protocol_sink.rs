@@ -75,7 +75,7 @@ impl OutputSink for ProtocolSink {
         });
     }
 
-    fn emit_tool_call(&self, name: &str, _input: &str) {
+    fn emit_tool_call(&self, _tool_use_id: &str, name: &str, _input: &str) {
         // In protocol mode, tool_call is handled by tool_request/tool_running events.
         // This is a fallback for compatibility.
         let _ = self.writer.emit(&ProtocolEvent::Info {
@@ -84,7 +84,7 @@ impl OutputSink for ProtocolSink {
         });
     }
 
-    fn emit_tool_result(&self, name: &str, is_error: bool, content: &str) {
+    fn emit_tool_result(&self, _tool_use_id: &str, name: &str, is_error: bool, content: &str) {
         // In protocol mode, tool results are emitted via explicit ToolResult events
         // with call_id. This fallback emits an info event.
         let status = if is_error { "error" } else { "success" };

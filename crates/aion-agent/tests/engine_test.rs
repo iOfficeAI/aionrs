@@ -1,6 +1,6 @@
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use aion_agent::engine::{AgentEngine, AgentError};
 use aion_agent::output::OutputSink;
@@ -19,6 +19,45 @@ use common::{MockLlmProvider, MockTool, test_config};
 // ---------------------------------------------------------------------------
 fn silent_output() -> Arc<dyn OutputSink> {
     Arc::new(TerminalSink::new(true))
+}
+
+#[derive(Default)]
+struct RecordingOutputSink {
+    tool_calls: Mutex<Vec<(String, String)>>,
+    tool_results: Mutex<Vec<(String, String, bool)>>,
+}
+
+impl OutputSink for RecordingOutputSink {
+    fn emit_text_delta(&self, _text: &str, _msg_id: &str) {}
+    fn emit_thinking(&self, _text: &str, _msg_id: &str) {}
+
+    fn emit_tool_call(&self, tool_use_id: &str, name: &str, _input: &str) {
+        self.tool_calls
+            .lock()
+            .unwrap()
+            .push((tool_use_id.to_owned(), name.to_owned()));
+    }
+
+    fn emit_tool_result(&self, tool_use_id: &str, name: &str, is_error: bool, _content: &str) {
+        self.tool_results
+            .lock()
+            .unwrap()
+            .push((tool_use_id.to_owned(), name.to_owned(), is_error));
+    }
+
+    fn emit_stream_start(&self, _msg_id: &str) {}
+    fn emit_stream_end(
+        &self,
+        _msg_id: &str,
+        _turns: usize,
+        _input_tokens: u64,
+        _output_tokens: u64,
+        _cache_creation_tokens: u64,
+        _cache_read_tokens: u64,
+    ) {
+    }
+    fn emit_error(&self, _msg: &str) {}
+    fn emit_info(&self, _msg: &str) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +140,79 @@ async fn test_engine_tool_use_executes_and_continues() {
 
     assert_eq!(result.turns, 2);
     assert_eq!(result.text, "Done");
+}
+
+#[tokio::test]
+async fn duplicate_tool_names_emit_distinct_tool_use_ids() {
+    let turn1 = vec![
+        LlmEvent::ToolUse {
+            id: "call_a".to_string(),
+            name: "Glob".to_string(),
+            input: json!({"pattern": "*.rs"}),
+            extra: None,
+        },
+        LlmEvent::ToolUse {
+            id: "call_b".to_string(),
+            name: "Glob".to_string(),
+            input: json!({"pattern": "*.toml"}),
+            extra: None,
+        },
+        LlmEvent::Done {
+            stop_reason: StopReason::ToolUse,
+            usage: TokenUsage {
+                input_tokens: 80,
+                output_tokens: 30,
+                cache_creation_tokens: 0,
+                cache_read_tokens: 0,
+            },
+        },
+    ];
+    let turn2 = vec![
+        LlmEvent::TextDelta("Done".to_string()),
+        LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation_tokens: 0,
+                cache_read_tokens: 0,
+            },
+        },
+    ];
+
+    let provider = Arc::new(MockLlmProvider::with_turns(vec![turn1, turn2]));
+    let config = test_config();
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("Glob", "tool output", false)));
+    let output = Arc::new(RecordingOutputSink::default());
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        registry,
+        output.clone(),
+        std::env::temp_dir(),
+    );
+    let result = engine
+        .run("Use Glob twice", "")
+        .await
+        .expect("engine should succeed");
+
+    assert_eq!(result.text, "Done");
+    assert_eq!(
+        *output.tool_calls.lock().unwrap(),
+        vec![
+            ("call_a".to_string(), "Glob".to_string()),
+            ("call_b".to_string(), "Glob".to_string()),
+        ]
+    );
+    assert_eq!(
+        *output.tool_results.lock().unwrap(),
+        vec![
+            ("call_a".to_string(), "Glob".to_string(), false),
+            ("call_b".to_string(), "Glob".to_string(), false),
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------

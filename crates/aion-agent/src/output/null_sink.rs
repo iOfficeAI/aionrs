@@ -12,8 +12,8 @@ pub struct NullSink;
 impl OutputSink for NullSink {
     fn emit_text_delta(&self, _text: &str, _msg_id: &str) {}
     fn emit_thinking(&self, _text: &str, _msg_id: &str) {}
-    fn emit_tool_call(&self, _name: &str, _input: &str) {}
-    fn emit_tool_result(&self, _name: &str, _is_error: bool, _content: &str) {}
+    fn emit_tool_call(&self, _tool_use_id: &str, _name: &str, _input: &str) {}
+    fn emit_tool_result(&self, _tool_use_id: &str, _name: &str, _is_error: bool, _content: &str) {}
     fn emit_stream_start(&self, _msg_id: &str) {}
     fn emit_stream_end(
         &self,
@@ -38,8 +38,8 @@ mod tests {
         let sink = NullSink;
         sink.emit_text_delta("hello", "msg1");
         sink.emit_thinking("thought", "msg1");
-        sink.emit_tool_call("Read", "{}");
-        sink.emit_tool_result("Read", false, "ok");
+        sink.emit_tool_call("call_read_1", "Read", "{}");
+        sink.emit_tool_result("call_read_1", "Read", false, "ok");
         sink.emit_stream_start("msg1");
         sink.emit_stream_end("msg1", 1, 100, 50, 0, 0);
         sink.emit_error("err");

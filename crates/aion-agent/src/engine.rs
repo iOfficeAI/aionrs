@@ -534,7 +534,7 @@ impl AgentEngine {
                         extra,
                     } => {
                         let input_str = serde_json::to_string(&input).unwrap_or_default();
-                        self.output.emit_tool_call(&name, &input_str);
+                        self.output.emit_tool_call(&id, &name, &input_str);
                         tool_calls.push(ContentBlock::ToolUse {
                             id,
                             name,
@@ -690,14 +690,15 @@ impl AgentEngine {
             // Display tool results
             for result in &outcome.results {
                 if let ContentBlock::ToolResult {
-                    content, is_error, ..
+                    tool_use_id,
+                    content,
+                    is_error,
                 } = result
                 {
                     let tool_name = tool_calls
                         .iter()
                         .find_map(|c| {
                             if let ContentBlock::ToolUse { id, name, .. } = c
-                                && let ContentBlock::ToolResult { tool_use_id, .. } = result
                                 && id == tool_use_id
                             {
                                 return Some(name.as_str());
@@ -705,7 +706,8 @@ impl AgentEngine {
                             None
                         })
                         .unwrap_or("unknown");
-                    self.output.emit_tool_result(tool_name, *is_error, content);
+                    self.output
+                        .emit_tool_result(tool_use_id, tool_name, *is_error, content);
                 }
             }
 
@@ -910,8 +912,8 @@ mod set_config_tests {
     impl OutputSink for NullOutput {
         fn emit_text_delta(&self, _: &str, _: &str) {}
         fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
         fn emit_stream_start(&self, _: &str) {}
         fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
         fn emit_error(&self, _: &str) {}
@@ -1238,8 +1240,8 @@ mod phase6_tests {
     impl OutputSink for NullOutput {
         fn emit_text_delta(&self, _: &str, _: &str) {}
         fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
         fn emit_stream_start(&self, _: &str) {}
         fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
         fn emit_error(&self, _: &str) {}
@@ -1437,8 +1439,8 @@ mod compact_tests {
     impl OutputSink for NullOutput {
         fn emit_text_delta(&self, _: &str, _: &str) {}
         fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
         fn emit_stream_start(&self, _: &str) {}
         fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
         fn emit_error(&self, _: &str) {}
@@ -1707,8 +1709,8 @@ mod plan_mode_tests {
     impl OutputSink for NullOutput {
         fn emit_text_delta(&self, _: &str, _: &str) {}
         fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
         fn emit_stream_start(&self, _: &str) {}
         fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
         fn emit_error(&self, _: &str) {}
@@ -1920,8 +1922,8 @@ mod handle_command_tests {
     impl OutputSink for NullOutput {
         fn emit_text_delta(&self, _: &str, _: &str) {}
         fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
         fn emit_stream_start(&self, _: &str) {}
         fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
         fn emit_error(&self, _: &str) {}

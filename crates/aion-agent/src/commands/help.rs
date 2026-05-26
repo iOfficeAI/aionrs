@@ -68,8 +68,8 @@ mod tests {
     impl OutputSink for CaptureSink {
         fn emit_text_delta(&self, _: &str, _: &str) {}
         fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: bool, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
         fn emit_stream_start(&self, _: &str) {}
         fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
         fn emit_error(&self, _: &str) {}

@@ -12,10 +12,10 @@ pub trait OutputSink: Send + Sync {
     fn emit_text_delta(&self, text: &str, msg_id: &str);
     /// Stream thinking content from LLM
     fn emit_thinking(&self, text: &str, msg_id: &str);
-    /// Announce a tool call
-    fn emit_tool_call(&self, name: &str, input: &str);
-    /// Display tool result
-    fn emit_tool_result(&self, name: &str, is_error: bool, content: &str);
+    /// Announce a tool call.
+    fn emit_tool_call(&self, tool_use_id: &str, name: &str, input: &str);
+    /// Display tool result.
+    fn emit_tool_result(&self, tool_use_id: &str, name: &str, is_error: bool, content: &str);
     /// Signal start of a new message stream
     fn emit_stream_start(&self, msg_id: &str);
     /// Signal end of a message stream with usage stats

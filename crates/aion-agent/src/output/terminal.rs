@@ -27,11 +27,11 @@ impl OutputSink for TerminalSink {
         self.formatter.thinking(text);
     }
 
-    fn emit_tool_call(&self, name: &str, input: &str) {
+    fn emit_tool_call(&self, _tool_use_id: &str, name: &str, input: &str) {
         self.formatter.tool_call(name, input);
     }
 
-    fn emit_tool_result(&self, name: &str, is_error: bool, content: &str) {
+    fn emit_tool_result(&self, _tool_use_id: &str, name: &str, is_error: bool, content: &str) {
         self.formatter.tool_result(name, is_error, content);
     }
 
