@@ -38,6 +38,8 @@ pub enum LlmEvent {
     },
     /// Thinking content (Anthropic only)
     ThinkingDelta(String),
+    /// Opaque provider signature for the current thinking block.
+    ThinkingSignature(String),
     /// Response complete
     Done {
         stop_reason: StopReason,
@@ -111,6 +113,16 @@ mod tests {
                 assert_eq!(input["cmd"], "ls");
             }
             _ => panic!("expected ToolUse"),
+        }
+    }
+
+    #[test]
+    fn test_llm_event_thinking_signature_carries_content() {
+        let event = LlmEvent::ThinkingSignature("sig-123".to_string());
+
+        match event {
+            LlmEvent::ThinkingSignature(signature) => assert_eq!(signature, "sig-123"),
+            _ => panic!("expected ThinkingSignature"),
         }
     }
 }

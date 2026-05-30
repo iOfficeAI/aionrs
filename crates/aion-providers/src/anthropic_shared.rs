@@ -56,10 +56,19 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     "content": content,
                     "is_error": is_error
                 }),
-                ContentBlock::Thinking { thinking } => json!({
-                    "type": "thinking",
-                    "thinking": thinking
-                }),
+                ContentBlock::Thinking {
+                    thinking,
+                    signature,
+                } => {
+                    let mut value = json!({
+                        "type": "thinking",
+                        "thinking": thinking
+                    });
+                    if let Some(signature) = signature {
+                        value["signature"] = json!(signature);
+                    }
+                    value
+                }
             })
             .collect();
 
@@ -277,6 +286,7 @@ pub async fn process_sse_stream(
                             event,
                             LlmEvent::TextDelta(_)
                                 | LlmEvent::ThinkingDelta(_)
+                                | LlmEvent::ThinkingSignature(_)
                                 | LlmEvent::ToolUse { .. }
                         ) {
                             emitted_content = true;
@@ -342,6 +352,11 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                 "thinking_delta" => {
                     if let Some(thinking) = delta["thinking"].as_str() {
                         events.push(LlmEvent::ThinkingDelta(thinking.to_string()));
+                    }
+                }
+                "signature_delta" => {
+                    if let Some(signature) = delta["signature"].as_str() {
+                        events.push(LlmEvent::ThinkingSignature(signature.to_string()));
                     }
                 }
                 _ => {}
@@ -485,6 +500,7 @@ mod tests {
             Role::Assistant,
             vec![ContentBlock::Thinking {
                 thinking: "Let me think...".to_string(),
+                signature: None,
             }],
         )];
         let result = build_messages(&messages, &default_compat());
@@ -493,6 +509,24 @@ mod tests {
         let content = result[0]["content"].as_array().unwrap();
         assert_eq!(content[0]["type"], "thinking");
         assert_eq!(content[0]["thinking"], "Let me think...");
+    }
+
+    #[test]
+    fn test_build_messages_with_thinking_signature() {
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::Thinking {
+                thinking: "Let me think...".to_string(),
+                signature: Some("sig-123".to_string()),
+            }],
+        )];
+
+        let result = build_messages(&messages, &default_compat());
+
+        let content = result[0]["content"].as_array().unwrap();
+        assert_eq!(content[0]["type"], "thinking");
+        assert_eq!(content[0]["thinking"], "Let me think...");
+        assert_eq!(content[0]["signature"], "sig-123");
     }
 
     // --- compat-driven behavior tests ---
@@ -754,6 +788,20 @@ mod tests {
         match &events[0] {
             LlmEvent::ThinkingDelta(t) => assert_eq!(t, "reasoning step"),
             _ => panic!("expected ThinkingDelta"),
+        }
+    }
+
+    #[test]
+    fn test_parse_anthropic_event_thinking_signature() {
+        let mut state = StreamState::new();
+        let data = r#"{"delta":{"type":"signature_delta","signature":"sig-123"}}"#;
+
+        let events = parse_sse_data("content_block_delta", data, &mut state);
+
+        assert_eq!(events.len(), 1);
+        match &events[0] {
+            LlmEvent::ThinkingSignature(signature) => assert_eq!(signature, "sig-123"),
+            _ => panic!("expected ThinkingSignature"),
         }
     }
 

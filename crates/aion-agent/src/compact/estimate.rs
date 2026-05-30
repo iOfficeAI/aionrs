@@ -18,7 +18,7 @@ pub fn estimate_tokens_from_messages(messages: &[Message]) -> u64 {
                 ContentBlock::Text { text } => {
                     total_chars += text.len();
                 }
-                ContentBlock::Thinking { thinking } => {
+                ContentBlock::Thinking { thinking, .. } => {
                     total_chars += thinking.len();
                 }
                 ContentBlock::ToolUse { name, input, .. } => {
@@ -129,7 +129,13 @@ mod tests {
     #[test]
     fn thinking_block_counted() {
         let thinking = "t".repeat(4000);
-        let msg = Message::new(Role::Assistant, vec![ContentBlock::Thinking { thinking }]);
+        let msg = Message::new(
+            Role::Assistant,
+            vec![ContentBlock::Thinking {
+                thinking,
+                signature: None,
+            }],
+        );
         assert_eq!(estimate_tokens_from_messages(&[msg]), 1000);
     }
 

@@ -351,6 +351,7 @@ async fn process_aws_event_stream(
                                     event,
                                     LlmEvent::TextDelta(_)
                                         | LlmEvent::ThinkingDelta(_)
+                                        | LlmEvent::ThinkingSignature(_)
                                         | LlmEvent::ToolUse { .. }
                                 ) {
                                     emitted_content = true;

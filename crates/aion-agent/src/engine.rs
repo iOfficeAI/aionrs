@@ -517,6 +517,7 @@ impl AgentEngine {
             let mut rx = self.provider.stream(&request).await?;
             let mut assistant_text = String::new();
             let mut thinking_text = String::new();
+            let mut thinking_signature: Option<String> = None;
             let mut tool_calls: Vec<ContentBlock> = Vec::new();
             let mut stop_reason = StopReason::EndTurn;
             let mut turn_usage = TokenUsage::default();
@@ -559,6 +560,9 @@ impl AgentEngine {
                     LlmEvent::ThinkingDelta(text) => {
                         self.output.emit_thinking(&text, &self.current_msg_id);
                         thinking_text.push_str(&text);
+                    }
+                    LlmEvent::ThinkingSignature(signature) => {
+                        thinking_signature = Some(signature);
                     }
                     LlmEvent::Done {
                         stop_reason: sr,
@@ -626,9 +630,10 @@ impl AgentEngine {
             }
 
             let mut assistant_content: Vec<ContentBlock> = Vec::new();
-            if !thinking_text.is_empty() {
+            if !thinking_text.is_empty() || thinking_signature.is_some() {
                 assistant_content.push(ContentBlock::Thinking {
                     thinking: thinking_text,
+                    signature: thinking_signature,
                 });
             }
             if !assistant_text.is_empty() {

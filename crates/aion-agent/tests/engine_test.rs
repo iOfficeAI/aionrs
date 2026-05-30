@@ -6,11 +6,14 @@ use aion_agent::engine::{AgentEngine, AgentError};
 use aion_agent::output::OutputSink;
 use aion_agent::output::terminal::TerminalSink;
 use aion_agent::session::SessionManager;
+use aion_providers::{LlmProvider, ProviderError};
 use aion_tools::registry::ToolRegistry;
-use aion_types::llm::LlmEvent;
-use aion_types::message::{StopReason, TokenUsage};
+use aion_types::llm::{LlmEvent, LlmRequest};
+use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
+use async_trait::async_trait;
 use serde_json::json;
 use tempfile::tempdir;
+use tokio::sync::mpsc;
 
 use common::{MockLlmProvider, MockTool, test_config};
 
@@ -58,6 +61,42 @@ impl OutputSink for RecordingOutputSink {
     }
     fn emit_error(&self, _msg: &str) {}
     fn emit_info(&self, _msg: &str) {}
+}
+
+struct RecordingRequestProvider {
+    requests: Arc<Mutex<Vec<Vec<Message>>>>,
+    responses: Mutex<Vec<Vec<LlmEvent>>>,
+}
+
+impl RecordingRequestProvider {
+    fn new(responses: Vec<Vec<LlmEvent>>) -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            responses: Mutex::new(responses),
+        }
+    }
+
+    fn requests(&self) -> Arc<Mutex<Vec<Vec<Message>>>> {
+        Arc::clone(&self.requests)
+    }
+}
+
+#[async_trait]
+impl LlmProvider for RecordingRequestProvider {
+    async fn stream(
+        &self,
+        request: &LlmRequest,
+    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        self.requests.lock().unwrap().push(request.messages.clone());
+        let events = self.responses.lock().unwrap().remove(0);
+        let (tx, rx) = mpsc::channel(64);
+        tokio::spawn(async move {
+            for event in events {
+                let _ = tx.send(event).await;
+            }
+        });
+        Ok(rx)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,6 +179,71 @@ async fn test_engine_tool_use_executes_and_continues() {
 
     assert_eq!(result.turns, 2);
     assert_eq!(result.text, "Done");
+}
+
+#[tokio::test]
+async fn test_engine_round_trips_thinking_signature_into_tool_followup_request() {
+    let provider = Arc::new(RecordingRequestProvider::new(vec![
+        vec![
+            LlmEvent::ThinkingDelta("need a tool".to_string()),
+            LlmEvent::ThinkingSignature("sig-123".to_string()),
+            LlmEvent::ToolUse {
+                id: "call_1".to_string(),
+                name: "mock_tool".to_string(),
+                input: json!({}),
+                extra: None,
+            },
+            LlmEvent::Done {
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+            },
+        ],
+        vec![
+            LlmEvent::TextDelta("done".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let requests = provider.requests();
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("mock_tool", "tool result", false)));
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        test_config(),
+        registry,
+        silent_output(),
+        std::env::temp_dir(),
+    );
+
+    let result = engine
+        .run("use tool", "")
+        .await
+        .expect("engine should succeed");
+
+    assert_eq!(result.text, "done");
+    let requests = requests.lock().unwrap();
+    assert_eq!(requests.len(), 2);
+
+    let followup_messages = &requests[1];
+    let assistant_message = followup_messages
+        .iter()
+        .find(|message| message.role == Role::Assistant)
+        .expect("assistant message should be present");
+
+    match &assistant_message.content[0] {
+        ContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
+            assert_eq!(thinking, "need a tool");
+            assert_eq!(signature.as_deref(), Some("sig-123"));
+        }
+        other => panic!("expected thinking block, got {other:?}"),
+    }
 }
 
 #[tokio::test]

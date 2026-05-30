@@ -36,7 +36,12 @@ pub enum ContentBlock {
     /// Thinking / reasoning block. Serialized as `thinking` for Anthropic
     /// and as `reasoning_content` for OpenAI-compatible providers.
     #[serde(rename = "thinking")]
-    Thinking { thinking: String },
+    Thinking {
+        thinking: String,
+        /// Opaque provider signature required when round-tripping Anthropic thinking blocks.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+    },
 }
 
 /// A message in the conversation
@@ -265,6 +270,40 @@ mod tests {
         assert_eq!(value["type"], "tool_result");
         assert_eq!(value["tool_use_id"], "call_1");
         assert_eq!(value["is_error"], false);
+    }
+
+    #[test]
+    fn thinking_block_deserializes_without_signature() {
+        let block: ContentBlock = serde_json::from_value(json!({
+            "type": "thinking",
+            "thinking": "reasoning"
+        }))
+        .unwrap();
+
+        match block {
+            ContentBlock::Thinking {
+                thinking,
+                signature,
+            } => {
+                assert_eq!(thinking, "reasoning");
+                assert!(signature.is_none());
+            }
+            _ => panic!("expected thinking block"),
+        }
+    }
+
+    #[test]
+    fn thinking_block_serializes_signature_when_present() {
+        let block = ContentBlock::Thinking {
+            thinking: "reasoning".to_string(),
+            signature: Some("sig-123".to_string()),
+        };
+
+        let value = serde_json::to_value(block).unwrap();
+
+        assert_eq!(value["type"], "thinking");
+        assert_eq!(value["thinking"], "reasoning");
+        assert_eq!(value["signature"], "sig-123");
     }
 
     // --- StopReason variants ---
