@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/iOfficeAI/aionrs/compare/v0.1.27...v0.1.28) (2026-05-30)
+
+
+### Bug Fixes
+
+* preserve Anthropic thinking signatures ([#117](https://github.com/iOfficeAI/aionrs/issues/117)) ([07f6c14](https://github.com/iOfficeAI/aionrs/commit/07f6c149cd526e87a9dc410fd964b050f05120c5))
+
 ## [0.1.27](https://github.com/iOfficeAI/aionrs/compare/v0.1.26...v0.1.27) (2026-05-26)
 
 
