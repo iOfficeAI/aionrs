@@ -115,7 +115,7 @@ Agent wants to invoke a tool and needs client approval. Agent PAUSES execution u
 | Field | Type | Description |
 |-------|------|-------------|
 | `call_id` | string | Unique ID for this tool invocation |
-| `tool.name` | string | Tool name: `Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `Spawn`, or MCP tool name |
+| `tool.name` | string | Tool name: `Read`, `Write`, `Edit`, `ExecCommand`, `Glob`, `Grep`, `Spawn`, or MCP tool name |
 | `tool.category` | string | `"info"` (read-only), `"edit"` (file mutation), `"exec"` (shell), `"mcp"` (MCP tool) |
 | `tool.args` | object | Tool arguments |
 | `tool.description` | string | Human-readable one-line description |
@@ -129,7 +129,7 @@ Agent wants to invoke a tool and needs client approval. Agent PAUSES execution u
 | `Grep` | `info` | Read-only content search |
 | `Write` | `edit` | Creates or overwrites files |
 | `Edit` | `edit` | Modifies file content |
-| `Bash` | `exec` | Executes shell commands |
+| `ExecCommand` | `exec` | Executes shell commands |
 | `Spawn` | `exec` | Spawns sub-agent |
 | MCP tools | `mcp` | External MCP server tools |
 

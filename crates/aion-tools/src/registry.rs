@@ -214,7 +214,7 @@ mod tests {
             ToolCategory::Edit,
         ));
         registry.register(make_tool_with_category(
-            "Bash",
+            "ExecCommand",
             "run commands",
             ToolCategory::Exec,
         ));
@@ -230,7 +230,7 @@ mod tests {
         assert!(names.contains(&"Read"));
         assert!(names.contains(&"ExitPlanMode"));
         assert!(!names.contains(&"Write"));
-        assert!(!names.contains(&"Bash"));
+        assert!(!names.contains(&"ExecCommand"));
     }
 
     #[test]

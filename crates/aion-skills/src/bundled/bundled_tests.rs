@@ -98,7 +98,7 @@ fn tc_10_05_full_field_mapping() {
         description: "desc",
         when_to_use: Some("when"),
         argument_hint: Some("arg"),
-        allowed_tools: &["Bash", "Read"],
+        allowed_tools: &["ExecCommand", "Read"],
         model: Some("claude-opus-4-6"),
         disable_model_invocation: false,
         user_invocable: true,
@@ -113,7 +113,7 @@ fn tc_10_05_full_field_mapping() {
     assert_eq!(m.description, "desc");
     assert_eq!(m.when_to_use.as_deref(), Some("when"));
     assert_eq!(m.argument_hint.as_deref(), Some("arg"));
-    assert_eq!(m.allowed_tools, vec!["Bash", "Read"]);
+    assert_eq!(m.allowed_tools, vec!["ExecCommand", "Read"]);
     assert_eq!(m.model.as_deref(), Some("claude-opus-4-6"));
     assert!(!m.disable_model_invocation);
     assert!(m.user_invocable);

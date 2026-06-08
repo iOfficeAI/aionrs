@@ -6,8 +6,8 @@
 use std::path::PathBuf;
 
 use aion_tools::Tool;
-use aion_tools::bash::BashTool;
 use aion_tools::edit::EditTool;
+use aion_tools::exec_command::ExecCommandTool;
 use aion_tools::glob::GlobTool;
 use aion_tools::grep::GrepTool;
 use aion_tools::read::ReadTool;
@@ -18,48 +18,65 @@ fn test_cwd() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }
 
-// --- TC-4.2-01: Bash tool description contains key guidance ---
+// --- TC-4.2-01: ExecCommand tool description contains key guidance ---
 
 #[test]
-fn bash_description_references_dedicated_tools() {
-    let tool = BashTool::new(test_cwd());
+fn exec_command_description_references_dedicated_tools() {
+    let tool = ExecCommandTool::new(test_cwd());
     let desc = tool.description();
+    assert_eq!(tool.name(), "ExecCommand");
     assert!(
         desc.contains("Glob"),
-        "Bash description should cross-reference Glob tool"
+        "ExecCommand description should cross-reference Glob tool"
     );
     assert!(
         desc.contains("Grep"),
-        "Bash description should cross-reference Grep tool"
+        "ExecCommand description should cross-reference Grep tool"
     );
     assert!(
         desc.contains("Read"),
-        "Bash description should cross-reference Read tool"
+        "ExecCommand description should cross-reference Read tool"
     );
     assert!(
         desc.contains("Edit"),
-        "Bash description should cross-reference Edit tool"
+        "ExecCommand description should cross-reference Edit tool"
     );
 }
 
 #[test]
-fn bash_description_contains_timeout_info() {
-    let tool = BashTool::new(test_cwd());
+fn exec_command_description_contains_timeout_info() {
+    let tool = ExecCommandTool::new(test_cwd());
     let desc = tool.description();
     assert!(
         desc.contains("120") || desc.to_lowercase().contains("timeout"),
-        "Bash description should mention timeout"
+        "ExecCommand description should mention timeout"
     );
 }
 
 #[test]
-fn bash_description_contains_parallel_guidance() {
-    let tool = BashTool::new(test_cwd());
+fn exec_command_description_contains_parallel_guidance() {
+    let tool = ExecCommandTool::new(test_cwd());
     let desc = tool.description();
     assert!(
         desc.contains("parallel") || desc.contains("&&"),
-        "Bash description should contain parallel command guidance"
+        "ExecCommand description should contain parallel command guidance"
     );
+}
+
+#[test]
+fn exec_command_schema_uses_cmd_and_optional_shell() {
+    let tool = ExecCommandTool::new(test_cwd());
+    let schema = tool.input_schema();
+    let properties = schema
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .expect("schema properties");
+
+    assert!(properties.contains_key("cmd"));
+    assert!(properties.contains_key("shell"));
+    assert!(properties.contains_key("timeout"));
+    assert_eq!(schema["required"], serde_json::json!(["cmd"]));
+    assert!(properties.get("command").is_none());
 }
 
 // --- TC-4.2-02: Read tool description contains usage constraints ---
@@ -189,7 +206,7 @@ fn grep_description_forbids_bash_grep() {
     let desc = tool.description();
     assert!(
         desc.contains("NEVER") || desc.contains("never"),
-        "Grep description should forbid using grep in Bash"
+        "Grep description should forbid using grep in ExecCommand"
     );
 }
 
@@ -234,7 +251,7 @@ fn grep_description_does_not_say_at_most_matches() {
 #[test]
 fn tool_def_description_matches_tool_instance() {
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(BashTool::new(test_cwd())));
+    registry.register(Box::new(ExecCommandTool::new(test_cwd())));
     registry.register(Box::new(ReadTool::new(None)));
     registry.register(Box::new(EditTool::new(None)));
     registry.register(Box::new(WriteTool::new(None)));

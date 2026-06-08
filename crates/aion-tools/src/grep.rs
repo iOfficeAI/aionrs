@@ -28,7 +28,7 @@ impl Tool for GrepTool {
     fn description(&self) -> &str {
         "Searches file contents using regex patterns (powered by ripgrep).\n\n\
          IMPORTANT: ALWAYS use this Grep tool for content search. \
-         NEVER run grep or rg as a Bash command.\n\n\
+         NEVER run grep or rg as a ExecCommand command.\n\n\
          - Supports full regex syntax (e.g., \"log.*Error\", \"fn\\\\s+\\\\w+\").\n\
          - Use the glob parameter to filter by file pattern (e.g., \"*.rs\").\n\
          - Output is truncated to 250 lines.\n\

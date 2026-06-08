@@ -83,7 +83,10 @@ fn tc_a3_01_plan_mode_tool_filtering() {
     registry.register(Box::new(CategoryMockTool::new("Write", ToolCategory::Edit)));
 
     // Exec category tool
-    registry.register(Box::new(CategoryMockTool::new("Bash", ToolCategory::Exec)));
+    registry.register(Box::new(CategoryMockTool::new(
+        "ExecCommand",
+        ToolCategory::Exec,
+    )));
 
     // --- Normal mode: all tools except ExitPlanMode ---
     let normal_defs = registry.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode");
@@ -106,8 +109,8 @@ fn tc_a3_01_plan_mode_tool_filtering() {
         "Write should be present in normal mode"
     );
     assert!(
-        normal_names.contains(&"Bash"),
-        "Bash should be present in normal mode"
+        normal_names.contains(&"ExecCommand"),
+        "ExecCommand should be present in normal mode"
     );
     assert!(
         normal_names.contains(&"EnterPlanMode"),
@@ -146,8 +149,8 @@ fn tc_a3_01_plan_mode_tool_filtering() {
         "Write (Edit) should be excluded in plan mode"
     );
     assert!(
-        !plan_names.contains(&"Bash"),
-        "Bash (Exec) should be excluded in plan mode"
+        !plan_names.contains(&"ExecCommand"),
+        "ExecCommand (Exec) should be excluded in plan mode"
     );
 }
 

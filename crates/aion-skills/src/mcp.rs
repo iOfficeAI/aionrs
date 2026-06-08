@@ -320,7 +320,7 @@ mod tests {
         // [黑盒] TC-3.8: frontmatter fields properly parsed from MCP skill content
         let list_resp = make_list_response(vec!["skill://test-skill"]);
         let read_resp = make_read_response(
-            "---\ndescription: Test skill description\nallowed-tools: Bash\n---\n# Test\n",
+            "---\ndescription: Test skill description\nallowed-tools: ExecCommand\n---\n# Test\n",
         );
 
         let manager = McpManager::new_for_test(vec![(

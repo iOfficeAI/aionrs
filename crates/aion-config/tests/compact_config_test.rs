@@ -33,7 +33,7 @@ emergency_buffer = 2000
 max_failures = 5
 micro_keep_recent = 3
 micro_gap_seconds = 1800
-compactable_tools = ["Read", "Bash"]
+compactable_tools = ["Read", "ExecCommand"]
 enabled = false
 "#;
     let config: ConfigFile = toml::from_str(toml_str).unwrap();
@@ -44,7 +44,10 @@ enabled = false
     assert_eq!(config.compact.max_failures, 5);
     assert_eq!(config.compact.micro_keep_recent, 3);
     assert_eq!(config.compact.micro_gap_seconds, 1800);
-    assert_eq!(config.compact.compactable_tools, vec!["Read", "Bash"]);
+    assert_eq!(
+        config.compact.compactable_tools,
+        vec!["Read", "ExecCommand"]
+    );
     assert!(!config.compact.enabled);
 }
 

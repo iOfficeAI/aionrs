@@ -78,9 +78,9 @@ allowedTools:             # Restrict which tools the skill may use
 # Optional — permission rules
 permissions:
   allow:
-    - "Bash(git *)"
+    - "ExecCommand(git *)"
   deny:
-    - "Bash(rm *)"
+    - "ExecCommand(rm *)"
 
 # Optional — hooks registered when the skill is active
 hooks:

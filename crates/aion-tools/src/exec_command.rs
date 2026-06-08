@@ -4,7 +4,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use aion_config::shell::shell_command_builder;
+use aion_config::shell::{resolve_shell, shell_command_builder};
 use aion_protocol::events::ToolCategory;
 use aion_types::tool::{JsonSchema, ToolResult};
 
@@ -13,25 +13,25 @@ use crate::Tool;
 const DEFAULT_TIMEOUT_MS: u64 = 120_000;
 const MAX_TIMEOUT_MS: u64 = 600_000;
 
-pub struct BashTool {
+pub struct ExecCommandTool {
     cwd: PathBuf,
 }
 
-impl BashTool {
+impl ExecCommandTool {
     pub fn new(cwd: PathBuf) -> Self {
         Self { cwd }
     }
 }
 
 #[async_trait]
-impl Tool for BashTool {
+impl Tool for ExecCommandTool {
     fn name(&self) -> &str {
-        "Bash"
+        "ExecCommand"
     }
 
     fn description(&self) -> &str {
         "Executes a shell command and returns its output.\n\n\
-         IMPORTANT: Do NOT use Bash when a dedicated tool is available:\n\
+         IMPORTANT: Do NOT use ExecCommand when a dedicated tool is available:\n\
          - File search: use Glob (not find or ls)\n\
          - Content search: use Grep (not grep or rg)\n\
          - Read files: use Read (not cat, head, or tail)\n\
@@ -51,16 +51,20 @@ impl Tool for BashTool {
         json!({
             "type": "object",
             "properties": {
-                "command": {
+                "cmd": {
                     "type": "string",
                     "description": "The command to execute"
+                },
+                "shell": {
+                    "type": "string",
+                    "description": "Optional shell override: auto, powershell, pwsh, cmd, bash, zsh, sh, or an executable path"
                 },
                 "timeout": {
                     "type": "integer",
                     "description": "Timeout in milliseconds (default 120000, max 600000)"
                 }
             },
-            "required": ["command"]
+            "required": ["cmd"]
         })
     }
 
@@ -69,14 +73,29 @@ impl Tool for BashTool {
     }
 
     async fn execute(&self, input: Value) -> ToolResult {
-        let Some(command) = input["command"].as_str() else {
+        let Some(command) = input["cmd"].as_str() else {
             return ToolResult {
-                content: "Missing required parameter: command".to_string(),
+                content: "Missing required parameter: cmd".to_string(),
                 is_error: true,
             };
         };
 
-        tracing::debug!(cwd = %self.cwd.display(), command = %command, "BashTool executing");
+        let shell = match resolve_shell(input["shell"].as_str()) {
+            Ok(shell) => shell,
+            Err(err) => {
+                return ToolResult {
+                    content: format!("Invalid shell: {}", err),
+                    is_error: true,
+                };
+            }
+        };
+
+        tracing::debug!(
+            cwd = %self.cwd.display(),
+            shell_kind = shell.kind.name(),
+            shell_path = %shell.path.display(),
+            "ExecCommandTool executing"
+        );
 
         let timeout_ms = input["timeout"]
             .as_u64()
@@ -87,7 +106,7 @@ impl Tool for BashTool {
 
         let cwd = self.cwd.clone();
         let result = tokio::time::timeout(timeout, async {
-            shell_command_builder(command)
+            shell_command_builder(&shell, command, false)
                 .current_dir(&cwd)
                 .output()
                 .await
@@ -126,7 +145,7 @@ impl Tool for BashTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        let cmd = input.get("cmd").and_then(|v| v.as_str()).unwrap_or("");
         format!("Execute: {}", crate::truncate_utf8(cmd, 80))
     }
 }
@@ -138,17 +157,17 @@ mod tests {
 
     #[tokio::test]
     async fn execute_echo_returns_stdout() {
-        let tool = BashTool::new(std::env::temp_dir());
-        let input = json!({"command": "echo hello_bash"});
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        let input = json!({"cmd": "echo hello_exec_command"});
         let result = tool.execute(input).await;
         assert!(!result.is_error, "unexpected error: {}", result.content);
-        assert!(result.content.contains("hello_bash"));
+        assert!(result.content.contains("hello_exec_command"));
     }
 
     #[tokio::test]
     async fn execute_invalid_command_returns_error() {
-        let tool = BashTool::new(std::env::temp_dir());
-        let input = json!({"command": "nonexistent_command_xyz_123"});
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        let input = json!({"cmd": "nonexistent_command_xyz_123"});
         let result = tool.execute(input).await;
         assert!(result.is_error);
     }
@@ -157,18 +176,18 @@ mod tests {
     async fn execute_respects_cwd() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("cwd_proof.txt"), "proof").unwrap();
-        let tool = BashTool::new(dir.path().to_path_buf());
+        let tool = ExecCommandTool::new(dir.path().to_path_buf());
         let cmd = if cfg!(windows) {
             "type cwd_proof.txt"
         } else {
             "cat cwd_proof.txt"
         };
-        let input = json!({"command": cmd});
+        let input = json!({"cmd": cmd});
         let result = tool.execute(input).await;
         assert!(!result.is_error, "unexpected error: {}", result.content);
         assert!(
             result.content.contains("proof"),
-            "BashTool should execute in injected cwd, got: {}",
+            "ExecCommandTool should execute in injected cwd, got: {}",
             result.content
         );
     }

@@ -213,7 +213,7 @@ aionrs "List all Rust files in this project"
 
 ## Tool Confirmation
 
-Destructive tools (Write, Edit, Bash) prompt for confirmation before execution:
+Destructive tools (Write, Edit, ExecCommand) prompt for confirmation before execution:
 
 ```
 [tool] Write({"file_path": "/tmp/test.rs", "content": "..."})

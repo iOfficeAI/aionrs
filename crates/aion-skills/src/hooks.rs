@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn tc_11_1_full_three_event_parse() {
         let raw = json!({
-            "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo pre", "timeout": 10}]}],
+            "PreToolUse": [{"matcher": "ExecCommand", "hooks": [{"type": "command", "command": "echo pre", "timeout": 10}]}],
             "PostToolUse": [{"matcher": "Read", "hooks": [{"type": "command", "command": "echo post"}]}],
             "Stop": [{"hooks": [{"type": "command", "command": "echo stop"}]}]
         });
@@ -323,10 +323,13 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn tc_11_13_present_matcher_preserved() {
-        let raw = json!({"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo x"}]}]});
+        let raw = json!({"PreToolUse": [{"matcher": "ExecCommand", "hooks": [{"type": "command", "command": "echo x"}]}]});
         let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
             .expect("TC-11.13: should return Some");
-        assert_eq!(config.pre_tool_use[0].matcher.as_deref(), Some("Bash"));
+        assert_eq!(
+            config.pre_tool_use[0].matcher.as_deref(),
+            Some("ExecCommand")
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -420,7 +423,7 @@ mod tests {
     #[test]
     fn tc_11_20_pre_hook_converted_to_hookdef() {
         let config = SkillHooksConfig {
-            pre_tool_use: vec![make_cmd("echo x", Some("Bash"), Some(5))],
+            pre_tool_use: vec![make_cmd("echo x", Some("ExecCommand"), Some(5))],
             post_tool_use: vec![],
             stop: vec![],
         };
@@ -432,7 +435,7 @@ mod tests {
             "TC-11.20: name must contain skill name"
         );
         assert_eq!(def.command, "echo x");
-        assert_eq!(def.tool_match, vec!["Bash"]);
+        assert_eq!(def.tool_match, vec!["ExecCommand"]);
         assert_eq!(def.timeout_ms, 5_000);
     }
 

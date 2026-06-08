@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use aion_config::shell::{ResolvedShell, default_shell, render_shell_prompt};
 use aion_memory::prompt::build_memory_prompt_minimal;
 use aion_skills::prompt::format_skills_within_budget;
 use aion_skills::types::SkillMetadata;
@@ -23,6 +24,8 @@ pub struct SystemPromptCache {
     pub(crate) last_plan_mode: bool,
     /// Track last toon_enabled value to detect changes.
     pub(crate) last_toon_enabled: bool,
+    /// Track shell prompt text to invalidate intro when shell resolution changes.
+    pub(crate) last_shell_prompt: Option<String>,
 }
 
 impl SystemPromptCache {
@@ -32,6 +35,7 @@ impl SystemPromptCache {
             joined: None,
             last_plan_mode: false,
             last_toon_enabled: false,
+            last_shell_prompt: None,
         }
     }
 
@@ -56,14 +60,14 @@ impl Default for SystemPromptCache {
 
 /// Return the tool-usage guidance section for the system prompt.
 ///
-/// This section teaches the model when to prefer dedicated tools over Bash,
+/// This section teaches the model when to prefer dedicated tools over ExecCommand,
 /// how to handle parallel vs sequential calls, and cross-tool best practices.
 /// Intentionally redundant with individual tool descriptions — the dual
 /// placement ensures the model follows the rules regardless of attention span.
 fn tool_usage_guidance() -> &'static str {
     "\
 # Using your tools
- - Do NOT use Bash when a dedicated tool is available. Using dedicated tools \
+ - Do NOT use ExecCommand when a dedicated tool is available. Using dedicated tools \
 allows the user to better understand and review your work:
    - File search: Glob (not find or ls)
    - Content search: Grep (not grep or rg)
@@ -107,6 +111,41 @@ pub fn build_system_prompt(
     plan_mode_active: bool,
     toon_enabled: bool,
 ) -> String {
+    let shell = default_shell();
+    build_system_prompt_with_shell(
+        cache,
+        custom_prompt,
+        cwd,
+        model,
+        &shell,
+        skills,
+        context_window_tokens,
+        memory_dir,
+        plan_mode_active,
+        toon_enabled,
+    )
+}
+
+/// Build the system prompt with an already-resolved shell.
+#[allow(clippy::too_many_arguments)]
+pub fn build_system_prompt_with_shell(
+    cache: &mut SystemPromptCache,
+    custom_prompt: Option<&str>,
+    cwd: &str,
+    model: &str,
+    shell: &ResolvedShell,
+    skills: &[SkillMetadata],
+    context_window_tokens: Option<usize>,
+    memory_dir: Option<&Path>,
+    plan_mode_active: bool,
+    toon_enabled: bool,
+) -> String {
+    let shell_prompt = render_shell_prompt(shell);
+    if cache.last_shell_prompt.as_deref() != Some(shell_prompt.as_str()) {
+        cache.invalidate("intro");
+        cache.last_shell_prompt = Some(shell_prompt.clone());
+    }
+
     // Fast path: return cached joined result if nothing changed
     if let Some(ref joined) = cache.joined
         && cache.last_plan_mode == plan_mode_active
@@ -123,8 +162,12 @@ pub fn build_system_prompt(
             "You are an AI assistant that can use tools to help with tasks.\n\
              You are powered by the model {model}.\n\
              Working directory: {cwd}\n\
-             Current date: {}",
-            chrono::Local::now().format("%Y-%m-%d")
+             Current date: {}\n\
+             Operating system: {}\n\
+             {}",
+            chrono::Local::now().format("%Y-%m-%d"),
+            std::env::consts::OS,
+            shell_prompt
         )
     });
     parts.push(intro.clone());
@@ -652,6 +695,31 @@ mod tests {
             result.contains("/workspace/my-project"),
             "cwd should appear in the system prompt"
         );
+    }
+
+    #[test]
+    fn test_build_system_prompt_includes_shell_info() {
+        let shell = aion_config::shell::ResolvedShell::new(
+            aion_config::shell::ShellKind::PowerShell,
+            std::path::PathBuf::from(r"C:\Program Files\PowerShell\7\pwsh.exe"),
+        );
+        let result = build_system_prompt_with_shell(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp/project",
+            "claude-test",
+            &shell,
+            &[],
+            None,
+            None,
+            false,
+            false,
+        );
+
+        assert!(result.contains("Operating system:"));
+        assert!(result.contains("Default shell: powershell"));
+        assert!(result.contains(r"Shell path: C:\Program Files\PowerShell\7\pwsh.exe"));
+        assert!(result.contains("Shell syntax: powershell"));
     }
 
     #[test]

@@ -189,7 +189,8 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
 
 /// Execute a single shell command and return its combined stdout/stderr output.
 async fn execute_command(command: &str, cwd: &str) -> Result<String, ShellExecutionError> {
-    let output = aion_config::shell::shell_command_builder(command)
+    let shell = aion_config::shell::default_shell();
+    let output = aion_config::shell::shell_command_builder(&shell, command, false)
         .current_dir(cwd)
         .output()
         .await

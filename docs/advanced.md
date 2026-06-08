@@ -56,10 +56,10 @@ tool_match = ["Write", "Edit"]
 file_match = ["*.ts", "*.tsx"]
 command = "npx prettier --write ${TOOL_INPUT_FILE_PATH}"
 
-# Audit Bash commands
+# Audit ExecCommand commands
 [[hooks.post_tool_use]]
 name = "audit-log"
-tool_match = ["Bash"]
+tool_match = ["ExecCommand"]
 command = "echo \"$(date): ${TOOL_INPUT_COMMAND}\" >> .aionrs/audit.log"
 
 # Run lint on session end
@@ -368,7 +368,7 @@ A three-tier automatic compaction strategy that prevents context window overflow
 
 ### How It Works
 
-- **Microcompact** runs automatically: replaces old Read/Bash/Grep/Glob/Write/Edit results with `[Tool result cleared]`, keeping the 5 most recent results intact. Triggered by count (>10 compactable results) or time (>1 hour since last assistant message).
+- **Microcompact** runs automatically: replaces old Read/ExecCommand/Grep/Glob/Write/Edit results with `[Tool result cleared]`, keeping the 5 most recent results intact. Triggered by count (>10 compactable results) or time (>1 hour since last assistant message).
 
 - **Autocompact** triggers when input tokens reach a threshold. By default this is `context_window - output_reserve - autocompact_buffer` (200,000 - 20,000 - 13,000 = 167,000 tokens). Alternatively, set `autocompact_threshold_pct` to trigger at a percentage of the context window (e.g. `50` = 50% of 200k = 100k tokens). The agent calls the LLM to produce a conversation summary, then replaces history with a compact boundary marker. A circuit breaker stops retrying after 3 consecutive failures.
 

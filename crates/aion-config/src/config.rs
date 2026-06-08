@@ -10,6 +10,7 @@ use crate::file_cache::FileCacheConfig;
 use crate::hooks::HooksConfig;
 use crate::logging::LoggingConfig;
 use crate::plan::PlanConfig;
+use crate::shell::ShellConfig;
 use aion_types::llm::ThinkingConfig;
 
 // ---------------------------------------------------------------------------
@@ -97,6 +98,9 @@ pub struct ConfigFile {
     pub plan: PlanConfig,
 
     #[serde(default)]
+    pub shell: ShellConfig,
+
+    #[serde(default)]
     pub file_cache: FileCacheConfig,
 
     #[serde(default)]
@@ -164,6 +168,8 @@ pub struct ProfileConfig {
     pub extends: Option<String>,
     /// MCP server names to enable for this profile (references [mcp.servers.*])
     pub mcp_servers: Option<Vec<String>>,
+    /// Default shell override for this profile.
+    pub shell: Option<String>,
     /// Provider compatibility overrides
     pub compat: Option<ProviderCompat>,
 }
@@ -258,6 +264,7 @@ pub struct Config {
     pub session: SessionConfig,
     pub compact: CompactConfig,
     pub plan: PlanConfig,
+    pub shell: ShellConfig,
     pub file_cache: FileCacheConfig,
     pub hooks: HooksConfig,
     pub bedrock: Option<BedrockConfig>,
@@ -402,6 +409,7 @@ impl Config {
             session: merged.session,
             compact: merged.compact,
             plan: merged.plan,
+            shell: merged.shell,
             file_cache: merged.file_cache,
             hooks: merged.hooks,
             bedrock: merged.bedrock,
@@ -695,6 +703,12 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
 
     let logging = LoggingConfig::merge(global.logging, project.logging);
 
+    let shell = if project.shell.default != ShellConfig::default().default {
+        project.shell
+    } else {
+        global.shell
+    };
+
     ConfigFile {
         default,
         providers,
@@ -703,6 +717,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
         session,
         compact,
         plan,
+        shell,
         file_cache,
         hooks,
         bedrock,
@@ -752,6 +767,7 @@ fn merge_profiles(base: ProfileConfig, overlay: ProfileConfig) -> ProfileConfig 
         max_turns: overlay.max_turns.or(base.max_turns),
         extends: None, // already resolved
         mcp_servers: overlay.mcp_servers.or(base.mcp_servers),
+        shell: overlay.shell.or(base.shell),
         compat: overlay.compat.or(base.compat),
     }
 }
@@ -771,6 +787,9 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
     }
     if let Some(max_turns) = profile.max_turns {
         config.default.max_turns = Some(max_turns);
+    }
+    if let Some(shell) = profile.shell {
+        config.shell.default = shell;
     }
 
     // Profile can override api_key, base_url, and compat for the active provider
@@ -825,6 +844,10 @@ provider = "anthropic"            # built-in provider or custom alias from [prov
 max_tokens = 8192
 # max_turns = 30                  # optional: omit for unlimited turns
 # system_prompt = "..."          # optional custom system prompt
+
+# Shell execution settings
+[shell]
+default = "auto"                 # auto, powershell, pwsh, cmd, bash, zsh, sh, or executable path
 
 # Provider-specific API settings
 [providers.anthropic]
@@ -909,7 +932,7 @@ allow_list = ["Read", "Grep", "Glob"]
 # max_failures = 3               # consecutive failures before circuit-breaker trips
 # micro_keep_recent = 5          # keep N most recent tool results
 # micro_gap_seconds = 3600       # gap threshold for time-based microcompact
-# compactable_tools = ["Read", "Bash", "Grep", "Glob", "Write", "Edit"]
+# compactable_tools = ["Read", "ExecCommand", "Grep", "Glob", "Write", "Edit"]
 # enabled = true
 
 # File state cache (dedup repeated reads, staleness detection)
@@ -1317,7 +1340,7 @@ mod tests {
         };
         let project = ConfigFile {
             tools: ToolsConfig {
-                allow_list: vec!["Bash".into()], // non-default, triggers if branch
+                allow_list: vec!["ExecCommand".into()], // non-default, triggers if branch
                 ..Default::default()
             },
             ..Default::default()
@@ -1327,6 +1350,60 @@ mod tests {
             merged.tools.auto_approve,
             "global auto_approve=true should be preserved"
         );
+    }
+
+    #[test]
+    fn test_config_file_parses_shell_default() {
+        let cfg: ConfigFile = toml::from_str(
+            r#"
+[shell]
+default = "powershell"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(cfg.shell.default, "powershell");
+    }
+
+    #[test]
+    fn test_merge_config_project_shell_overrides_global() {
+        let global = ConfigFile {
+            shell: crate::shell::ShellConfig {
+                default: "bash".into(),
+            },
+            ..Default::default()
+        };
+        let project = ConfigFile {
+            shell: crate::shell::ShellConfig {
+                default: "powershell".into(),
+            },
+            ..Default::default()
+        };
+
+        let merged = merge_config_files(global, project);
+
+        assert_eq!(merged.shell.default, "powershell");
+    }
+
+    #[test]
+    fn test_profile_shell_overrides_base_config() {
+        let mut config = ConfigFile {
+            shell: crate::shell::ShellConfig {
+                default: "bash".into(),
+            },
+            ..Default::default()
+        };
+        config.profiles.insert(
+            "windows".into(),
+            ProfileConfig {
+                shell: Some("powershell".into()),
+                ..Default::default()
+            },
+        );
+
+        let applied = apply_profile(config, "windows").unwrap();
+
+        assert_eq!(applied.shell.default, "powershell");
     }
 
     #[test]

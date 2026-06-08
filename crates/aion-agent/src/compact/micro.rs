@@ -244,11 +244,11 @@ mod tests {
     fn tool_name_map_from_single_assistant() {
         let msgs = vec![assistant_msg(vec![
             tool_use_block("t1", "Read"),
-            tool_use_block("t2", "Bash"),
+            tool_use_block("t2", "ExecCommand"),
         ])];
         let map = build_tool_name_map(&msgs);
         assert_eq!(map.get("t1").unwrap(), "Read");
-        assert_eq!(map.get("t2").unwrap(), "Bash");
+        assert_eq!(map.get("t2").unwrap(), "ExecCommand");
     }
 
     #[test]
@@ -285,7 +285,7 @@ mod tests {
     fn non_compactable_tool_returns_false() {
         let tool_names: HashMap<String, String> =
             [("t1".into(), "Skill".into())].into_iter().collect();
-        let set: HashSet<&str> = ["Read", "Bash"].into_iter().collect();
+        let set: HashSet<&str> = ["Read", "ExecCommand"].into_iter().collect();
         let block = tool_result_block("t1", "result");
         assert!(!is_compactable_and_live(&block, &tool_names, &set));
     }
@@ -447,18 +447,18 @@ mod tests {
             user_msg(vec![tool_result_block("t1", "file-data")]),
             assistant_msg(vec![tool_use_block("t2", "Skill")]),
             user_msg(vec![tool_result_block("t2", "skill-output")]),
-            assistant_msg(vec![tool_use_block("t3", "Bash")]),
+            assistant_msg(vec![tool_use_block("t3", "ExecCommand")]),
             user_msg(vec![tool_result_block("t3", "bash-output")]),
         ];
         // compactable_tools does NOT include Skill.
         let config = CompactConfig {
             micro_keep_recent: 1,
-            compactable_tools: vec!["Read".into(), "Bash".into()],
+            compactable_tools: vec!["Read".into(), "ExecCommand".into()],
             ..default_config()
         };
 
         let result = microcompact(&mut msgs, &config);
-        // Only Read(t1) should be cleared; Bash(t3) kept as most recent.
+        // Only Read(t1) should be cleared; ExecCommand(t3) kept as most recent.
         assert_eq!(result.cleared_count, 1);
 
         // Skill result untouched.

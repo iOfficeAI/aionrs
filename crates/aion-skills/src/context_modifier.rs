@@ -83,9 +83,13 @@ mod tests {
 
     #[test]
     fn test_from_skill_allowed_tools_override() {
-        let skill = make_skill(None, None, vec!["Bash".to_string(), "Read".to_string()]);
+        let skill = make_skill(
+            None,
+            None,
+            vec!["ExecCommand".to_string(), "Read".to_string()],
+        );
         let m = from_skill(&skill).unwrap();
-        assert_eq!(m.allowed_tools, vec!["Bash", "Read"]);
+        assert_eq!(m.allowed_tools, vec!["ExecCommand", "Read"]);
     }
 
     #[test]

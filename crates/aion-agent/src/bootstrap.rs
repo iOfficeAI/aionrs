@@ -82,6 +82,8 @@ impl AgentBootstrap {
             .provider
             .unwrap_or_else(|| aion_providers::create_provider(&self.config));
 
+        let resolved_shell = aion_config::shell::resolve_shell_config(&self.config.shell)?;
+
         let memory_dir = aion_memory::paths::auto_memory_dir(cwd_path);
 
         let file_cache = if self.config.file_cache.enabled {
@@ -100,7 +102,7 @@ impl AgentBootstrap {
             file_cache.clone(),
         )));
         registry.register(Box::new(aion_tools::edit::EditTool::new(file_cache)));
-        registry.register(Box::new(aion_tools::bash::BashTool::new(
+        registry.register(Box::new(aion_tools::exec_command::ExecCommandTool::new(
             cwd_path.to_path_buf(),
         )));
         registry.register(Box::new(aion_tools::grep::GrepTool::new(
@@ -146,11 +148,12 @@ impl AgentBootstrap {
         .await;
 
         let mut prompt_cache = crate::context::SystemPromptCache::new();
-        let system_prompt = crate::context::build_system_prompt(
+        let system_prompt = crate::context::build_system_prompt_with_shell(
             &mut prompt_cache,
             self.config.system_prompt.as_deref(),
             cwd,
             &self.config.model,
+            &resolved_shell,
             &skills,
             None,
             memory_dir.as_deref(),

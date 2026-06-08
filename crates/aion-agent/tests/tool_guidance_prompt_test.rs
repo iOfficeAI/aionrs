@@ -60,7 +60,7 @@ fn tc_4_3_01_tool_guidance_section_exists() {
 }
 
 // ---------------------------------------------------------------------------
-// TC-4.3-02: Bash prohibition list with dedicated tool alternatives
+// TC-4.3-02: ExecCommand prohibition list with dedicated tool alternatives
 // ---------------------------------------------------------------------------
 
 #[test]

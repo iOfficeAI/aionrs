@@ -43,7 +43,7 @@ impl Tool for ReadTool {
          - By default, it reads the entire file. Use offset and limit for partial reads on large files.\n\
          - Results are returned with line numbers (1-based) followed by a tab and the line content.\n\
          - Binary files return \"(binary file, N bytes)\" instead of content.\n\
-         - This tool can only read files, not directories. To list a directory, use Bash with ls."
+         - This tool can only read files, not directories. To list a directory, use ExecCommand with ls."
     }
 
     fn input_schema(&self) -> JsonSchema {

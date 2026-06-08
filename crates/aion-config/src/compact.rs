@@ -113,7 +113,7 @@ fn default_micro_gap_seconds() -> u64 {
 fn default_compactable_tools() -> Vec<String> {
     vec![
         "Read".into(),
-        "Bash".into(),
+        "ExecCommand".into(),
         "Grep".into(),
         "Glob".into(),
         "Write".into(),
@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(cfg.autocompact_threshold_pct, None);
         assert_eq!(
             cfg.compactable_tools,
-            vec!["Read", "Bash", "Grep", "Glob", "Write", "Edit"]
+            vec!["Read", "ExecCommand", "Grep", "Glob", "Write", "Edit"]
         );
     }
 
@@ -156,7 +156,7 @@ emergency_buffer = 2000
 max_failures = 5
 micro_keep_recent = 3
 micro_gap_seconds = 1800
-compactable_tools = ["Read", "Bash"]
+compactable_tools = ["Read", "ExecCommand"]
 enabled = false
 "#;
         let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
@@ -167,7 +167,7 @@ enabled = false
         assert_eq!(cfg.max_failures, 5);
         assert_eq!(cfg.micro_keep_recent, 3);
         assert_eq!(cfg.micro_gap_seconds, 1800);
-        assert_eq!(cfg.compactable_tools, vec!["Read", "Bash"]);
+        assert_eq!(cfg.compactable_tools, vec!["Read", "ExecCommand"]);
         assert!(!cfg.enabled);
     }
 

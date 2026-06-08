@@ -62,17 +62,17 @@ fn get_tool_result_content(msg: &Message, block_idx: usize) -> &str {
 
 #[test]
 fn tc_2_3_01_basic_clearing() {
-    // 10 messages containing 8 tool results (Read x3, Bash x3, Grep x2).
+    // 10 messages containing 8 tool results (Read x3, ExecCommand x3, Grep x2).
     // keep_recent = 3 → oldest 5 cleared.
     let tool_specs = [
         ("r1", "Read"),
-        ("b1", "Bash"),
+        ("b1", "ExecCommand"),
         ("g1", "Grep"),
         ("r2", "Read"),
-        ("b2", "Bash"),
+        ("b2", "ExecCommand"),
         ("g2", "Grep"),
         ("r3", "Read"),
-        ("b3", "Bash"),
+        ("b3", "ExecCommand"),
     ];
     let mut msgs: Vec<Message> = Vec::new();
     for (id, name) in &tool_specs {
@@ -115,7 +115,7 @@ fn tc_2_3_02_insufficient_results_no_clearing() {
     let mut msgs = vec![
         assistant(vec![tool_use("t1", "Read")]),
         user(vec![tool_result("t1", "data-1")]),
-        assistant(vec![tool_use("t2", "Bash")]),
+        assistant(vec![tool_use("t2", "ExecCommand")]),
         user(vec![tool_result("t2", "data-2")]),
     ];
     let config = CompactConfig {
@@ -141,7 +141,7 @@ fn tc_2_3_03_only_compactable_tools_cleared() {
     let mut msgs = vec![
         assistant(vec![tool_use("t1", "Read")]),
         user(vec![tool_result("t1", "read-output")]),
-        assistant(vec![tool_use("t2", "Bash")]),
+        assistant(vec![tool_use("t2", "ExecCommand")]),
         user(vec![tool_result("t2", "bash-output")]),
         assistant(vec![tool_use("t3", "Skill")]),
         user(vec![tool_result("t3", "skill-output")]),
@@ -152,12 +152,12 @@ fn tc_2_3_03_only_compactable_tools_cleared() {
     // compactable_tools does NOT include "Skill".
     let config = CompactConfig {
         micro_keep_recent: 1,
-        compactable_tools: vec!["Read".into(), "Bash".into()],
+        compactable_tools: vec!["Read".into(), "ExecCommand".into()],
         ..Default::default()
     };
 
     let result = microcompact(&mut msgs, &config);
-    // 3 compactable (t1-Read, t2-Bash, t4-Read), keep 1 → clear 2.
+    // 3 compactable (t1-Read, t2-ExecCommand, t4-Read), keep 1 → clear 2.
     assert_eq!(result.cleared_count, 2);
 
     // Skill result (t3) must be untouched.
@@ -244,7 +244,7 @@ fn tc_2_3_08_token_estimation() {
     let mut msgs = vec![
         assistant(vec![tool_use("a", "Read")]),
         user(vec![tool_result("a", &content_a)]),
-        assistant(vec![tool_use("b", "Bash")]),
+        assistant(vec![tool_use("b", "ExecCommand")]),
         user(vec![tool_result("b", &content_b)]),
         assistant(vec![tool_use("c", "Grep")]),
         user(vec![tool_result("c", &content_c)]),
@@ -306,7 +306,7 @@ fn tc_2_3_11_message_order_preserved() {
         user(vec![tool_result("t1", "data-1")]),
         assistant(vec![text("thinking about it")]),
         user(vec![text("please continue")]),
-        assistant(vec![tool_use("t2", "Bash")]),
+        assistant(vec![tool_use("t2", "ExecCommand")]),
         user(vec![tool_result("t2", "bash-out")]),
         assistant(vec![tool_use("t3", "Grep")]),
         user(vec![tool_result("t3", "grep-out")]),

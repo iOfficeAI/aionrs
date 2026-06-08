@@ -3,7 +3,7 @@
 ## Table of Contents
 
 - **[Getting Started](getting-started.md)** — Installation, CLI parameters, configuration files, usage examples, session management, REPL mode
-- **[Built-in Tools](tools.md)** — Read, Write, Edit, Bash, Grep, Glob, Spawn — detailed reference and concurrency notes
+- **[Built-in Tools](tools.md)** — Read, Write, Edit, ExecCommand, Grep, Glob, Spawn — detailed reference and concurrency notes
 - **[MCP Integration](mcp.md)** — Model Context Protocol client: stdio, SSE, and streamable-http transports
 - **[Providers & Auth](providers.md)** — Multi-provider configuration, profile inheritance, AWS Bedrock, Google Vertex AI, OAuth login
 - **[Advanced Features](advanced.md)** — Sub-agent spawning, hook system, prompt caching, VCR recording/replay, AGENTS.md hierarchical loading, memory system, plan mode, context compression, file state cache, output compaction

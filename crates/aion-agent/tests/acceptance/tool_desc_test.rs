@@ -8,7 +8,7 @@ use aion_agent::context::{SystemPromptCache, build_system_prompt};
 ///
 /// Calls `build_system_prompt` with minimal arguments and verifies that the
 /// returned prompt includes the tool-usage guidance section with all expected
-/// content: heading, Bash prohibition mappings, parallel call guidance,
+/// content: heading, ExecCommand prohibition mappings, parallel call guidance,
 /// Edit-over-Write preference, and Read-before-Edit rule.
 #[test]
 fn system_prompt_contains_tool_guidance() {
@@ -30,7 +30,7 @@ fn system_prompt_contains_tool_guidance() {
         "system prompt must contain the '# Using your tools' heading"
     );
 
-    // 2. Bash prohibition mappings — dedicated tool replacements
+    // 2. ExecCommand prohibition mappings — dedicated tool replacements
     assert!(
         prompt.contains("Glob"),
         "should mention Glob as replacement for find/ls"

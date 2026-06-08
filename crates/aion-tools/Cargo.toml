@@ -1,6 +1,6 @@
 [package]
 name = "aion-tools"
-description = "Built-in agent tools for aionrs (Read, Write, Edit, Bash, Grep, Glob, Spawn)"
+description = "Built-in agent tools for aionrs (Read, Write, Edit, ExecCommand, Grep, Glob, Spawn)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -22,6 +22,7 @@ fn minimal_config() -> Config {
         session: Default::default(),
         compact: Default::default(),
         plan: Default::default(),
+        shell: Default::default(),
         file_cache: Default::default(),
         hooks: Default::default(),
         bedrock: None,
@@ -58,7 +59,7 @@ async fn bootstrap_registers_all_expected_tools() {
 
     let names = result.engine.tool_names();
 
-    for expected in &["Read", "Write", "Edit", "Bash", "Grep", "Glob"] {
+    for expected in &["Read", "Write", "Edit", "ExecCommand", "Grep", "Glob"] {
         assert!(
             names.iter().any(|n| n == expected),
             "missing built-in tool: {expected}"
