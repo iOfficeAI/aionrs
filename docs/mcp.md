@@ -20,6 +20,7 @@ transport = "stdio"
 command = "npx"
 args = ["-y", "@modelcontextprotocol/server-github"]
 env = { GITHUB_TOKEN = "ghp_xxx" }
+startup_timeout_ms = 30000
 
 # SSE transport: connect to a remote SSE server
 [mcp.servers.database]
@@ -40,6 +41,23 @@ headers = { Authorization = "Bearer xxx" }
 | `stdio` | Launch local subprocess, communicate via stdin/stdout | Local MCP servers (npx, uvx) |
 | `sse` | GET for SSE event stream, POST for requests | Remote MCP servers |
 | `streamable-http` | HTTP POST, supports SSE streaming responses | Remote MCP servers |
+
+## Startup Timeout
+
+Configured MCP servers are connected concurrently during startup. Each server
+has a startup timeout covering transport connection, `initialize`, and
+`tools/list`. The default is `30000` milliseconds.
+
+```toml
+[mcp.servers.slow-tools]
+transport = "stdio"
+command = "npx"
+args = ["-y", "slow-mcp-server"]
+startup_timeout_ms = 60000
+```
+
+Increase `startup_timeout_ms` for servers that need extra time for first-run
+setup, package downloads, remote authentication, or slow network handshakes.
 
 ## Deferred Loading
 

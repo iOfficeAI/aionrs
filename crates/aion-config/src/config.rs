@@ -64,6 +64,9 @@ pub struct McpServerConfig {
     /// Defaults to true when omitted — MCP tools are deferred by default to reduce
     /// input token usage. Set to `false` to send full schemas eagerly.
     pub deferred: Option<bool>,
+    /// Startup timeout in milliseconds for connecting, initializing, and listing tools.
+    /// Defaults to 30000ms when omitted.
+    pub startup_timeout_ms: Option<u64>,
 }
 
 /// Collection of MCP server configurations
@@ -981,6 +984,7 @@ max_sessions = 20                # auto-cleanup oldest
 # command = "npx"
 # args = ["-y", "@modelcontextprotocol/server-github"]
 # env = { GITHUB_TOKEN = "ghp_xxx" }
+# startup_timeout_ms = 30000
 
 # [mcp.servers.remote]
 # transport = "sse"
@@ -1490,6 +1494,22 @@ allow = ["commit", "review-pr", "db:*"]
         assert!(config.default.model.is_none());
         assert!(config.providers.is_empty());
         assert!(config.profiles.is_empty());
+    }
+
+    #[test]
+    fn mcp_server_config_deserializes_startup_timeout_ms() {
+        let toml_str = r#"
+[mcp.servers.slow-tools]
+transport = "stdio"
+command = "node"
+args = ["server.js"]
+startup_timeout_ms = 45000
+"#;
+
+        let config: ConfigFile = toml::from_str(toml_str).unwrap();
+        let server = config.mcp.servers.get("slow-tools").unwrap();
+
+        assert_eq!(server.startup_timeout_ms, Some(45_000));
     }
 
     #[test]

@@ -409,6 +409,7 @@ fn to_mcp_server_config(
         url,
         headers,
         deferred: Some(false),
+        startup_timeout_ms: None,
     })
 }
 

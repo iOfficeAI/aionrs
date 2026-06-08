@@ -459,6 +459,9 @@ Dynamically inject an MCP server before the conversation starts. This command is
 | `url` | string | sse/http only | Server URL |
 | `headers` | object | no | HTTP headers (for sse/http) |
 
+Dynamic MCP servers use the default startup timeout of 30000ms. To customize
+startup timeout, define the server in config with `startup_timeout_ms`.
+
 **Lifecycle:**
 
 ```

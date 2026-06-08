@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
+use futures::stream::{FuturesUnordered, StreamExt};
 use serde_json::json;
 
 use super::config::{McpServerConfig, TransportType};
@@ -13,6 +16,8 @@ use super::transport::sse::SseTransport;
 use super::transport::stdio::StdioTransport;
 use super::transport::streamable_http::StreamableHttpTransport;
 use super::transport::{McpError, McpTransport};
+
+const DEFAULT_STARTUP_TIMEOUT_MS: u64 = 30_000;
 
 /// A connected MCP server with its discovered tools and capabilities
 struct McpServer {
@@ -34,13 +39,38 @@ pub struct McpManager {
 impl McpManager {
     /// Connect to all configured MCP servers
     pub async fn connect_all(configs: &HashMap<String, McpServerConfig>) -> Result<Self, McpError> {
+        Self::connect_all_with_connector(configs, |name, config| async move {
+            Self::connect_server(&name, &config).await
+        })
+        .await
+    }
+
+    async fn connect_all_with_connector<F, Fut>(
+        configs: &HashMap<String, McpServerConfig>,
+        connector: F,
+    ) -> Result<Self, McpError>
+    where
+        F: Fn(String, McpServerConfig) -> Fut,
+        Fut: Future<Output = Result<McpServer, McpError>>,
+    {
         let mut servers = HashMap::new();
+        let mut pending = FuturesUnordered::new();
 
         for (name, config) in configs {
-            match Self::connect_server(name, config).await {
+            let name = name.clone();
+            let config = config.clone();
+            let connect = connector(name.clone(), config.clone());
+            pending.push(async move {
+                let result = Self::with_startup_timeout(&name, &config, connect).await;
+                (name, result)
+            });
+        }
+
+        while let Some((name, result)) = pending.next().await {
+            match result {
                 Ok(server) => {
                     tracing::info!(target: "aion_mcp", server = %name, tools = server.tools.len(), resources = server.supports_resources, "mcp server connected");
-                    servers.insert(name.clone(), server);
+                    servers.insert(name, server);
                 }
                 Err(e) => {
                     // Non-fatal: continue with other servers
@@ -55,6 +85,32 @@ impl McpManager {
         })
     }
 
+    fn startup_timeout(config: &McpServerConfig) -> Duration {
+        Duration::from_millis(
+            config
+                .startup_timeout_ms
+                .unwrap_or(DEFAULT_STARTUP_TIMEOUT_MS),
+        )
+    }
+
+    async fn with_startup_timeout<Fut>(
+        name: &str,
+        config: &McpServerConfig,
+        connect: Fut,
+    ) -> Result<McpServer, McpError>
+    where
+        Fut: Future<Output = Result<McpServer, McpError>>,
+    {
+        let timeout = Self::startup_timeout(config);
+        match tokio::time::timeout(timeout, connect).await {
+            Ok(result) => result,
+            Err(_) => Err(McpError::Transport(format!(
+                "MCP server '{name}' startup timed out after {}ms; set startup_timeout_ms to increase it",
+                timeout.as_millis()
+            ))),
+        }
+    }
+
     /// Connect a single additional MCP server after initial setup.
     /// Returns the list of tool names exposed by the server.
     pub async fn connect_one(
@@ -62,7 +118,8 @@ impl McpManager {
         name: String,
         config: &McpServerConfig,
     ) -> Result<Vec<String>, McpError> {
-        let server = Self::connect_server(&name, config).await?;
+        let server =
+            Self::with_startup_timeout(&name, config, Self::connect_server(&name, config)).await?;
         let tool_names: Vec<String> = server.tools.iter().map(|t| t.name.clone()).collect();
         tracing::info!(target: "aion_mcp", server = %name, tools = server.tools.len(), resources = server.supports_resources, "mcp server connected");
         self.servers.insert(name, server);
@@ -334,7 +391,9 @@ mod tests {
     use crate::protocol::JsonRpcResponse;
     use async_trait::async_trait;
     use serde_json::json;
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use tokio::sync::Barrier;
 
     // -----------------------------------------------------------------------
     // MockTransport: returns pre-configured JSON-RPC responses
@@ -402,6 +461,92 @@ mod tests {
 
     fn make_manager_with_servers(entries: Vec<(&str, bool, Box<dyn McpTransport>)>) -> McpManager {
         McpManager::new_for_test(entries)
+    }
+
+    fn delayed_config(delay_ms: u64, startup_timeout_ms: Option<u64>) -> McpServerConfig {
+        McpServerConfig {
+            transport: TransportType::Stdio,
+            command: None,
+            args: Some(vec![delay_ms.to_string()]),
+            env: None,
+            url: None,
+            headers: None,
+            deferred: None,
+            startup_timeout_ms,
+        }
+    }
+
+    fn successful_test_server(name: &str) -> McpServer {
+        McpServer {
+            name: name.to_string(),
+            transport: Box::new(MockTransport::new(vec![])),
+            tools: vec![],
+            supports_resources: false,
+        }
+    }
+
+    async fn delayed_test_connect(
+        name: String,
+        config: McpServerConfig,
+    ) -> Result<McpServer, McpError> {
+        let delay_ms = config
+            .args
+            .as_ref()
+            .and_then(|args| args.first())
+            .and_then(|arg| arg.parse::<u64>().ok())
+            .unwrap_or(0);
+        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        Ok(successful_test_server(&name))
+    }
+
+    #[tokio::test]
+    async fn connect_all_attempts_servers_concurrently() {
+        let configs = HashMap::from([
+            ("slow-a".to_string(), delayed_config(0, None)),
+            ("slow-b".to_string(), delayed_config(0, None)),
+            ("slow-c".to_string(), delayed_config(0, None)),
+        ]);
+        let all_connectors_started = Arc::new(Barrier::new(4));
+        let connector_barrier = Arc::clone(&all_connectors_started);
+
+        let manager_task = tokio::spawn(async move {
+            McpManager::connect_all_with_connector(&configs, move |name, _config| {
+                let connector_barrier = Arc::clone(&connector_barrier);
+                async move {
+                    connector_barrier.wait().await;
+                    Ok(successful_test_server(&name))
+                }
+            })
+            .await
+            .unwrap()
+        });
+
+        tokio::time::timeout(Duration::from_millis(100), all_connectors_started.wait())
+            .await
+            .expect("connect_all should start every connector before awaiting the first result");
+        let manager = manager_task.await.unwrap();
+
+        assert_eq!(manager.server_names().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn connect_all_applies_per_server_startup_timeout() {
+        let configs = HashMap::from([
+            ("fast".to_string(), delayed_config(10, None)),
+            ("too-slow".to_string(), delayed_config(200, Some(20))),
+        ]);
+
+        let started_at = tokio::time::Instant::now();
+        let manager = McpManager::connect_all_with_connector(&configs, delayed_test_connect)
+            .await
+            .unwrap();
+        let elapsed = started_at.elapsed();
+
+        assert_eq!(manager.server_names(), vec!["fast".to_string()]);
+        assert!(
+            elapsed < Duration::from_millis(150),
+            "timed out server should not block connect_all; elapsed={elapsed:?}"
+        );
     }
 
     // -----------------------------------------------------------------------

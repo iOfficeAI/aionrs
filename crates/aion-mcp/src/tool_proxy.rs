@@ -241,6 +241,7 @@ mod tests {
             url: None,
             headers: None,
             deferred,
+            startup_timeout_ms: None,
         }
     }
 

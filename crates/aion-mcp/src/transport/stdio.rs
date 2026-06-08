@@ -25,7 +25,8 @@ impl StdioTransport {
         env: &HashMap<String, String>,
     ) -> Result<Self, McpError> {
         let mut cmd = tokio::process::Command::new(command);
-        cmd.args(args)
+        cmd.kill_on_drop(true)
+            .args(args)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::inherit())
