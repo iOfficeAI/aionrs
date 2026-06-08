@@ -41,6 +41,8 @@ impl Tool for BashTool {
          - Use absolute paths to avoid working directory confusion.\n\
          - When issuing multiple independent commands, make parallel tool calls \
          instead of chaining them. Use `&&` only when commands depend on each other.\n\
+         - Match the host shell syntax. On Windows this tool runs via `cmd.exe`, so use \
+         Windows redirection/device names such as `2>nul` instead of `2>/dev/null`, and prefer explicit URL schemes like `https://...`.\n\
          - You may specify an optional timeout in milliseconds (default 120000, max 600000).\n\n\
          # Git safety\n\
          - Never force push, reset --hard, or use --no-verify unless explicitly asked.\n\

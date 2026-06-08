@@ -62,6 +62,16 @@ fn bash_description_contains_parallel_guidance() {
     );
 }
 
+#[test]
+fn bash_description_mentions_windows_shell_syntax() {
+    let tool = BashTool::new(test_cwd());
+    let desc = tool.description();
+    assert!(
+        desc.contains("cmd.exe") && desc.contains("2>nul"),
+        "Bash description should mention Windows shell syntax guidance"
+    );
+}
+
 // --- TC-4.2-02: Read tool description contains usage constraints ---
 
 #[test]
