@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.29](https://github.com/iOfficeAI/aionrs/compare/v0.1.28...v0.1.29) (2026-06-08)
+
+
+### Bug Fixes
+
+* **mcp:** connect servers concurrently during startup ([#126](https://github.com/iOfficeAI/aionrs/issues/126)) ([3791041](https://github.com/iOfficeAI/aionrs/commit/3791041d72e5ee55d136f42ba05e7a18bcd55768))
+* **shell:** resolve ExecCommand shell semantics ([#123](https://github.com/iOfficeAI/aionrs/issues/123)) ([3a51c7d](https://github.com/iOfficeAI/aionrs/commit/3a51c7d07f96388fb100375a166d144360440561))
+
 ## [0.1.28](https://github.com/iOfficeAI/aionrs/compare/v0.1.27...v0.1.28) (2026-05-30)
 
 
