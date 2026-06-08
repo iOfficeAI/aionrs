@@ -1,5 +1,5 @@
-pub mod bash;
 pub mod edit;
+pub mod exec_command;
 pub mod file_cache;
 pub mod glob;
 pub mod grep;

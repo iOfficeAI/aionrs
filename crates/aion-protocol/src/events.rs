@@ -205,9 +205,9 @@ mod tests {
             msg_id: "m1".to_string(),
             call_id: "c1".to_string(),
             tool: ToolInfo {
-                name: "Bash".to_string(),
+                name: "ExecCommand".to_string(),
                 category: ToolCategory::Exec,
-                args: json!({"command": "ls"}),
+                args: json!({"cmd": "ls"}),
                 description: "Execute: ls".to_string(),
             },
         };

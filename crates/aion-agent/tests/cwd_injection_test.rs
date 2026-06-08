@@ -4,21 +4,21 @@
 use std::fs;
 
 use aion_tools::Tool;
-use aion_tools::bash::BashTool;
+use aion_tools::exec_command::ExecCommandTool;
 use aion_tools::glob::GlobTool;
 use aion_tools::grep::GrepTool;
 use serde_json::json;
 use tempfile::tempdir;
 
 // Windows `cd` outputs 8.3 short names (RUNNER~1) that don't match canonicalized paths;
-// bash_tool_with_file_operations_uses_correct_cwd covers the same behavior reliably.
+// exec_command_tool_with_file_operations_uses_correct_cwd covers the same behavior reliably.
 #[cfg(not(windows))]
 #[tokio::test]
-async fn bash_tool_executes_in_injected_cwd_not_process_cwd() {
+async fn exec_command_tool_executes_in_injected_cwd_not_process_cwd() {
     let workspace = tempdir().unwrap();
-    let tool = BashTool::new(workspace.path().to_path_buf());
+    let tool = ExecCommandTool::new(workspace.path().to_path_buf());
 
-    let result = tool.execute(json!({"command": "pwd"})).await;
+    let result = tool.execute(json!({"cmd": "pwd"})).await;
 
     assert!(!result.is_error, "unexpected error: {}", result.content);
     let expected = workspace
@@ -27,7 +27,7 @@ async fn bash_tool_executes_in_injected_cwd_not_process_cwd() {
         .unwrap_or_else(|_| workspace.path().to_path_buf());
     assert!(
         result.content.contains(expected.to_string_lossy().as_ref()),
-        "BashTool should run in injected cwd '{}', got: {}",
+        "ExecCommandTool should run in injected cwd '{}', got: {}",
         expected.display(),
         result.content
     );
@@ -72,17 +72,17 @@ async fn grep_tool_searches_relative_to_injected_cwd() {
 }
 
 #[tokio::test]
-async fn bash_tool_with_file_operations_uses_correct_cwd() {
+async fn exec_command_tool_with_file_operations_uses_correct_cwd() {
     let workspace = tempdir().unwrap();
     fs::write(workspace.path().join("canary.txt"), "found_it").unwrap();
 
-    let tool = BashTool::new(workspace.path().to_path_buf());
-    let result = tool.execute(json!({"command": "cat canary.txt"})).await;
+    let tool = ExecCommandTool::new(workspace.path().to_path_buf());
+    let result = tool.execute(json!({"cmd": "cat canary.txt"})).await;
 
     assert!(!result.is_error, "unexpected error: {}", result.content);
     assert!(
         result.content.contains("found_it"),
-        "BashTool should be able to read files in injected cwd, got: {}",
+        "ExecCommandTool should be able to read files in injected cwd, got: {}",
         result.content
     );
 }

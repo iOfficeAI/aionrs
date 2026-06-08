@@ -103,13 +103,13 @@ async fn tc_8_x_full_frontmatter_parsed() {
     write_skill(
         tmp.path(),
         "my-skill/SKILL.md",
-        "---\ndescription: My skill description\nallowed-tools: Bash\n---\n# Body\n",
+        "---\ndescription: My skill description\nallowed-tools: ExecCommand\n---\n# Body\n",
     );
 
     let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
     assert_eq!(skills.len(), 1);
     assert_eq!(skills[0].metadata.description, "My skill description");
-    assert_eq!(skills[0].metadata.allowed_tools, vec!["Bash"]);
+    assert_eq!(skills[0].metadata.allowed_tools, vec!["ExecCommand"]);
 }
 
 #[tokio::test]

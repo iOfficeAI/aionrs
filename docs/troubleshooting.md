@@ -54,7 +54,7 @@ API call frequency is too high. The agent will auto-retry after the indicated de
 Command timed out after 120000ms
 ```
 
-A Bash tool command exceeded the timeout. Increase the timeout via the tool's `timeout` parameter.
+A ExecCommand tool command exceeded the timeout. Increase the timeout via the tool's `timeout` parameter.
 
 ## ripgrep Not Installed
 

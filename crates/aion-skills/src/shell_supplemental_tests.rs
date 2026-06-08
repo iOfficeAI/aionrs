@@ -217,17 +217,24 @@ async fn tc_4_4b_command_fail_with_output_returns_ok() {
 // TC-4.5: cwd 参数生效
 #[tokio::test]
 async fn tc_4_5_cwd_used() {
+    use aion_config::shell::ShellKind;
+
     let tmp = std::env::temp_dir();
-    // Use cross-platform command: `cd` on Windows, `pwd` on Unix
-    let content = if cfg!(windows) { "!`cd`" } else { "!`pwd`" };
-    let result = execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap())
+    let shell = aion_config::shell::default_shell();
+    let command = match shell.kind {
+        ShellKind::PowerShell => "(Get-Location).Path",
+        ShellKind::Cmd => "cd",
+        ShellKind::Bash | ShellKind::Zsh | ShellKind::Sh => "pwd",
+    };
+    let content = format!("!`{command}`");
+    let result = execute_shell_commands(&content, LoadedFrom::Skills, tmp.to_str().unwrap())
         .await
         .unwrap();
     // Check that the output contains the temp directory name
     let tmp_name = tmp.file_name().unwrap().to_str().unwrap();
     assert!(
         result.contains(tmp_name),
-        "pwd should output a path containing '{tmp_name}', got: {result}"
+        "cwd command should output a path containing '{tmp_name}', got: {result}"
     );
 }
 

@@ -261,6 +261,7 @@ pub fn test_config() -> Config {
         },
         compact: aion_config::compact::CompactConfig::default(),
         plan: aion_config::plan::PlanConfig::default(),
+        shell: aion_config::shell::ShellConfig::default(),
         file_cache: aion_config::file_cache::FileCacheConfig::default(),
         hooks: HooksConfig::default(),
         bedrock: None,

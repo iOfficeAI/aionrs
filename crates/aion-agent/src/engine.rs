@@ -1427,18 +1427,18 @@ mod phase6_tests {
 
     #[test]
     fn tc_6_23_allowed_tools_no_duplicates() {
-        let mut engine = make_engine("m", vec!["Bash".to_string()]);
+        let mut engine = make_engine("m", vec!["ExecCommand".to_string()]);
         let modifiers = vec![Some(ContextModifier {
-            allowed_tools: vec!["Bash".to_string(), "Read".to_string()],
+            allowed_tools: vec!["ExecCommand".to_string(), "Read".to_string()],
             ..Default::default()
         })];
         engine.apply_context_modifiers(&modifiers);
         let bash_count = engine
             .allow_list
             .iter()
-            .filter(|t| t.as_str() == "Bash")
+            .filter(|t| t.as_str() == "ExecCommand")
             .count();
-        assert_eq!(bash_count, 1, "Bash should appear exactly once");
+        assert_eq!(bash_count, 1, "ExecCommand should appear exactly once");
         assert!(engine.allow_list.contains(&"Read".to_string()));
     }
 
@@ -1462,11 +1462,11 @@ mod phase6_tests {
     fn tc_6_26_none_model_does_not_overwrite() {
         let mut engine = make_engine("current-model", vec![]);
         engine.apply_context_modifiers(&[Some(ContextModifier {
-            allowed_tools: vec!["Bash".to_string()],
+            allowed_tools: vec!["ExecCommand".to_string()],
             ..Default::default()
         })]);
         assert_eq!(engine.model, "current-model");
-        assert!(engine.allow_list.contains(&"Bash".to_string()));
+        assert!(engine.allow_list.contains(&"ExecCommand".to_string()));
     }
 
     #[test]
@@ -1475,7 +1475,7 @@ mod phase6_tests {
         let modifiers = vec![
             Some(ContextModifier {
                 model: Some("model-a".to_string()),
-                allowed_tools: vec!["Bash".to_string()],
+                allowed_tools: vec!["ExecCommand".to_string()],
                 ..Default::default()
             }),
             Some(ContextModifier {
@@ -1486,7 +1486,7 @@ mod phase6_tests {
         ];
         engine.apply_context_modifiers(&modifiers);
         assert_eq!(engine.model, "model-b", "last model wins");
-        assert!(engine.allow_list.contains(&"Bash".to_string()));
+        assert!(engine.allow_list.contains(&"ExecCommand".to_string()));
         assert!(engine.allow_list.contains(&"Read".to_string()));
     }
 
@@ -1646,7 +1646,7 @@ mod compact_tests {
                 },
                 ContentBlock::ToolUse {
                     id: second_id.to_string(),
-                    name: "Bash".to_string(),
+                    name: "ExecCommand".to_string(),
                     input: json!({}),
                     extra: None,
                 },
@@ -1712,7 +1712,7 @@ mod compact_tests {
             emitted[1],
             (
                 "call_bash".into(),
-                "Bash".into(),
+                "ExecCommand".into(),
                 true,
                 "Tool execution canceled by user".into()
             )
@@ -1967,7 +1967,7 @@ mod plan_mode_tests {
 
     #[test]
     fn enter_transition_activates_plan_mode() {
-        let mut engine = make_plan_engine(vec!["Read".into(), "Bash".into()]);
+        let mut engine = make_plan_engine(vec!["Read".into(), "ExecCommand".into()]);
         let modifiers = vec![Some(ContextModifier {
             plan_mode_transition: Some(PlanModeTransition::Enter),
             ..Default::default()
@@ -1978,7 +1978,7 @@ mod plan_mode_tests {
         assert!(engine.plan_state.is_active, "plan mode should be active");
         assert_eq!(
             engine.plan_state.pre_plan_allow_list,
-            vec!["Read".to_string(), "Bash".to_string()],
+            vec!["Read".to_string(), "ExecCommand".to_string()],
             "pre_plan_allow_list should capture original allow_list"
         );
     }
@@ -2003,7 +2003,7 @@ mod plan_mode_tests {
 
     #[test]
     fn exit_transition_deactivates_and_restores() {
-        let mut engine = make_plan_engine(vec!["Read".into(), "Bash".into()]);
+        let mut engine = make_plan_engine(vec!["Read".into(), "ExecCommand".into()]);
 
         // Enter plan mode first
         engine.apply_context_modifiers(&[Some(ContextModifier {
@@ -2024,7 +2024,7 @@ mod plan_mode_tests {
         assert!(!engine.plan_state.is_active, "plan mode should be inactive");
         assert_eq!(
             engine.allow_list,
-            vec!["Read".to_string(), "Bash".to_string()],
+            vec!["Read".to_string(), "ExecCommand".to_string()],
             "allow_list should be restored to pre-plan state"
         );
     }

@@ -69,7 +69,7 @@ mod tests {
     fn test_auto_approve_always_allows() {
         let mut confirmer = ToolConfirmer::new(true, vec![]);
         assert_eq!(
-            confirmer.check("Bash", "echo hello"),
+            confirmer.check("ExecCommand", "echo hello"),
             ConfirmResult::Approved
         );
         assert_eq!(
@@ -121,9 +121,12 @@ mod tests {
     #[test]
     fn test_add_to_allow_list_idempotent() {
         let mut confirmer = ToolConfirmer::new(false, vec![]);
-        confirmer.add_to_allow_list("Bash");
-        confirmer.add_to_allow_list("Bash"); // duplicate — HashSet, no panic
-        assert_eq!(confirmer.check("Bash", "echo hi"), ConfirmResult::Approved);
+        confirmer.add_to_allow_list("ExecCommand");
+        confirmer.add_to_allow_list("ExecCommand"); // duplicate — HashSet, no panic
+        assert_eq!(
+            confirmer.check("ExecCommand", "echo hi"),
+            ConfirmResult::Approved
+        );
     }
 
     // Phase 6: add_to_allow_list() does not affect unrelated tools

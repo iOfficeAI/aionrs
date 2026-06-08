@@ -7,7 +7,7 @@ The agent has 7 built-in tools. The LLM automatically selects and invokes them b
 | **Read** | Read file contents (with line numbers) | Yes |
 | **Write** | Write files (auto-creates directories) | No |
 | **Edit** | Precise string replacement | No |
-| **Bash** | Execute shell commands | No |
+| **ExecCommand** | Execute shell commands | No |
 | **Grep** | Regex search file contents (via ripgrep) | Yes |
 | **Glob** | Find files by pattern matching | Yes |
 | **Spawn** | Spawn sub-agents for parallel tasks | No |
@@ -38,7 +38,7 @@ Find and replace exact strings in a file.
 - Requires a unique match by default; errors on multiple matches
 - Use `replace_all` to replace all occurrences
 
-## Bash
+## ExecCommand
 
 Execute a shell command and return the result.
 
@@ -87,10 +87,10 @@ User input → Build request (system prompt + history + tool definitions)
 ```
 
 - Concurrent-safe tools (Read, Grep, Glob) execute in parallel
-- Non-concurrent tools (Write, Edit, Bash) execute sequentially
+- Non-concurrent tools (Write, Edit, ExecCommand) execute sequentially
 - Tool output is auto-truncated to prevent context window overflow
 - Tool output can be compacted (see [Output Compaction](advanced.md#output-compaction))
 
 ## Tool Descriptions
 
-Each built-in tool includes a detailed description and usage guidance that is injected into the system prompt. These descriptions help the LLM select the right tool and use it effectively — for example, preferring Grep over Bash for content search, or using Edit instead of Write for modifications.
+Each built-in tool includes a detailed description and usage guidance that is injected into the system prompt. These descriptions help the LLM select the right tool and use it effectively — for example, preferring Grep over ExecCommand for content search, or using Edit instead of Write for modifications.

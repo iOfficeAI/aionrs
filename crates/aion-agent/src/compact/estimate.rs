@@ -59,12 +59,12 @@ mod tests {
     #[test]
     fn tool_use_message_uses_json_ratio() {
         let input = json!({"cmd": "ls -la"});
-        let input_len = "Bash".len() + input.to_string().len();
+        let input_len = "ExecCommand".len() + input.to_string().len();
         let msg = Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
                 id: "call_1".into(),
-                name: "Bash".into(),
+                name: "ExecCommand".into(),
                 input,
                 extra: None,
             }],

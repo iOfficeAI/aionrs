@@ -319,7 +319,7 @@ fn tc_e2e_6_context_modifier_overrides() {
     let mut skill = make_skill("override-skill", "body");
     skill.model = Some("claude-opus-4-6".to_string());
     skill.effort = Some(EffortLevel::High);
-    skill.allowed_tools = vec!["Bash".to_string(), "Read".to_string()];
+    skill.allowed_tools = vec!["ExecCommand".to_string(), "Read".to_string()];
 
     let modifier = crate::context_modifier::from_skill(&skill)
         .expect("modifier should be present when overrides are set");
@@ -337,7 +337,7 @@ fn tc_e2e_6_context_modifier_overrides() {
     );
     assert_eq!(
         modifier.allowed_tools,
-        vec!["Bash", "Read"],
+        vec!["ExecCommand", "Read"],
         "allowedTools override should match"
     );
 }
@@ -665,7 +665,7 @@ fn tc_e2e_12c_hooks_stop_parsed() {
 fn tc_e2e_12d_hooks_to_hook_defs_all_events() {
     let hooks_json = serde_json::json!({
         "PreToolUse": [
-            {"matcher": "Bash", "hooks": [{"type": "command", "command": "echo pre"}]}
+            {"matcher": "ExecCommand", "hooks": [{"type": "command", "command": "echo pre"}]}
         ],
         "PostToolUse": [
             {"matcher": "*", "hooks": [{"type": "command", "command": "echo post"}]}

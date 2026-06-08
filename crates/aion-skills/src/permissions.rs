@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn p5_8_allowed_tools_require_ask() {
         let mut skill = make_skill("tooled");
-        skill.allowed_tools = vec!["Bash".to_string()];
+        skill.allowed_tools = vec!["ExecCommand".to_string()];
         let checker = SkillPermissionChecker::new(vec![], vec![], false);
         assert!(matches!(checker.check(&skill), SkillPermission::Ask { .. }));
     }
@@ -318,11 +318,11 @@ mod tests {
     #[test]
     fn ask_reason_mentions_allowed_tools() {
         let mut skill = make_skill("tooled");
-        skill.allowed_tools = vec!["Bash".to_string()];
+        skill.allowed_tools = vec!["ExecCommand".to_string()];
         let checker = SkillPermissionChecker::new(vec![], vec![], false);
         if let SkillPermission::Ask { reason } = checker.check(&skill) {
             assert!(
-                reason.contains("allowed-tools") || reason.contains("Bash"),
+                reason.contains("allowed-tools") || reason.contains("ExecCommand"),
                 "reason should mention tool: {reason}"
             );
         } else {

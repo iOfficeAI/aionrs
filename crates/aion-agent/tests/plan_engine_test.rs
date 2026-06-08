@@ -74,7 +74,7 @@ fn build_test_registry() -> ToolRegistry {
     registry.register(mock_tool("Edit", ToolCategory::Edit));
 
     // Exec tools
-    registry.register(mock_tool("Bash", ToolCategory::Exec));
+    registry.register(mock_tool("ExecCommand", ToolCategory::Exec));
 
     // Plan mode tools (both are Info category)
     registry.register(Box::new(EnterPlanModeTool::new(Arc::clone(&flag))));
@@ -126,7 +126,10 @@ fn tc_3_5_01_plan_mode_only_info_tools_plus_exit() {
         "Write should NOT be in plan mode"
     );
     assert!(!names.contains(&"Edit"), "Edit should NOT be in plan mode");
-    assert!(!names.contains(&"Bash"), "Bash should NOT be in plan mode");
+    assert!(
+        !names.contains(&"ExecCommand"),
+        "ExecCommand should NOT be in plan mode"
+    );
     assert!(
         !names.contains(&"EnterPlanMode"),
         "EnterPlanMode should NOT be in plan mode"
@@ -153,7 +156,7 @@ fn tc_3_5_02_normal_mode_all_tools_except_exit_plan_mode() {
     assert!(names.contains(&"Skill"));
     assert!(names.contains(&"Write"));
     assert!(names.contains(&"Edit"));
-    assert!(names.contains(&"Bash"));
+    assert!(names.contains(&"ExecCommand"));
     assert!(
         names.contains(&"EnterPlanMode"),
         "EnterPlanMode should be in normal mode"
@@ -177,7 +180,7 @@ fn tc_3_5_07_to_tool_defs_filtered_mixed_categories() {
 
     registry.register(mock_tool("Read", ToolCategory::Info));
     registry.register(mock_tool("Write", ToolCategory::Edit));
-    registry.register(mock_tool("Bash", ToolCategory::Exec));
+    registry.register(mock_tool("ExecCommand", ToolCategory::Exec));
     registry.register(Box::new(ExitPlanModeTool::new(flag)));
 
     let defs = registry.to_tool_defs_filtered(|t| {
@@ -191,7 +194,10 @@ fn tc_3_5_07_to_tool_defs_filtered_mixed_categories() {
         "ExitPlanMode should be included"
     );
     assert!(!names.contains(&"Write"), "Edit tool should be excluded");
-    assert!(!names.contains(&"Bash"), "Exec tool should be excluded");
+    assert!(
+        !names.contains(&"ExecCommand"),
+        "Exec tool should be excluded"
+    );
 }
 
 // ---------------------------------------------------------------------------

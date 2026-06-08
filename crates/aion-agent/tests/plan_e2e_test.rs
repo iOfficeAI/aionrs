@@ -99,7 +99,7 @@ async fn tc_3_6_e2e_01_full_plan_mode_lifecycle() {
     registry.register(mock_tool("Skill", ToolCategory::Info));
     registry.register(mock_tool("Write", ToolCategory::Edit));
     registry.register(mock_tool("Edit", ToolCategory::Edit));
-    registry.register(mock_tool("Bash", ToolCategory::Exec));
+    registry.register(mock_tool("ExecCommand", ToolCategory::Exec));
     registry.register(Box::new(EnterPlanModeTool::new(Arc::clone(&flag))));
     registry.register(Box::new(ExitPlanModeTool::new(Arc::clone(&flag))));
 
@@ -107,7 +107,7 @@ async fn tc_3_6_e2e_01_full_plan_mode_lifecycle() {
     let normal_tools = normal_mode_filter(&registry);
     assert!(normal_tools.contains(&"Read".to_string()));
     assert!(normal_tools.contains(&"Write".to_string()));
-    assert!(normal_tools.contains(&"Bash".to_string()));
+    assert!(normal_tools.contains(&"ExecCommand".to_string()));
     assert!(normal_tools.contains(&"EnterPlanMode".to_string()));
     assert!(!normal_tools.contains(&"ExitPlanMode".to_string()));
 
@@ -132,7 +132,7 @@ async fn tc_3_6_e2e_01_full_plan_mode_lifecycle() {
     assert!(plan_tools.contains(&"ExitPlanMode".to_string()));
     assert!(!plan_tools.contains(&"Write".to_string()));
     assert!(!plan_tools.contains(&"Edit".to_string()));
-    assert!(!plan_tools.contains(&"Bash".to_string()));
+    assert!(!plan_tools.contains(&"ExecCommand".to_string()));
     assert!(!plan_tools.contains(&"EnterPlanMode".to_string()));
 
     // Step 4: Verify read-only tools execute successfully in plan mode
@@ -163,7 +163,7 @@ async fn tc_3_6_e2e_01_full_plan_mode_lifecycle() {
     let restored_tools = normal_mode_filter(&registry);
     assert!(restored_tools.contains(&"Write".to_string()));
     assert!(restored_tools.contains(&"Edit".to_string()));
-    assert!(restored_tools.contains(&"Bash".to_string()));
+    assert!(restored_tools.contains(&"ExecCommand".to_string()));
     assert!(restored_tools.contains(&"EnterPlanMode".to_string()));
     assert!(!restored_tools.contains(&"ExitPlanMode".to_string()));
 
@@ -251,7 +251,7 @@ fn tc_3_6_e2e_03_skill_tool_available_in_plan_mode() {
     registry.register(mock_tool("Read", ToolCategory::Info));
     registry.register(mock_tool("Skill", ToolCategory::Info));
     registry.register(mock_tool("Write", ToolCategory::Edit));
-    registry.register(mock_tool("Bash", ToolCategory::Exec));
+    registry.register(mock_tool("ExecCommand", ToolCategory::Exec));
     registry.register(Box::new(EnterPlanModeTool::new(Arc::clone(&flag))));
     registry.register(Box::new(ExitPlanModeTool::new(Arc::clone(&flag))));
 
@@ -285,7 +285,7 @@ fn tc_3_6_e2e_04_plan_state_not_persisted_across_sessions() {
     // Simulate a "previous session" where plan mode was active
     let active_state = PlanState {
         is_active: true,
-        pre_plan_allow_list: vec!["Read".into(), "Bash".into()],
+        pre_plan_allow_list: vec!["Read".into(), "ExecCommand".into()],
     };
     assert!(active_state.is_active);
 

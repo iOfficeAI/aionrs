@@ -32,10 +32,10 @@ mod tests {
     fn can_set_active_with_allow_list() {
         let state = PlanState {
             is_active: true,
-            pre_plan_allow_list: vec!["Read".into(), "Bash".into()],
+            pre_plan_allow_list: vec!["Read".into(), "ExecCommand".into()],
         };
         assert!(state.is_active);
-        assert_eq!(state.pre_plan_allow_list, vec!["Read", "Bash"]);
+        assert_eq!(state.pre_plan_allow_list, vec!["Read", "ExecCommand"]);
     }
 
     #[test]

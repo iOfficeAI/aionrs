@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::shell::shell_command_builder;
+use crate::shell::{default_shell, shell_command_builder};
 
 /// Hook system configuration
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -231,10 +231,17 @@ async fn run_hook_command(
     let interpolated = interpolate_command(command, env_vars);
     let timeout = Duration::from_millis(timeout_ms);
 
-    tracing::debug!(cwd = %cwd.display(), command = %interpolated, "hook executing");
+    let shell = default_shell();
+
+    tracing::debug!(
+        cwd = %cwd.display(),
+        shell_kind = shell.kind.name(),
+        shell_path = %shell.path.display(),
+        "hook executing"
+    );
 
     let result = tokio::time::timeout(timeout, async {
-        shell_command_builder(&interpolated)
+        shell_command_builder(&shell, &interpolated, false)
             .envs(env_vars)
             .current_dir(cwd)
             .output()

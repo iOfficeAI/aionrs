@@ -641,13 +641,13 @@ mod phase7_tests {
     #[tokio::test]
     async fn tc_7_15_allowed_tools_propagated_to_fork_overrides() {
         let mut skill = make_fork_skill("tools-fork", "content");
-        skill.allowed_tools = vec!["Bash".to_string(), "Read".to_string()];
+        skill.allowed_tools = vec!["ExecCommand".to_string(), "Read".to_string()];
         let spawner = MockSpawner::success("ok");
         execute_fork(&skill, None, None, "/tmp", &spawner)
             .await
             .unwrap();
         let overrides = spawner.take_overrides();
-        assert_eq!(overrides.allowed_tools, vec!["Bash", "Read"]);
+        assert_eq!(overrides.allowed_tools, vec!["ExecCommand", "Read"]);
     }
 
     // TC-7.16: prompt passed to SubAgentConfig equals prepare_inline_content output

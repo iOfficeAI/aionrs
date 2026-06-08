@@ -126,13 +126,13 @@ mod tests {
         let cm = ContextModifier {
             model: Some("test-model".into()),
             effort: Some(EffortLevel::High),
-            allowed_tools: vec!["Bash".into()],
+            allowed_tools: vec!["ExecCommand".into()],
             plan_mode_transition: None,
         };
         assert!(!cm.is_empty());
         assert_eq!(cm.model.as_deref(), Some("test-model"));
         assert_eq!(cm.effort, Some(EffortLevel::High));
-        assert_eq!(cm.allowed_tools, vec!["Bash".to_string()]);
+        assert_eq!(cm.allowed_tools, vec!["ExecCommand".to_string()]);
         assert!(cm.plan_mode_transition.is_none());
     }
 }

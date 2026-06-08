@@ -734,13 +734,13 @@ mod supplemental_tests_p6 {
     #[test]
     fn tc_6_19_skill_with_allowed_tools_returns_some() {
         let mut skill = base_skill("tools-skill");
-        skill.allowed_tools = vec!["Bash".to_string(), "Read".to_string()];
+        skill.allowed_tools = vec!["ExecCommand".to_string(), "Read".to_string()];
         let tool = tool_with(vec![skill]);
 
         let modifier = tool.context_modifier_for(&json!({"skill": "tools-skill"}));
         assert!(modifier.is_some());
         let m = modifier.unwrap();
-        assert_eq!(m.allowed_tools, vec!["Bash", "Read"]);
+        assert_eq!(m.allowed_tools, vec!["ExecCommand", "Read"]);
     }
 
     // TC-6.19b: leading slash is stripped before lookup
@@ -1116,7 +1116,7 @@ mod phase7_tests {
         let mut skill = make_fork_skill("fork-with-model", "content");
         skill.model = Some("claude-opus-4-6".to_string());
         skill.effort = Some(EffortLevel::High);
-        skill.allowed_tools = vec!["Bash".to_string()];
+        skill.allowed_tools = vec!["ExecCommand".to_string()];
         let tool = tool_no_spawner(vec![skill]);
         let modifier = tool.context_modifier_for(&json!({"skill": "fork-with-model"}));
         assert!(
