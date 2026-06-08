@@ -90,7 +90,7 @@ impl Tool for ExecCommandTool {
             }
         };
 
-        tracing::debug!(
+        tracing::info!(
             cwd = %self.cwd.display(),
             shell_kind = shell.kind.name(),
             shell_path = %shell.path.display(),
