@@ -2,6 +2,7 @@
 // Used by AnthropicProvider, BedrockProvider, and VertexProvider.
 
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use tokio::sync::mpsc;
 
 use aion_types::llm::LlmEvent;
@@ -9,12 +10,15 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use super::ProviderError;
+use super::openai::format_dropped_tool_call;
 use aion_config::compat::ProviderCompat;
 
 /// Convert internal Message format to Anthropic API message format.
 /// Compat flags control merging and alternation behavior.
 pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Value> {
     let mut result: Vec<Value> = Vec::new();
+    let sanitize = compat.sanitize_malformed_tool_calls();
+    let mut dropped_ids: HashSet<String> = HashSet::new();
 
     for msg in messages {
         let role_str = match msg.role {
@@ -23,39 +27,69 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
             Role::System => continue, // system is top-level in Anthropic
         };
 
-        let mut content: Vec<Value> = msg
-            .content
-            .iter()
-            .map(|block| match block {
-                ContentBlock::Text { text } => json!({
-                    "type": "text",
-                    "text": text
-                }),
+        let mut content: Vec<Value> = Vec::new();
+        let mut dropped_from_message = false;
+        for block in &msg.content {
+            match block {
+                ContentBlock::Text { text } => {
+                    let mut text = text.clone();
+                    if let Some(patterns) = &compat.strip_patterns {
+                        for pattern in patterns {
+                            text = text.replace(pattern, "");
+                        }
+                    }
+                    content.push(json!({
+                        "type": "text",
+                        "text": text
+                    }));
+                }
                 ContentBlock::ToolUse {
                     id, name, input, ..
                 } => {
+                    if sanitize && name.is_empty() {
+                        dropped_ids.insert(id.clone());
+                        dropped_from_message = true;
+                        content.push(json!({
+                            "type": "text",
+                            "text": format_dropped_tool_call(input)
+                        }));
+                        tracing::warn!(
+                            target: "aion_providers",
+                            tool_call_id = %id,
+                            "downgraded malformed tool_call (empty name) to text in outgoing request"
+                        );
+                        continue;
+                    }
+
                     let tool_id = if id.is_empty() && compat.auto_tool_id() {
                         generate_tool_id()
                     } else {
                         id.clone()
                     };
-                    json!({
+                    content.push(json!({
                         "type": "tool_use",
                         "id": tool_id,
                         "name": name,
                         "input": input
-                    })
+                    }));
                 }
                 ContentBlock::ToolResult {
                     tool_use_id,
-                    content,
+                    content: result_content,
                     is_error,
-                } => json!({
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": content,
-                    "is_error": is_error
-                }),
+                } => {
+                    if dropped_ids.contains(tool_use_id) {
+                        dropped_from_message = true;
+                        continue;
+                    }
+
+                    content.push(json!({
+                        "type": "tool_result",
+                        "tool_use_id": tool_use_id,
+                        "content": result_content,
+                        "is_error": is_error
+                    }));
+                }
                 ContentBlock::Thinking {
                     thinking,
                     signature,
@@ -67,24 +101,16 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                     if let Some(signature) = signature {
                         value["signature"] = json!(signature);
                     }
-                    value
-                }
-            })
-            .collect();
-
-        // Strip patterns from text content
-        if let Some(patterns) = &compat.strip_patterns {
-            for item in &mut content {
-                if item["type"] == "text"
-                    && let Some(text) = item["text"].as_str()
-                {
-                    let mut cleaned = text.to_string();
-                    for pattern in patterns {
-                        cleaned = cleaned.replace(pattern, "");
-                    }
-                    item["text"] = json!(cleaned);
+                    content.push(value);
                 }
             }
+        }
+
+        if content.is_empty() && dropped_from_message {
+            content.push(json!({
+                "type": "text",
+                "text": "[tool call skipped: malformed (empty function name).]"
+            }));
         }
 
         // Merge consecutive messages with the same role (if enabled)
@@ -367,6 +393,13 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
             if state.current_block_type.as_deref() == Some("tool_use") {
                 let input: Value = serde_json::from_str(&state.tool_input_json)
                     .unwrap_or(Value::Object(serde_json::Map::new()));
+                if state.tool_name.is_empty() {
+                    tracing::warn!(
+                        target: "aion_providers",
+                        tool_call_id = %state.tool_id,
+                        "provider emitted tool_call with empty function name; recorded to history as-is"
+                    );
+                }
                 events.push(LlmEvent::ToolUse {
                     id: state.tool_id.clone(),
                     name: state.tool_name.clone(),
@@ -432,6 +465,10 @@ mod tests {
             merge_same_role: Some(true),
             ..Default::default()
         }
+    }
+
+    fn anthropic_compat() -> ProviderCompat {
+        ProviderCompat::anthropic_defaults()
     }
 
     // --- build_messages tests ---
@@ -634,6 +671,211 @@ mod tests {
         assert_eq!(content[0]["id"], "existing_id");
     }
 
+    // F1-2
+    #[test]
+    fn test_anthropic_empty_name_downgraded_no_orphan() {
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![
+                    ContentBlock::Text {
+                        text: "writing".into(),
+                    },
+                    ContentBlock::ToolUse {
+                        id: "call_x".into(),
+                        name: "".into(),
+                        input: json!({}),
+                        extra: None,
+                    },
+                ],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "call_x".into(),
+                    content: "Unknown tool: ".into(),
+                    is_error: true,
+                }],
+            ),
+        ];
+        let result = build_messages(&messages, &anthropic_compat());
+        let any_empty = result
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .any(|b| b["type"] == "tool_use" && b["name"] == "");
+        assert!(!any_empty);
+        let any_orphan = result
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .any(|b| b["type"] == "tool_result" && b["tool_use_id"] == "call_x");
+        assert!(!any_orphan);
+        let any_text = result
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .any(|b| {
+                b["type"] == "text"
+                    && b["text"]
+                        .as_str()
+                        .unwrap_or("")
+                        .contains("[tool call skipped:")
+            });
+        assert!(any_text);
+    }
+
+    // F1-4
+    #[test]
+    fn test_anthropic_only_empty_name_yields_text_content() {
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
+                id: "call_x".into(),
+                name: "".into(),
+                input: json!({}),
+                extra: None,
+            }],
+        )];
+        let result = build_messages(&messages, &anthropic_compat());
+        let content = result.iter().find(|m| m["role"] == "assistant").unwrap()["content"]
+            .as_array()
+            .unwrap();
+        assert!(content.iter().any(|b| {
+            b["type"] == "text"
+                && b["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("[tool call skipped:")
+                && b["text"].as_str().unwrap_or("").contains("arguments={}")
+        }));
+        assert!(
+            !content
+                .iter()
+                .any(|b| b["type"] == "tool_use" && b["name"] == "")
+        );
+    }
+
+    #[test]
+    fn test_anthropic_downgrade_text_not_stripped() {
+        let mut compat = anthropic_compat();
+        compat.strip_patterns = Some(vec![
+            "REMOVE_ME".into(),
+            "[tool call skipped:".into(),
+            "arguments={}".into(),
+        ]);
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![
+                ContentBlock::Text {
+                    text: "ordinary REMOVE_ME text".into(),
+                },
+                ContentBlock::ToolUse {
+                    id: "call_x".into(),
+                    name: "".into(),
+                    input: json!({}),
+                    extra: None,
+                },
+            ],
+        )];
+
+        let result = build_messages(&messages, &compat);
+        let content = result.iter().find(|m| m["role"] == "assistant").unwrap()["content"]
+            .as_array()
+            .unwrap();
+        assert!(content.iter().any(|b| {
+            b["type"] == "text" && b["text"].as_str().unwrap_or("") == "ordinary  text"
+        }));
+        assert!(content.iter().any(|b| {
+            b["type"] == "text"
+                && b["text"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("[tool call skipped:")
+                && b["text"].as_str().unwrap_or("").contains("arguments={}")
+        }));
+    }
+
+    #[test]
+    fn test_anthropic_sanitize_disabled_keeps_empty_name() {
+        let mut compat = anthropic_compat();
+        compat.sanitize_malformed_tool_calls = Some(false);
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
+                id: "call_x".into(),
+                name: "".into(),
+                input: json!({}),
+                extra: None,
+            }],
+        )];
+
+        let result = build_messages(&messages, &compat);
+        let any_empty = result
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .any(|b| b["type"] == "tool_use" && b["name"] == "");
+        assert!(any_empty);
+    }
+
+    #[test]
+    fn test_anthropic_dropped_tool_result_yields_placeholder_content() {
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "call_x".into(),
+                    name: "".into(),
+                    input: json!({}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "call_x".into(),
+                    content: "Unknown tool: ".into(),
+                    is_error: true,
+                }],
+            ),
+        ];
+
+        let result = build_messages(&messages, &anthropic_compat());
+        let user_placeholder = result.iter().any(|m| {
+            m["role"] == "user"
+                && m["content"].as_array().is_some_and(|blocks| {
+                    blocks.iter().any(|b| {
+                        b["type"] == "text"
+                            && b["text"].as_str().unwrap_or("")
+                                == "[tool call skipped: malformed (empty function name).]"
+                    })
+                })
+        });
+        assert!(user_placeholder);
+        let any_tool_result = result
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .any(|b| b["type"] == "tool_result" && b["tool_use_id"] == "call_x");
+        assert!(!any_tool_result);
+    }
+
+    // H1-2
+    #[test]
+    fn test_anthropic_normal_toolcall_unaffected() {
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
+                id: "call_x".into(),
+                name: "Bash".into(),
+                input: json!({"command":"ls"}),
+                extra: None,
+            }],
+        )];
+        let result = build_messages(&messages, &anthropic_compat());
+        let any_bash = result
+            .iter()
+            .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+            .any(|b| b["type"] == "tool_use" && b["name"] == "Bash");
+        assert!(any_bash);
+    }
+
     // --- build_tools tests ---
 
     #[test]
@@ -755,6 +997,30 @@ mod tests {
                 assert_eq!(input["cmd"], "ls");
             }
             _ => panic!("expected ToolUse"),
+        }
+    }
+
+    // F1-10
+    #[test]
+    fn test_empty_name_tool_use_still_emitted_to_history() {
+        let mut state = StreamState::new();
+
+        let start_events = parse_sse_data(
+            "content_block_start",
+            r#"{"content_block":{"type":"tool_use","id":"call_x","name":""}}"#,
+            &mut state,
+        );
+        assert!(start_events.is_empty());
+
+        let events = parse_sse_data("content_block_stop", r#"{}"#, &mut state);
+        assert_eq!(events.len(), 1);
+
+        match &events[0] {
+            LlmEvent::ToolUse { id, name, .. } => {
+                assert_eq!(id, "call_x");
+                assert_eq!(name, "");
+            }
+            other => panic!("expected ToolUse, got {other:?}"),
         }
     }
 
