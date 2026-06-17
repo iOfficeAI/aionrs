@@ -24,6 +24,12 @@ pub struct ProviderCompat {
     /// Default: true for openai.
     pub dedup_tool_results: Option<bool>,
 
+    /// Downgrade malformed tool_calls (empty function name) to text in the
+    /// outgoing request, and drop their paired tool results. History is never
+    /// mutated; only the projected request body is affected.
+    /// Default: true for all providers.
+    pub sanitize_malformed_tool_calls: Option<bool>,
+
     /// Ensure messages alternate user/assistant (insert filler if needed).
     /// Default: true for anthropic/bedrock/vertex.
     pub ensure_alternation: Option<bool>,
@@ -72,6 +78,7 @@ impl ProviderCompat {
             auto_tool_id: Some(true),
             supports_thinking: Some(true),
             supports_effort: Some(false),
+            sanitize_malformed_tool_calls: Some(true),
             ..Default::default()
         }
     }
@@ -85,6 +92,7 @@ impl ProviderCompat {
             sanitize_schema: Some(true),
             supports_thinking: Some(true),
             supports_effort: Some(false),
+            sanitize_malformed_tool_calls: Some(true),
             ..Default::default()
         }
     }
@@ -100,6 +108,7 @@ impl ProviderCompat {
             supports_thinking: Some(false),
             supports_effort: Some(true),
             effort_levels: Some(vec!["low".into(), "medium".into(), "high".into()]),
+            sanitize_malformed_tool_calls: Some(true),
             ..Default::default()
         }
     }
@@ -115,6 +124,9 @@ impl ProviderCompat {
                 .clean_orphan_tool_calls
                 .or(defaults.clean_orphan_tool_calls),
             dedup_tool_results: user.dedup_tool_results.or(defaults.dedup_tool_results),
+            sanitize_malformed_tool_calls: user
+                .sanitize_malformed_tool_calls
+                .or(defaults.sanitize_malformed_tool_calls),
             ensure_alternation: user.ensure_alternation.or(defaults.ensure_alternation),
             merge_same_role: user.merge_same_role.or(defaults.merge_same_role),
             sanitize_schema: user.sanitize_schema.or(defaults.sanitize_schema),
@@ -139,6 +151,10 @@ impl ProviderCompat {
 
     pub fn dedup_tool_results(&self) -> bool {
         self.dedup_tool_results.unwrap_or(false)
+    }
+
+    pub fn sanitize_malformed_tool_calls(&self) -> bool {
+        self.sanitize_malformed_tool_calls.unwrap_or(false)
     }
 
     pub fn ensure_alternation(&self) -> bool {
@@ -404,6 +420,36 @@ mod tests {
         assert!(!compat2.supports_thinking());
         assert!(compat2.supports_effort());
         assert_eq!(compat2.effort_levels(), &["low", "medium", "high"]);
+    }
+
+    // D-1
+    #[test]
+    fn test_defaults_enable_sanitize_malformed_tool_calls() {
+        assert_eq!(
+            ProviderCompat::openai_defaults().sanitize_malformed_tool_calls,
+            Some(true)
+        );
+        assert_eq!(
+            ProviderCompat::anthropic_defaults().sanitize_malformed_tool_calls,
+            Some(true)
+        );
+        assert_eq!(
+            ProviderCompat::bedrock_defaults().sanitize_malformed_tool_calls,
+            Some(true)
+        );
+    }
+
+    // D-2
+    #[test]
+    fn test_merge_preserves_sanitize_field() {
+        let defaults = ProviderCompat::openai_defaults();
+        let user = ProviderCompat {
+            sanitize_malformed_tool_calls: Some(false),
+            ..Default::default()
+        };
+        let merged = ProviderCompat::merge(defaults, user);
+        assert_eq!(merged.sanitize_malformed_tool_calls, Some(false)); // user wins
+        assert_eq!(merged.clean_orphan_tool_calls, Some(true)); // default preserved
     }
 
     #[test]
