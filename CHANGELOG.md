@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.30](https://github.com/iOfficeAI/aionrs/compare/v0.1.29...v0.1.30) (2026-06-18)
+
+
+### Bug Fixes
+
+* **providers:** sanitize malformed tool calls ([#132](https://github.com/iOfficeAI/aionrs/issues/132)) ([c689d76](https://github.com/iOfficeAI/aionrs/commit/c689d768c7c21fb3061a6089337dbefa8338b456))
+
 ## [0.1.29](https://github.com/iOfficeAI/aionrs/compare/v0.1.28...v0.1.29) (2026-06-08)
 
 
