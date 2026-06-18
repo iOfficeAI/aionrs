@@ -14,6 +14,7 @@ fn minimal_config() -> Config {
         model: "gpt-test-model".into(),
         max_tokens: 1024,
         max_turns: Some(5),
+        max_malformed_tool_call_turns: Some(3),
         system_prompt: None,
         thinking: None,
         prompt_caching: false,

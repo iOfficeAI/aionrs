@@ -30,6 +30,7 @@ aionrs [OPTIONS] [PROMPT]...
 | `--profile <name>` | Named profile from config file |
 | `--compaction <level>` | Output compaction: `off`, `safe` (default), `full` |
 | `--toon` | Enable TOON tabular encoding (with `full` compaction) |
+| `--max-malformed-tool-call-turns <n>` | Stop after repeated same malformed-only tool-call turns; `0` disables |
 | `--auto-approve` | Skip all tool confirmations |
 | `--json-stream` | JSON Lines mode for host integration |
 | `--resume <id>` | Resume a previous session |
@@ -67,6 +68,7 @@ provider = "anthropic"
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
 max_turns = 30
+max_malformed_tool_call_turns = 3  # default; set 0 to disable this breaker
 
 [providers.anthropic]
 # api_key = "sk-ant-xxx"       # or env var ANTHROPIC_API_KEY
@@ -99,6 +101,11 @@ base_url = "http://localhost:11434"
 [profiles.my-service]
 provider = "my-service"
 
+# Profile names are user-defined; this is not a built-in profile.
+[profiles.my-weak-provider]
+provider = "openai"
+max_malformed_tool_call_turns = 2
+
 [tools]
 auto_approve = false
 allow_list = ["Read", "Grep", "Glob"]
@@ -126,6 +133,12 @@ plan_directory = ".aionrs/plans"
 # level = "info"              # log level filter (default: "info")
 # dir = "/path/to/logs"       # log directory (default: platform-specific)
 ```
+
+### Malformed Tool-Call Loop Breaker
+
+`max_malformed_tool_call_turns` limits consecutive same malformed-only tool-call turns from a provider. The default is `3`; `0` disables this breaker and leaves stopping to `max_turns`.
+
+Precedence is `CLI > profile > project config > global config > built-in default 3`. Use `--max-malformed-tool-call-turns <n>` for a one-off CLI override.
 
 ### API Key Resolution Order
 

@@ -11,7 +11,7 @@ use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use async_trait::async_trait;
-use serde_json::json;
+use serde_json::{Value, json};
 use tempfile::tempdir;
 use tokio::sync::mpsc;
 
@@ -22,6 +22,26 @@ use common::{MockLlmProvider, MockTool, test_config};
 // ---------------------------------------------------------------------------
 fn silent_output() -> Arc<dyn OutputSink> {
     Arc::new(TerminalSink::new(true))
+}
+
+fn malformed_tool_turn(id: &str, name: &str, input: Value) -> Vec<LlmEvent> {
+    vec![
+        LlmEvent::ToolUse {
+            id: id.to_string(),
+            name: name.to_string(),
+            input,
+            extra: None,
+        },
+        LlmEvent::Done {
+            stop_reason: StopReason::ToolUse,
+            usage: TokenUsage {
+                input_tokens: 50,
+                output_tokens: 20,
+                cache_creation_tokens: 0,
+                cache_read_tokens: 0,
+            },
+        },
+    ]
 }
 
 #[derive(Default)]
@@ -557,6 +577,219 @@ async fn test_engine_max_turns_returns_ok() {
 
     assert_eq!(result.stop_reason, StopReason::MaxTurns);
     assert_eq!(result.turns, 1);
+}
+
+#[tokio::test]
+async fn repeated_malformed_tool_call_stops_on_default_third_turn() {
+    let dir = tempdir().expect("tempdir should be created");
+    let provider = Arc::new(RecordingRequestProvider::new(vec![
+        malformed_tool_turn("bad", "", json!({})),
+        malformed_tool_turn("bad", "", json!({})),
+        malformed_tool_turn("bad", "", json!({})),
+        vec![
+            LlmEvent::TextDelta("should not be requested".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.max_malformed_tool_call_turns = None;
+    config.session.enabled = true;
+    config.session.directory = dir.path().to_string_lossy().into_owned();
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        ToolRegistry::new(),
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    engine
+        .init_session("test-provider", "/tmp", None)
+        .expect("init_session should succeed");
+
+    let err = engine
+        .run("repeat malformed", "")
+        .await
+        .expect_err("engine should surface repeated malformed tool-call loop");
+
+    assert!(matches!(
+        err,
+        AgentError::RepeatedMalformedToolCall { count: 3, limit: 3 }
+    ));
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        3,
+        "fourth provider request must not be sent"
+    );
+
+    let session = SessionManager::new(dir.path().to_path_buf(), 10)
+        .load("latest")
+        .expect("session should be loadable");
+    let tool_uses = session
+        .messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter(|block| matches!(block, ContentBlock::ToolUse { .. }))
+        .count();
+    let tool_results: Vec<_> = session
+        .messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .filter_map(|block| {
+            let ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } = block
+            else {
+                return None;
+            };
+            Some((tool_use_id, content, is_error))
+        })
+        .collect();
+
+    assert_eq!(tool_uses, 3);
+    assert_eq!(tool_results.len(), 3);
+    assert!(
+        tool_results.iter().all(|(id, content, is_error)| {
+            id.as_str() == "bad"
+                && **is_error
+                && content.contains("Malformed tool call: empty function name")
+        }),
+        "malformed tool uses should have paired synthetic error results"
+    );
+}
+
+#[tokio::test]
+async fn repeated_malformed_tool_call_threshold_one_stops_immediately() {
+    let provider = Arc::new(RecordingRequestProvider::new(vec![
+        malformed_tool_turn("bad", "", json!({})),
+        malformed_tool_turn("bad", "", json!({})),
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.max_malformed_tool_call_turns = Some(1);
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        ToolRegistry::new(),
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    let err = engine
+        .run("repeat malformed", "")
+        .await
+        .expect_err("engine should surface repeated malformed tool-call loop");
+
+    assert!(matches!(
+        err,
+        AgentError::RepeatedMalformedToolCall { count: 1, limit: 1 }
+    ));
+    assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn repeated_malformed_tool_call_disabled_falls_back_to_max_turns() {
+    let provider = Arc::new(RecordingRequestProvider::new(vec![
+        malformed_tool_turn("bad", "", json!({})),
+        malformed_tool_turn("bad", "", json!({})),
+        malformed_tool_turn("bad", "", json!({})),
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.max_malformed_tool_call_turns = Some(0);
+    config.max_turns = Some(2);
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        ToolRegistry::new(),
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    let result = engine
+        .run("repeat malformed", "")
+        .await
+        .expect("engine should stop cleanly");
+
+    assert_eq!(result.stop_reason, StopReason::MaxTurns);
+    assert_eq!(result.turns, 2);
+    assert_eq!(requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn mixed_valid_and_malformed_tool_calls_do_not_trip_breaker() {
+    let mixed_turn = || {
+        vec![
+            LlmEvent::ToolUse {
+                id: "bad".to_string(),
+                name: "".to_string(),
+                input: json!({}),
+                extra: None,
+            },
+            LlmEvent::ToolUse {
+                id: "ok".to_string(),
+                name: "mock_tool".to_string(),
+                input: json!({}),
+                extra: None,
+            },
+            LlmEvent::Done {
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+            },
+        ]
+    };
+    let provider = Arc::new(RecordingRequestProvider::new(vec![
+        mixed_turn(),
+        mixed_turn(),
+        vec![
+            LlmEvent::TextDelta("done".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.max_malformed_tool_call_turns = Some(1);
+    let output = Arc::new(RecordingOutputSink::default());
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        registry,
+        output.clone(),
+        std::env::temp_dir(),
+    );
+    let result = engine
+        .run("mixed tool calls", "")
+        .await
+        .expect("engine should reach final text");
+
+    assert_eq!(result.text, "done");
+    assert_eq!(result.turns, 3);
+    assert_eq!(requests.lock().unwrap().len(), 3);
+    assert_eq!(
+        *output.tool_results.lock().unwrap(),
+        vec![
+            ("bad".to_string(), "".to_string(), true),
+            ("ok".to_string(), "mock_tool".to_string(), false),
+            ("bad".to_string(), "".to_string(), true),
+            ("ok".to_string(), "mock_tool".to_string(), false),
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------

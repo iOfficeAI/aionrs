@@ -65,6 +65,11 @@ max_tokens = 16384
 extends = "base-anthropic"
 model = "claude-sonnet-4-20250514"
 mcp_servers = ["filesystem", "github"]
+
+# Profile names are user-defined; this is not a built-in profile.
+[profiles.my-weak-provider]
+extends = "base-anthropic"
+max_malformed_tool_call_turns = 2
 ```
 
 ### Usage
@@ -78,6 +83,8 @@ aionrs --profile dev "Create a GitHub issue"
 - Supports multi-level inheritance chains
 - Auto-detects circular inheritance
 - Child profile settings override parent
+- `max_malformed_tool_call_turns` can be set per profile. It defaults to `3`; `0` disables this malformed tool-call loop breaker and leaves stopping to `max_turns`.
+- Override it for one run with `--max-malformed-tool-call-turns <n>`.
 
 ---
 

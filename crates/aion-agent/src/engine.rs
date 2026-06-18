@@ -24,6 +24,11 @@ use crate::output::OutputSink;
 use crate::plan::prompt as plan_prompt;
 use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
+use crate::tool_call::{
+    DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS, RepeatedMalformedToolCallTracker,
+    malformed_only_fingerprint, reason as malformed_tool_call_reason,
+    synthetic_result as synthetic_malformed_tool_result,
+};
 
 pub struct AgentEngine {
     provider: Arc<dyn LlmProvider>,
@@ -33,6 +38,7 @@ pub struct AgentEngine {
     model: String,
     max_tokens: u32,
     max_turns: Option<usize>,
+    max_malformed_tool_call_turns: usize,
     total_usage: TokenUsage,
     thinking: Option<aion_types::llm::ThinkingConfig>,
     /// Resolved provider compat settings (for capability validation)
@@ -108,6 +114,9 @@ impl AgentEngine {
             model: config.model,
             max_tokens: config.max_tokens,
             max_turns: config.max_turns,
+            max_malformed_tool_call_turns: config
+                .max_malformed_tool_call_turns
+                .unwrap_or(DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS),
             total_usage: TokenUsage::default(),
             thinking: config.thinking,
             compat: config.compat.clone(),
@@ -177,6 +186,9 @@ impl AgentEngine {
             model: config.model.clone(),
             max_tokens: config.max_tokens,
             max_turns: config.max_turns,
+            max_malformed_tool_call_turns: config
+                .max_malformed_tool_call_turns
+                .unwrap_or(DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS),
             total_usage: session.total_usage.clone(),
             thinking: config.thinking,
             compat: config.compat.clone(),
@@ -461,6 +473,7 @@ impl AgentEngine {
         ));
 
         let mut turn: usize = 0;
+        let mut repeated_malformed_tool_calls = RepeatedMalformedToolCallTracker::default();
         loop {
             if let Some(limit) = self.max_turns
                 && turn >= limit
@@ -656,7 +669,32 @@ impl AgentEngine {
                 });
             }
 
-            let outcome = if let Some(ref approval_mgr) = self.approval_manager {
+            let malformed_reasons: Vec<_> = tool_calls
+                .iter()
+                .map(|call| {
+                    let ContentBlock::ToolUse { id, name, .. } = call else {
+                        return None;
+                    };
+                    malformed_tool_call_reason(id, name)
+                })
+                .collect();
+            let malformed_only_fingerprint =
+                malformed_only_fingerprint(&tool_calls, &malformed_reasons);
+            let executable_tool_calls: Vec<_> = tool_calls
+                .iter()
+                .zip(&malformed_reasons)
+                .filter_map(|(call, reason)| {
+                    if reason.is_none() {
+                        Some(call.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            let (executable_results, executable_modifiers) = if executable_tool_calls.is_empty() {
+                (Vec::new(), Vec::new())
+            } else if let Some(ref approval_mgr) = self.approval_manager {
                 // JSON stream mode: use protocol-based approval
                 let writer = self
                     .protocol_writer
@@ -665,7 +703,7 @@ impl AgentEngine {
                 let auto_approve = self.confirmer.lock().unwrap().is_auto_approve();
                 match execute_tool_calls_with_approval(
                     &self.tools,
-                    &tool_calls,
+                    &executable_tool_calls,
                     approval_mgr,
                     writer,
                     &self.current_msg_id,
@@ -677,7 +715,7 @@ impl AgentEngine {
                 )
                 .await
                 {
-                    Ok(o) => o,
+                    Ok(o) => (o.results, o.modifiers),
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
                         return Err(AgentError::UserAborted);
@@ -687,7 +725,7 @@ impl AgentEngine {
                 // Terminal mode: use interactive confirmation
                 match execute_tool_calls(
                     &self.tools,
-                    &tool_calls,
+                    &executable_tool_calls,
                     &self.confirmer,
                     self.hooks.as_mut(),
                     self.compaction_level,
@@ -695,7 +733,7 @@ impl AgentEngine {
                 )
                 .await
                 {
-                    Ok(o) => o,
+                    Ok(o) => (o.results, o.modifiers),
                     Err(ExecutionControl::Quit) => {
                         self.save_session();
                         return Err(AgentError::UserAborted);
@@ -703,11 +741,44 @@ impl AgentEngine {
                 }
             };
 
-            // Apply any context modifiers from skill executions before the next turn
-            self.apply_context_modifiers(&outcome.modifiers);
+            let mut executable_results = executable_results.into_iter();
+            let mut executable_modifiers = executable_modifiers.into_iter();
+            let mut tool_results = Vec::with_capacity(tool_calls.len());
+            let mut tool_modifiers = Vec::with_capacity(tool_calls.len());
+
+            for (call, reason) in tool_calls.iter().zip(&malformed_reasons) {
+                if let Some(reason) = reason {
+                    let ContentBlock::ToolUse { id, name, .. } = call else {
+                        continue;
+                    };
+                    tracing::warn!(
+                        target: "aion_agent",
+                        tool_call_id = %id,
+                        tool = %name,
+                        reason = reason.log_reason(),
+                        "generated synthetic error result for malformed tool call"
+                    );
+                    tool_results.push(synthetic_malformed_tool_result(id.clone(), *reason));
+                    tool_modifiers.push(None);
+                } else {
+                    tool_results.push(
+                        executable_results
+                            .next()
+                            .expect("tool execution result missing for executable tool call"),
+                    );
+                    tool_modifiers.push(
+                        executable_modifiers
+                            .next()
+                            .expect("tool execution modifier missing for executable tool call"),
+                    );
+                }
+            }
+
+            // Apply any context modifiers from skill executions before the next turn.
+            self.apply_context_modifiers(&tool_modifiers);
 
             // Display tool results
-            for result in &outcome.results {
+            for result in &tool_results {
                 if let ContentBlock::ToolResult {
                     tool_use_id,
                     content,
@@ -747,11 +818,26 @@ impl AgentEngine {
                 }
             }
 
-            self.messages
-                .push(Message::now(Role::User, outcome.results));
+            self.messages.push(Message::now(Role::User, tool_results));
 
             // Save session after each turn
             self.save_session();
+            let repeated_malformed_count =
+                repeated_malformed_tool_calls.observe(malformed_only_fingerprint);
+            if self.max_malformed_tool_call_turns > 0
+                && repeated_malformed_count >= self.max_malformed_tool_call_turns
+            {
+                tracing::warn!(
+                    target: "aion_agent",
+                    count = repeated_malformed_count,
+                    limit = self.max_malformed_tool_call_turns,
+                    "stopping repeated malformed tool call loop"
+                );
+                return Err(AgentError::RepeatedMalformedToolCall {
+                    count: repeated_malformed_count,
+                    limit: self.max_malformed_tool_call_turns,
+                });
+            }
             turn += 1;
         }
     }
@@ -1030,6 +1116,7 @@ mod set_config_tests {
             model: model.to_string(),
             max_tokens: 4096,
             max_turns: Some(10),
+            max_malformed_tool_call_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1358,6 +1445,7 @@ mod phase6_tests {
             model: model.to_string(),
             max_tokens: 4096,
             max_turns: Some(10),
+            max_malformed_tool_call_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1598,6 +1686,7 @@ mod compact_tests {
             model: "test-model".to_string(),
             max_tokens: 4096,
             max_turns: Some(10),
+            max_malformed_tool_call_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1939,6 +2028,7 @@ mod plan_mode_tests {
             model: "test-model".to_string(),
             max_tokens: 4096,
             max_turns: Some(10),
+            max_malformed_tool_call_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2151,6 +2241,7 @@ mod handle_command_tests {
             model: "test-model".to_string(),
             max_tokens: 4096,
             max_turns: Some(10),
+            max_malformed_tool_call_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2279,6 +2370,10 @@ pub struct AgentResult {
 pub enum AgentError {
     #[error("API error: {0}")]
     ApiError(String),
+    #[error(
+        "provider repeatedly returned malformed tool calls ({count}/{limit}); stopped to avoid wasting tokens"
+    )]
+    RepeatedMalformedToolCall { count: usize, limit: usize },
     #[error("Provider error: {0}")]
     Provider(#[from] ProviderError),
     #[error("User aborted the session")]

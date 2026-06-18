@@ -245,6 +245,7 @@ pub fn test_config() -> Config {
         model: "test-model".to_string(),
         max_tokens: 4096,
         max_turns: Some(10),
+        max_malformed_tool_call_turns: Some(3),
         system_prompt: Some("You are a test assistant.".to_string()),
         thinking: None,
         prompt_caching: false,
