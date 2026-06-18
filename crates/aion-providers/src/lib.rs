@@ -3,6 +3,7 @@ pub mod anthropic_shared;
 pub mod bedrock;
 pub mod openai;
 pub mod retry;
+mod tool_call_sanitize;
 pub mod vertex;
 
 use std::sync::Arc;

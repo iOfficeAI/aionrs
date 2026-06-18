@@ -10,7 +10,7 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use super::ProviderError;
-use super::openai::{DroppedToolCallReason, format_dropped_tool_call};
+use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use aion_config::compat::ProviderCompat;
 
 /// Convert internal Message format to Anthropic API message format.
