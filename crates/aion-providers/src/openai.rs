@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest};
@@ -42,9 +43,13 @@ impl OpenAIProvider {
     fn build_messages(messages: &[Message], system: &str, compat: &ProviderCompat) -> Vec<Value> {
         let mut result: Vec<Value> = Vec::new();
         let sanitize = compat.sanitize_malformed_tool_calls();
-        // tool_call ids dropped as malformed (empty name); their paired tool
-        // results must be skipped later to avoid orphan "tool" messages.
-        let mut dropped_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let auto_tool_id = compat.auto_tool_id();
+        let clean_orphan_tool_results = compat.clean_orphan_tool_results();
+        // tool_call ids dropped as malformed; their paired tool results must be
+        // skipped later to avoid orphan "tool" messages.
+        let mut dropped_ids: HashMap<String, VecDeque<DroppedToolCallReason>> = HashMap::new();
+        let mut available_tool_call_ids: HashSet<String> = HashSet::new();
+        let mut generated_tool_call_ids: HashMap<String, VecDeque<String>> = HashMap::new();
 
         // Check if any assistant message in the conversation has thinking content.
         // If so, DeepSeek API requires ALL assistant messages to include
@@ -82,12 +87,29 @@ impl OpenAIProvider {
                                 ..
                             } = block
                             {
-                                if dropped_ids.contains(tool_use_id) {
+                                if let Some(reasons) = dropped_ids.get_mut(tool_use_id)
+                                    && reasons.pop_front().is_some()
+                                {
+                                    continue;
+                                }
+                                let projected_tool_use_id = generated_tool_call_ids
+                                    .get_mut(tool_use_id)
+                                    .and_then(VecDeque::pop_front)
+                                    .unwrap_or_else(|| tool_use_id.clone());
+                                if clean_orphan_tool_results
+                                    && !available_tool_call_ids.contains(&projected_tool_use_id)
+                                {
+                                    tracing::warn!(
+                                        target: "aion_providers",
+                                        tool_call_id = %tool_use_id,
+                                        reason = "orphan_result",
+                                        "dropped orphan tool_result in outgoing request"
+                                    );
                                     continue;
                                 }
                                 result.push(json!({
                                     "role": "tool",
-                                    "tool_call_id": tool_use_id,
+                                    "tool_call_id": projected_tool_use_id,
                                     "content": content
                                 }));
                             }
@@ -161,17 +183,55 @@ impl OpenAIProvider {
                         } = b
                         {
                             if sanitize && name.is_empty() {
-                                dropped_ids.insert(id.clone());
-                                dropped_lines.push(format_dropped_tool_call(input));
+                                dropped_ids
+                                    .entry(id.clone())
+                                    .or_default()
+                                    .push_back(DroppedToolCallReason::EmptyName);
+                                dropped_lines.push(format_dropped_tool_call(
+                                    DroppedToolCallReason::EmptyName,
+                                    input,
+                                ));
                                 tracing::warn!(
                                     target: "aion_providers",
                                     tool_call_id = %id,
-                                    "downgraded malformed tool_call (empty name) to text in outgoing request"
+                                    reason = DroppedToolCallReason::EmptyName.log_reason(),
+                                    "downgraded malformed tool_call to text in outgoing request"
                                 );
                                 continue;
                             }
+
+                            if sanitize && id.is_empty() && !auto_tool_id {
+                                dropped_ids
+                                    .entry(id.clone())
+                                    .or_default()
+                                    .push_back(DroppedToolCallReason::EmptyId);
+                                dropped_lines.push(format_dropped_tool_call(
+                                    DroppedToolCallReason::EmptyId,
+                                    input,
+                                ));
+                                tracing::warn!(
+                                    target: "aion_providers",
+                                    tool_call_id = %id,
+                                    reason = DroppedToolCallReason::EmptyId.log_reason(),
+                                    "downgraded malformed tool_call to text in outgoing request"
+                                );
+                                continue;
+                            }
+
+                            let tool_id = if id.is_empty() && auto_tool_id {
+                                generate_call_id()
+                            } else {
+                                id.clone()
+                            };
+                            if id.is_empty() && auto_tool_id {
+                                generated_tool_call_ids
+                                    .entry(id.clone())
+                                    .or_default()
+                                    .push_back(tool_id.clone());
+                            }
+                            available_tool_call_ids.insert(tool_id.clone());
                             let mut tc_json = json!({
-                                "id": id,
+                                "id": tool_id,
                                 "type": "function",
                                 "function": {
                                     "name": name,
@@ -216,12 +276,29 @@ impl OpenAIProvider {
                             ..
                         } = block
                         {
-                            if dropped_ids.contains(tool_use_id) {
+                            if let Some(reasons) = dropped_ids.get_mut(tool_use_id)
+                                && reasons.pop_front().is_some()
+                            {
+                                continue;
+                            }
+                            let projected_tool_use_id = generated_tool_call_ids
+                                .get_mut(tool_use_id)
+                                .and_then(VecDeque::pop_front)
+                                .unwrap_or_else(|| tool_use_id.clone());
+                            if clean_orphan_tool_results
+                                && !available_tool_call_ids.contains(&projected_tool_use_id)
+                            {
+                                tracing::warn!(
+                                    target: "aion_providers",
+                                    tool_call_id = %tool_use_id,
+                                    reason = "orphan_result",
+                                    "dropped orphan tool_result in outgoing request"
+                                );
                                 continue;
                             }
                             result.push(json!({
                                 "role": "tool",
-                                "tool_call_id": tool_use_id,
+                                "tool_call_id": projected_tool_use_id,
                                 "content": content
                             }));
                         }
@@ -319,16 +396,61 @@ fn generate_call_id() -> String {
     format!("call_{:016x}", rand)
 }
 
-/// Format a malformed (empty-name) tool_call as a human/model-readable line
-/// to embed in the assistant content during projection. Shared by OpenAI and
-/// Anthropic projection paths so the wording stays identical across providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DroppedToolCallReason {
+    EmptyName,
+    EmptyId,
+}
+
+impl DroppedToolCallReason {
+    fn description(self) -> &'static str {
+        match self {
+            DroppedToolCallReason::EmptyName => "empty function name",
+            DroppedToolCallReason::EmptyId => "empty tool call id",
+        }
+    }
+
+    fn reissue_field(self) -> &'static str {
+        match self {
+            DroppedToolCallReason::EmptyName => "name",
+            DroppedToolCallReason::EmptyId => "id",
+        }
+    }
+
+    pub(crate) fn log_reason(self) -> &'static str {
+        match self {
+            DroppedToolCallReason::EmptyName => "empty_name",
+            DroppedToolCallReason::EmptyId => "empty_id",
+        }
+    }
+
+    pub(crate) fn short_placeholder(self) -> &'static str {
+        match self {
+            DroppedToolCallReason::EmptyName => {
+                "[tool call skipped: malformed (empty function name).]"
+            }
+            DroppedToolCallReason::EmptyId => {
+                "[tool call skipped: malformed (empty tool call id).]"
+            }
+        }
+    }
+}
+
+/// Format a malformed tool_call as a human/model-readable line to embed in the
+/// assistant content during projection. Shared by OpenAI and Anthropic
+/// projection paths so the wording stays identical across providers.
 /// `arguments` is the tool input, truncated to 100 chars on a char boundary.
-pub(crate) fn format_dropped_tool_call(input: &serde_json::Value) -> String {
+pub(crate) fn format_dropped_tool_call(
+    reason: DroppedToolCallReason,
+    input: &serde_json::Value,
+) -> String {
     let raw = serde_json::to_string(input).unwrap_or_default();
     let args = truncate_chars(&raw, 100);
     format!(
-        "[tool call skipped: malformed (empty function name). arguments={}. This call was not executed; re-issue with a valid name if still needed.]",
-        args
+        "[tool call skipped: malformed ({}). arguments={}. This call was not executed; re-issue with a valid {} if still needed.]",
+        reason.description(),
+        args,
+        reason.reissue_field()
     )
 }
 
@@ -394,8 +516,6 @@ fn dedup_tool_results(messages: &mut Vec<Value>) {
 
 /// Remove tool_call entries from assistant messages that have no corresponding tool result
 fn clean_orphaned_tool_calls(messages: &mut [Value], retain_empty_name_tool_calls: bool) {
-    use std::collections::HashSet;
-
     let answered_ids: HashSet<String> = messages
         .iter()
         .filter(|m| m["role"].as_str() == Some("tool"))
@@ -417,6 +537,9 @@ fn clean_orphaned_tool_calls(messages: &mut [Value], retain_empty_name_tool_call
             });
             if tcs.is_empty() {
                 msg.as_object_mut().unwrap().remove("tool_calls");
+                if msg.get("content").is_none() {
+                    msg["content"] = json!("");
+                }
             }
         }
     }
@@ -1004,6 +1127,292 @@ mod tests {
         assert_eq!(tcs.len(), 2);
     }
 
+    // F2-1
+    #[test]
+    fn test_reverse_orphan_tool_result_dropped() {
+        let messages = vec![Message::new(
+            Role::Tool,
+            vec![ContentBlock::ToolResult {
+                tool_use_id: "missing".into(),
+                content: "orphan".into(),
+                is_error: true,
+            }],
+        )];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        assert!(result.iter().all(|m| m["role"] != "tool"));
+    }
+
+    // F2-3
+    #[test]
+    fn test_reverse_orphan_tool_result_kept_when_disabled() {
+        let mut compat = openai_compat();
+        compat.clean_orphan_tool_results = Some(false);
+        let messages = vec![Message::new(
+            Role::Tool,
+            vec![ContentBlock::ToolResult {
+                tool_use_id: "missing".into(),
+                content: "orphan".into(),
+                is_error: true,
+            }],
+        )];
+        let result = OpenAIProvider::build_messages(&messages, "", &compat);
+        assert!(result.iter().any(|m| {
+            m["role"] == "tool" && m["tool_call_id"] == "missing" && m["content"] == "orphan"
+        }));
+    }
+
+    // F2-4
+    #[test]
+    fn test_forward_and_reverse_orphan_cleanup_do_not_conflict() {
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![
+                    ContentBlock::ToolUse {
+                        id: "matched".into(),
+                        name: "Bash".into(),
+                        input: json!({"command":"pwd"}),
+                        extra: None,
+                    },
+                    ContentBlock::ToolUse {
+                        id: "forward_orphan".into(),
+                        name: "Read".into(),
+                        input: json!({"file_path":"x"}),
+                        extra: None,
+                    },
+                ],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "matched".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "reverse_orphan".into(),
+                    content: "bad".into(),
+                    is_error: true,
+                }],
+            ),
+        ];
+
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
+        let tcs = assistant["tool_calls"].as_array().unwrap();
+        assert_eq!(tcs.len(), 1);
+        assert_eq!(tcs[0]["id"], "matched");
+        let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();
+        assert_eq!(tool_msgs.len(), 1);
+        assert_eq!(tool_msgs[0]["tool_call_id"], "matched");
+    }
+
+    // H2-1
+    #[test]
+    fn test_matched_tool_result_not_dropped_by_reverse_cleanup() {
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "call_x".into(),
+                    name: "Bash".into(),
+                    input: json!({"command":"ls"}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "call_x".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }],
+            ),
+        ];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        assert!(
+            result
+                .iter()
+                .any(|m| m["role"] == "tool" && m["tool_call_id"] == "call_x")
+        );
+    }
+
+    // F2-5
+    #[test]
+    fn test_empty_id_toolcall_downgraded_when_auto_id_disabled() {
+        let mut compat = openai_compat();
+        compat.auto_tool_id = Some(false);
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "".into(),
+                    name: "Bash".into(),
+                    input: json!({"command":"ls"}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "".into(),
+                    content: "orphan".into(),
+                    is_error: true,
+                }],
+            ),
+        ];
+        let result = OpenAIProvider::build_messages(&messages, "", &compat);
+        assert!(result.iter().all(|m| m["role"] != "tool"));
+        let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
+        assert!(assistant.get("tool_calls").is_none());
+        let content = assistant["content"].as_str().unwrap();
+        assert!(content.contains("[tool call skipped:"));
+        assert!(content.contains("empty tool call id"));
+        assert!(content.contains("arguments={\"command\":\"ls\"}"));
+    }
+
+    // F2-6
+    #[test]
+    fn test_empty_id_toolcall_generates_id_when_auto_id_enabled() {
+        let mut compat = openai_compat();
+        compat.auto_tool_id = Some(true);
+        compat.clean_orphan_tool_calls = Some(false);
+        let messages = vec![Message::new(
+            Role::Assistant,
+            vec![ContentBlock::ToolUse {
+                id: "".into(),
+                name: "Bash".into(),
+                input: json!({"command":"ls"}),
+                extra: None,
+            }],
+        )];
+        let result = OpenAIProvider::build_messages(&messages, "", &compat);
+        let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
+        let tc = &assistant["tool_calls"][0];
+        assert_eq!(tc["function"]["name"], "Bash");
+        assert!(tc["id"].as_str().unwrap().starts_with("call_"));
+        assert_ne!(tc["id"], "");
+    }
+
+    #[test]
+    fn test_empty_id_toolcall_rewrites_paired_result_when_auto_id_enabled() {
+        let mut compat = openai_compat();
+        compat.auto_tool_id = Some(true);
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "".into(),
+                    name: "Bash".into(),
+                    input: json!({"command":"ls"}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }],
+            ),
+        ];
+        let result = OpenAIProvider::build_messages(&messages, "", &compat);
+        let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
+        let generated_id = assistant["tool_calls"][0]["id"].as_str().unwrap();
+        assert!(generated_id.starts_with("call_"));
+        let tool = result.iter().find(|m| m["role"] == "tool").unwrap();
+        assert_eq!(tool["tool_call_id"], generated_id);
+        assert_eq!(tool["content"], "ok");
+    }
+
+    #[test]
+    fn test_result_before_matching_call_is_dropped() {
+        let messages = vec![
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "late".into(),
+                    content: "too early".into(),
+                    is_error: true,
+                }],
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "late".into(),
+                    name: "Bash".into(),
+                    input: json!({"command":"ls"}),
+                    extra: None,
+                }],
+            ),
+        ];
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        assert!(result.iter().all(|m| m["role"] != "tool"));
+        let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
+        assert!(assistant.get("tool_calls").is_none());
+        assert_eq!(assistant["content"], "");
+    }
+
+    #[test]
+    fn test_dropped_empty_id_does_not_consume_later_generated_empty_id_result() {
+        let mut compat = openai_compat();
+        compat.auto_tool_id = Some(true);
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "".into(),
+                    name: "".into(),
+                    input: json!({"bad":true}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "".into(),
+                    content: "bad result".into(),
+                    is_error: true,
+                }],
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "".into(),
+                    name: "Bash".into(),
+                    input: json!({"command":"ls"}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::Tool,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "".into(),
+                    content: "ok".into(),
+                    is_error: false,
+                }],
+            ),
+        ];
+        let result = OpenAIProvider::build_messages(&messages, "", &compat);
+        let assistant_with_call = result
+            .iter()
+            .find(|m| {
+                m["tool_calls"]
+                    .as_array()
+                    .is_some_and(|calls| !calls.is_empty())
+            })
+            .unwrap();
+        let generated_id = assistant_with_call["tool_calls"][0]["id"].as_str().unwrap();
+        let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();
+        assert_eq!(tool_msgs.len(), 1);
+        assert_eq!(tool_msgs[0]["tool_call_id"], generated_id);
+        assert_eq!(tool_msgs[0]["content"], "ok");
+    }
+
     // F1-1
     #[test]
     fn test_empty_name_toolcall_downgraded_and_paired_result_dropped() {
@@ -1569,12 +1978,21 @@ mod tests {
     #[test]
     fn test_format_dropped_tool_call_template() {
         assert_eq!(
-            format_dropped_tool_call(&json!({})),
+            format_dropped_tool_call(DroppedToolCallReason::EmptyName, &json!({})),
             "[tool call skipped: malformed (empty function name). arguments={}. This call was not executed; re-issue with a valid name if still needed.]"
         );
         assert_eq!(
-            format_dropped_tool_call(&json!({"a":1})),
+            format_dropped_tool_call(DroppedToolCallReason::EmptyName, &json!({"a":1})),
             "[tool call skipped: malformed (empty function name). arguments={\"a\":1}. This call was not executed; re-issue with a valid name if still needed.]"
+        );
+    }
+
+    // F2-8
+    #[test]
+    fn test_format_dropped_tool_call_empty_id_template() {
+        assert_eq!(
+            format_dropped_tool_call(DroppedToolCallReason::EmptyId, &json!({"command":"ls"})),
+            "[tool call skipped: malformed (empty tool call id). arguments={\"command\":\"ls\"}. This call was not executed; re-issue with a valid id if still needed.]"
         );
     }
 
@@ -1583,7 +2001,7 @@ mod tests {
     fn test_format_truncates_at_char_boundary() {
         // 150 multi-byte chars; must truncate to 100 chars with `…`, no panic.
         let big = "中".repeat(150);
-        let out = format_dropped_tool_call(&json!({"k": big}));
+        let out = format_dropped_tool_call(DroppedToolCallReason::EmptyId, &json!({"k": big}));
         assert!(out.contains('…'));
         assert!(out.starts_with("[tool call skipped:"));
         // Pin the exact 100-char truncation boundary: the args segment between

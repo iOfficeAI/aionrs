@@ -20,6 +20,10 @@ pub struct ProviderCompat {
     /// Default: true for openai.
     pub clean_orphan_tool_calls: Option<bool>,
 
+    /// Remove tool_result blocks that have no corresponding tool_use.
+    /// Default: true for provider families that support tool results.
+    pub clean_orphan_tool_results: Option<bool>,
+
     /// Deduplicate tool results with same tool_call_id (keep last).
     /// Default: true for openai.
     pub dedup_tool_results: Option<bool>,
@@ -79,6 +83,7 @@ impl ProviderCompat {
             supports_thinking: Some(true),
             supports_effort: Some(false),
             sanitize_malformed_tool_calls: Some(true),
+            clean_orphan_tool_results: Some(true),
             ..Default::default()
         }
     }
@@ -93,6 +98,7 @@ impl ProviderCompat {
             supports_thinking: Some(true),
             supports_effort: Some(false),
             sanitize_malformed_tool_calls: Some(true),
+            clean_orphan_tool_results: Some(true),
             ..Default::default()
         }
     }
@@ -103,6 +109,7 @@ impl ProviderCompat {
             max_tokens_field: Some("max_tokens".into()),
             merge_assistant_messages: Some(true),
             clean_orphan_tool_calls: Some(true),
+            clean_orphan_tool_results: Some(true),
             dedup_tool_results: Some(true),
             auto_tool_id: Some(true),
             supports_thinking: Some(false),
@@ -123,6 +130,9 @@ impl ProviderCompat {
             clean_orphan_tool_calls: user
                 .clean_orphan_tool_calls
                 .or(defaults.clean_orphan_tool_calls),
+            clean_orphan_tool_results: user
+                .clean_orphan_tool_results
+                .or(defaults.clean_orphan_tool_results),
             dedup_tool_results: user.dedup_tool_results.or(defaults.dedup_tool_results),
             sanitize_malformed_tool_calls: user
                 .sanitize_malformed_tool_calls
@@ -147,6 +157,10 @@ impl ProviderCompat {
 
     pub fn clean_orphan_tool_calls(&self) -> bool {
         self.clean_orphan_tool_calls.unwrap_or(false)
+    }
+
+    pub fn clean_orphan_tool_results(&self) -> bool {
+        self.clean_orphan_tool_results.unwrap_or(false)
     }
 
     pub fn dedup_tool_results(&self) -> bool {
@@ -275,9 +289,32 @@ mod tests {
         let compat = ProviderCompat::openai_defaults();
         assert!(compat.merge_assistant_messages());
         assert!(compat.clean_orphan_tool_calls());
+        assert!(compat.clean_orphan_tool_results());
         assert!(compat.dedup_tool_results());
         assert_eq!(compat.max_tokens_field.as_deref(), Some("max_tokens"));
         assert!(!compat.ensure_alternation());
+    }
+
+    #[test]
+    fn test_clean_orphan_tool_results_defaults() {
+        assert_eq!(
+            ProviderCompat::openai_defaults().clean_orphan_tool_results,
+            Some(true)
+        );
+        assert_eq!(
+            ProviderCompat::anthropic_defaults().clean_orphan_tool_results,
+            Some(true)
+        );
+        assert_eq!(
+            ProviderCompat::bedrock_defaults().clean_orphan_tool_results,
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn test_clean_orphan_tool_results_accessor_defaults_false() {
+        let compat = ProviderCompat::default();
+        assert!(!compat.clean_orphan_tool_results());
     }
 
     #[test]
@@ -297,7 +334,21 @@ mod tests {
         assert!(!merged.merge_assistant_messages());
         // Non-overridden fields keep defaults
         assert!(merged.clean_orphan_tool_calls());
+        assert!(merged.clean_orphan_tool_results());
         assert!(merged.dedup_tool_results());
+    }
+
+    #[test]
+    fn test_merge_clean_orphan_tool_results_user_overrides() {
+        let defaults = ProviderCompat::openai_defaults();
+        let user = ProviderCompat {
+            clean_orphan_tool_results: Some(false),
+            ..Default::default()
+        };
+
+        let merged = ProviderCompat::merge(defaults, user);
+        assert_eq!(merged.clean_orphan_tool_results, Some(false));
+        assert!(!merged.clean_orphan_tool_results());
     }
 
     #[test]
@@ -457,6 +508,7 @@ mod tests {
         let toml_str = r#"
 max_tokens_field = "max_completion_tokens"
 merge_assistant_messages = true
+clean_orphan_tool_results = false
 strip_patterns = ["__REASONING__"]
 "#;
         let compat: ProviderCompat = toml::from_str(toml_str).unwrap();
@@ -465,6 +517,7 @@ strip_patterns = ["__REASONING__"]
             Some("max_completion_tokens")
         );
         assert_eq!(compat.merge_assistant_messages, Some(true));
+        assert_eq!(compat.clean_orphan_tool_results, Some(false));
         assert_eq!(
             compat.strip_patterns,
             Some(vec!["__REASONING__".to_string()])

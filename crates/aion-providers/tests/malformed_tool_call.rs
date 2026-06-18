@@ -35,6 +35,29 @@ fn malformed_history() -> Vec<Message> {
     ]
 }
 
+fn reverse_orphan_history() -> Vec<Message> {
+    vec![Message::new(
+        Role::Tool,
+        vec![ContentBlock::ToolResult {
+            tool_use_id: "missing".into(),
+            content: "orphan".into(),
+            is_error: true,
+        }],
+    )]
+}
+
+fn empty_id_history() -> Vec<Message> {
+    vec![Message::new(
+        Role::Assistant,
+        vec![ContentBlock::ToolUse {
+            id: "".into(),
+            name: "Bash".into(),
+            input: json!({"command":"ls"}),
+            extra: None,
+        }],
+    )]
+}
+
 fn openai_request(messages: Vec<Message>) -> LlmRequest {
     LlmRequest {
         model: "gpt-4o".into(),
@@ -135,4 +158,61 @@ async fn test_both_providers_produce_no_empty_name_and_no_orphan() {
         .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
         .any(|b| b["type"] == "tool_result" && b["tool_use_id"] == "call_x");
     assert!(!any_orphan);
+}
+
+// F2-10
+#[tokio::test]
+async fn test_public_projection_drops_reverse_orphan_results() {
+    let request = openai_request(reverse_orphan_history());
+    let before = serde_json::to_string(&request.messages).unwrap();
+
+    let oa = openai_projected_messages(&request).await;
+    assert!(oa.iter().all(|m| m["role"] != "tool"));
+
+    let after = serde_json::to_string(&request.messages).unwrap();
+    assert_eq!(before, after);
+
+    let an =
+        anthropic_shared::build_messages(&request.messages, &ProviderCompat::anthropic_defaults());
+    let any_orphan = an
+        .iter()
+        .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
+        .any(|b| b["type"] == "tool_result" && b["tool_use_id"] == "missing");
+    assert!(!any_orphan);
+}
+
+// F2-11
+#[tokio::test]
+async fn test_public_projection_downgrades_empty_id_when_auto_id_disabled() {
+    let request = openai_request(empty_id_history());
+    let before = serde_json::to_string(&request.messages).unwrap();
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_raw(openai_sse_body(), "text/event-stream"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut compat = ProviderCompat::openai_defaults();
+    compat.auto_tool_id = Some(false);
+    let provider = OpenAIProvider::new("test-key", &server.uri(), compat);
+    let rx = provider.stream(&request).await.unwrap();
+    let _ = collect_events(rx).await;
+    server.verify().await;
+
+    let received = server.received_requests().await.unwrap();
+    let body: Value = received[0].body_json().unwrap();
+    let messages = body["messages"].as_array().unwrap();
+    let assistant = messages.iter().find(|m| m["role"] == "assistant").unwrap();
+    assert!(assistant.get("tool_calls").is_none());
+    let content = assistant["content"].as_str().unwrap();
+    assert!(content.contains("empty tool call id"));
+    assert!(content.contains("arguments={\"command\":\"ls\"}"));
+
+    let after = serde_json::to_string(&request.messages).unwrap();
+    assert_eq!(before, after);
 }
