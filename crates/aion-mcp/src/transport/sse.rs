@@ -67,7 +67,10 @@ impl SseTransport {
         // Read initial events to get the endpoint URL
         while let Some(chunk) = bytes_stream.next().await {
             let chunk = chunk.map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            // Normalize CRLF to LF: Python `fastmcp` / MCP SDK servers emit
+            // `\r\n` separators (via `sse-starlette`), so event boundaries are
+            // `\r\n\r\n` and would not match a `\n\n` search otherwise.
+            buffer.push_str(&String::from_utf8_lossy(&chunk).replace('\r', ""));
 
             // Parse SSE events from buffer
             while let Some(event_end) = buffer.find("\n\n") {
@@ -102,7 +105,7 @@ impl SseTransport {
             let mut buf = buffer; // carry over remaining buffer
             while let Some(chunk) = bytes_stream.next().await {
                 let Ok(chunk) = chunk else { break };
-                buf.push_str(&String::from_utf8_lossy(&chunk));
+                buf.push_str(&String::from_utf8_lossy(&chunk).replace('\r', ""));
 
                 while let Some(event_end) = buf.find("\n\n") {
                     let event_block = buf[..event_end].to_string();

@@ -107,25 +107,8 @@ impl StreamableHttpTransport {
             let chunk = chunk.map_err(|e| McpError::Transport(format!("SSE read error: {}", e)))?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-            // Parse SSE events
-            while let Some(event_end) = buffer.find("\n\n") {
-                let event_block = buffer[..event_end].to_string();
-                buffer = buffer[event_end + 2..].to_string();
-
-                // Extract data lines
-                let mut data_lines = Vec::new();
-                for line in event_block.lines() {
-                    if let Some(value) = line.strip_prefix("data:") {
-                        data_lines.push(value.trim().to_string());
-                    }
-                }
-
-                let data = data_lines.join("\n");
-                if !data.is_empty()
-                    && let Ok(rpc_response) = serde_json::from_str::<JsonRpcResponse>(&data)
-                {
-                    return Ok(rpc_response);
-                }
+            if let Some(rpc_response) = extract_jsonrpc_from_sse_buffer(&buffer) {
+                return Ok(rpc_response);
             }
         }
 
@@ -133,6 +116,36 @@ impl StreamableHttpTransport {
             "SSE stream ended without JSON-RPC response".into(),
         ))
     }
+}
+
+/// Extract the first complete JSON-RPC response from an accumulated SSE buffer.
+///
+/// Tolerant of both LF (`\n`) and CRLF (`\r\n`) line endings: Node
+/// `@modelcontextprotocol/sdk` servers emit LF, while Python `fastmcp` / MCP
+/// SDK servers (via `sse-starlette`, whose default separator is CRLF) emit
+/// `\r\n\r\n` event terminators. Returns `None` until the buffer holds a
+/// complete event carrying a parseable JSON-RPC response.
+fn extract_jsonrpc_from_sse_buffer(buffer: &str) -> Option<JsonRpcResponse> {
+    // Normalize CRLF to LF so blank-line event boundaries are detectable.
+    let normalized = buffer.replace('\r', "");
+
+    for event_block in normalized.split("\n\n") {
+        let mut data_lines = Vec::new();
+        for line in event_block.lines() {
+            if let Some(value) = line.strip_prefix("data:") {
+                data_lines.push(value.trim());
+            }
+        }
+
+        let data = data_lines.join("\n");
+        if !data.is_empty()
+            && let Ok(rpc_response) = serde_json::from_str::<JsonRpcResponse>(&data)
+        {
+            return Some(rpc_response);
+        }
+    }
+
+    None
 }
 
 #[async_trait]
@@ -182,5 +195,46 @@ impl McpTransport for StreamableHttpTransport {
     async fn close(&self) -> Result<(), McpError> {
         // No persistent connection to close for HTTP
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Servers built on the MCP Python SDK / `fastmcp` use `sse-starlette`,
+    /// whose default SSE line separator is CRLF (`\r\n`). The event terminator
+    /// is therefore `\r\n\r\n`, which does not contain `\n\n`. The parser must
+    /// still recover the JSON-RPC response, otherwise such servers connect but
+    /// expose no tools to the model.
+    #[test]
+    fn extracts_jsonrpc_from_crlf_delimited_sse() {
+        let body = "event: message\r\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}\r\n\r\n";
+        let resp = extract_jsonrpc_from_sse_buffer(body).expect("should parse CRLF SSE");
+        assert_eq!(resp.id, Some(2));
+        assert!(resp.result.is_some());
+    }
+
+    /// Node `@modelcontextprotocol/sdk` servers emit LF-delimited SSE.
+    #[test]
+    fn extracts_jsonrpc_from_lf_delimited_sse() {
+        let body = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\n\n";
+        let resp = extract_jsonrpc_from_sse_buffer(body).expect("should parse LF SSE");
+        assert_eq!(resp.id, Some(1));
+    }
+
+    /// Data split across multiple `data:` lines must be reassembled.
+    #[test]
+    fn reassembles_multiline_data() {
+        let body = "data: {\"jsonrpc\":\"2.0\",\r\ndata: \"id\":7,\"result\":{}}\r\n\r\n";
+        let resp = extract_jsonrpc_from_sse_buffer(body).expect("should join data lines");
+        assert_eq!(resp.id, Some(7));
+    }
+
+    /// Notifications (no `id`) and comment/ping lines must be skipped.
+    #[test]
+    fn returns_none_without_complete_response() {
+        let body = ": keep-alive\r\n\r\nevent: message\r\ndata: not-json\r\n\r\n";
+        assert!(extract_jsonrpc_from_sse_buffer(body).is_none());
     }
 }
