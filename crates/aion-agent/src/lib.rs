@@ -11,6 +11,7 @@ pub mod engine;
 pub mod orchestration;
 pub mod output;
 pub mod plan;
+pub mod error;
 pub mod session;
 pub mod skill_tool;
 pub mod spawn_tool;

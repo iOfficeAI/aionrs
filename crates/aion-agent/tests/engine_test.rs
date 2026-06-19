@@ -2,7 +2,8 @@ mod common;
 
 use std::sync::{Arc, Mutex};
 
-use aion_agent::engine::{AgentEngine, AgentError};
+use aion_agent::engine::AgentEngine;
+use aion_agent::error::AgentError;
 use aion_agent::output::OutputSink;
 use aion_agent::output::terminal::TerminalSink;
 use aion_agent::session::SessionManager;

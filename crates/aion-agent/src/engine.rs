@@ -2,21 +2,11 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use aion_config::compact::CompactConfig;
-use aion_config::config::Config;
-use aion_config::hooks::HookEngine;
-use aion_protocol::events::ToolCategory;
-use aion_providers::{LlmProvider, ProviderError, create_provider};
-use aion_tools::registry::ToolRegistry;
-use aion_types::llm::{LlmEvent, LlmRequest};
-use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
-use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
-use tracing::Instrument;
-
 use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::compact::state::CompactState;
 use crate::compact::{auto, emergency, estimate, micro};
 use crate::confirm::ToolConfirmer;
+use crate::error::AgentError;
 use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
 };
@@ -29,6 +19,24 @@ use crate::tool_call::{
     malformed_only_fingerprint, reason as malformed_tool_call_reason,
     synthetic_result as synthetic_malformed_tool_result,
 };
+use aion_config::compact::CompactConfig;
+use aion_config::config::Config;
+use aion_config::hooks::HookEngine;
+use aion_protocol::events::ToolCategory;
+use aion_providers::provider::{LlmProvider, create_provider};
+use aion_tools::registry::ToolRegistry;
+use aion_types::llm::{LlmEvent, LlmRequest};
+use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
+use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
+use tracing::Instrument;
+
+#[derive(Debug)]
+pub struct AgentResult {
+    pub text: String,
+    pub stop_reason: StopReason,
+    pub usage: TokenUsage,
+    pub turns: usize,
+}
 
 pub struct AgentEngine {
     provider: Arc<dyn LlmProvider>,
@@ -1073,10 +1081,11 @@ impl AgentEngine {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod set_config_tests {
+mod tests_set_config {
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::{LlmProvider, ProviderError};
+    use aion_providers::error::ProviderError;
+    use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
 
@@ -1401,10 +1410,11 @@ mod set_config_tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod phase6_tests {
+mod tests_phase6 {
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::{LlmProvider, ProviderError};
+    use aion_providers::error::ProviderError;
+    use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
     use aion_types::skill_types::{ContextModifier, EffortLevel};
@@ -1598,11 +1608,12 @@ mod phase6_tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod compact_tests {
+mod tests_compact {
     use std::sync::{Arc, Mutex};
 
     use aion_config::compact::CompactConfig;
-    use aion_providers::{LlmProvider, ProviderError};
+    use aion_providers::error::ProviderError;
+    use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
     use aion_types::message::{ContentBlock, Message, Role};
@@ -1980,11 +1991,12 @@ mod compact_tests {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-mod plan_mode_tests {
+mod tests_plan_mode {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::{LlmProvider, ProviderError};
+    use aion_providers::error::ProviderError;
+    use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
     use aion_types::skill_types::{ContextModifier, PlanModeTransition};
@@ -2196,10 +2208,11 @@ mod plan_mode_tests {
 }
 
 #[cfg(test)]
-mod handle_command_tests {
+mod tests_handle_command {
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::{LlmProvider, ProviderError};
+    use aion_providers::error::ProviderError;
+    use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
     use aion_types::message::{ContentBlock, Message, Role};
@@ -2356,28 +2369,4 @@ mod handle_command_tests {
         assert!(names.contains(&"clear"));
         assert!(names.contains(&"quit"));
     }
-}
-
-#[derive(Debug)]
-pub struct AgentResult {
-    pub text: String,
-    pub stop_reason: StopReason,
-    pub usage: TokenUsage,
-    pub turns: usize,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum AgentError {
-    #[error("API error: {0}")]
-    ApiError(String),
-    #[error(
-        "provider repeatedly returned malformed tool calls ({count}/{limit}); stopped to avoid wasting tokens"
-    )]
-    RepeatedMalformedToolCall { count: usize, limit: usize },
-    #[error("Provider error: {0}")]
-    Provider(#[from] ProviderError),
-    #[error("User aborted the session")]
-    UserAborted,
-    #[error("Context window nearly full ({input_tokens} tokens used, limit {limit})")]
-    ContextTooLong { input_tokens: u64, limit: usize },
 }

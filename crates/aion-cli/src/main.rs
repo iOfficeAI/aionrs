@@ -339,7 +339,7 @@ async fn repl_loop(
                     );
                 }
             }
-            Err(aion_agent::engine::AgentError::UserAborted) => break,
+            Err(aion_agent::error::AgentError::UserAborted) => break,
             Err(e) => {
                 output.emit_error(&e.to_string());
             }

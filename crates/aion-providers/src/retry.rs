@@ -4,7 +4,7 @@ use std::time::Duration;
 use reqwest::header::HeaderMap;
 use serde_json::Value;
 
-use super::ProviderError;
+use crate::error::ProviderError;
 use super::anthropic_shared::StreamOutcome;
 
 /// Retry a fallible async operation with exponential backoff
@@ -136,7 +136,7 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     use super::*;
-    use crate::ProviderError;
+    use crate::error::ProviderError;
 
     #[tokio::test]
     async fn test_retry_succeeds_first_try() {
