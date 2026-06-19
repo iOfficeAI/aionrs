@@ -191,4 +191,44 @@ mod tests {
             result.content
         );
     }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn execute_powershell_write_output_returns_stdout() {
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        let input = json!({
+            "cmd": "Write-Output aion_powershell_stdout_probe",
+            "shell": "powershell"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(
+            result.content.contains("STDOUT:\n")
+                && result.content.contains("aion_powershell_stdout_probe"),
+            "PowerShell stdout should be preserved, got: {}",
+            result.content
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn execute_cmd_echo_returns_stdout() {
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        let input = json!({
+            "cmd": "echo aion_cmd_stdout_probe",
+            "shell": "cmd"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(
+            result.content.contains("STDOUT:\n")
+                && result.content.contains("aion_cmd_stdout_probe"),
+            "cmd stdout should be preserved, got: {}",
+            result.content
+        );
+    }
 }

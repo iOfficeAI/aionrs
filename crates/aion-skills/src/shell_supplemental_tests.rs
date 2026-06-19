@@ -238,6 +238,19 @@ async fn tc_4_5_cwd_used() {
     );
 }
 
+#[cfg(windows)]
+#[tokio::test]
+async fn tc_windows_skill_shell_powershell_stdout_preserved() {
+    let result = run("before !`Write-Output aion_skill_stdout_probe` after")
+        .await
+        .unwrap();
+
+    assert!(
+        result.contains("aion_skill_stdout_probe"),
+        "skill embedded shell stdout should be preserved, got: {result}"
+    );
+}
+
 // TC-4.6: 命令输出为空 → output 为空字符串
 #[tokio::test]
 async fn tc_4_6_empty_output() {

@@ -164,9 +164,11 @@ pub fn build_system_prompt_with_shell(
              Working directory: {cwd}\n\
              Current date: {}\n\
              Operating system: {}\n\
+             Architecture: {}\n\
              {}",
             chrono::Local::now().format("%Y-%m-%d"),
             std::env::consts::OS,
+            std::env::consts::ARCH,
             shell_prompt
         )
     });
@@ -717,6 +719,10 @@ mod tests {
         );
 
         assert!(result.contains("Operating system:"));
+        assert!(
+            result.contains(&format!("Architecture: {}", std::env::consts::ARCH)),
+            "system prompt should include current CPU architecture"
+        );
         assert!(result.contains("Default shell: powershell"));
         assert!(result.contains(r"Shell path: C:\Program Files\PowerShell\7\pwsh.exe"));
         assert!(result.contains("Shell syntax: powershell"));
