@@ -4,8 +4,8 @@ use std::time::Duration;
 use reqwest::header::HeaderMap;
 use serde_json::Value;
 
-use crate::error::ProviderError;
 use super::anthropic_shared::StreamOutcome;
+use crate::error::ProviderError;
 
 /// Retry a fallible async operation with exponential backoff
 pub async fn with_retry<F, Fut, T>(max_retries: u32, f: F) -> Result<T, ProviderError>
