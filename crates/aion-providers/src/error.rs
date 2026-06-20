@@ -380,7 +380,7 @@ fn classify_provider_failure_kind(raw: &ProviderRawSignals) -> ProviderFailureKi
     let status = raw.status;
     let text = signal_text(raw);
 
-    if status == Some(401) || has_any(&text, &auth_invalid_signals()) {
+    if status == Some(401) || has_any(&text, auth_invalid_signals()) {
         return ProviderFailureKind::AuthFailed;
     }
 

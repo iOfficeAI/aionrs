@@ -330,39 +330,6 @@ fn non_interactive_prompt_run_result(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn non_interactive_prompt_error_returns_error() {
-        let result = super::non_interactive_prompt_run_result(Some(
-            aion_agent::error::AgentError::UserAborted,
-        ));
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn add_mcp_after_message_uses_protocol_state_violation_public_error() {
-        let error = add_mcp_after_message_public_error("tools");
-
-        assert_eq!(error.code, PublicErrorCode::ProtocolStateViolation);
-        assert_eq!(error.ownership, ErrorOwnership::Host);
-        assert_eq!(
-            error.details,
-            vec![PublicErrorDetail::new(
-                PublicErrorDetailKey::Command,
-                "add_mcp_server",
-            )]
-        );
-        assert_eq!(
-            error.message,
-            "AddMcpServer 'tools': rejected - only allowed before first Message"
-        );
-    }
-}
-
 async fn repl_loop(
     engine: &mut aion_agent::engine::AgentEngine,
     terminal: &Arc<TerminalSink>,
@@ -806,4 +773,37 @@ async fn run_json_stream_mode(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_interactive_prompt_error_returns_error() {
+        let result = super::non_interactive_prompt_run_result(Some(
+            aion_agent::error::AgentError::UserAborted,
+        ));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn add_mcp_after_message_uses_protocol_state_violation_public_error() {
+        let error = add_mcp_after_message_public_error("tools");
+
+        assert_eq!(error.code, PublicErrorCode::ProtocolStateViolation);
+        assert_eq!(error.ownership, ErrorOwnership::Host);
+        assert_eq!(
+            error.details,
+            vec![PublicErrorDetail::new(
+                PublicErrorDetailKey::Command,
+                "add_mcp_server",
+            )]
+        );
+        assert_eq!(
+            error.message,
+            "AddMcpServer 'tools': rejected - only allowed before first Message"
+        );
+    }
 }
