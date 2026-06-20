@@ -12,6 +12,7 @@ pub mod error;
 pub mod orchestration;
 pub mod output;
 pub mod plan;
+pub mod public_error;
 pub mod session;
 pub mod skill_tool;
 pub mod spawn_tool;

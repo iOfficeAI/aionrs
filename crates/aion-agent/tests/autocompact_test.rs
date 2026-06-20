@@ -19,7 +19,7 @@ use aion_agent::compact::prompt::{
 };
 use aion_agent::compact::state::CompactState;
 use aion_config::compact::CompactConfig;
-use aion_providers::{LlmProvider, ProviderError};
+use aion_providers::{LlmProvider, ProviderError, ProviderFailure, ProviderStreamReceiver};
 use aion_types::compact::CompactTrigger;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
@@ -28,11 +28,21 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 
 /// A mock LLM provider that returns pre-configured responses in order.
 struct MockProvider {
-    responses: Mutex<VecDeque<Result<Vec<LlmEvent>, ProviderError>>>,
+    responses: Mutex<VecDeque<Result<Vec<Result<LlmEvent, ProviderFailure>>, ProviderFailure>>>,
 }
 
 impl MockProvider {
-    fn new(responses: Vec<Result<Vec<LlmEvent>, ProviderError>>) -> Self {
+    fn new(responses: Vec<Result<Vec<LlmEvent>, ProviderFailure>>) -> Self {
+        let responses = responses
+            .into_iter()
+            .map(|response| response.map(|events| events.into_iter().map(Ok).collect()))
+            .collect();
+        Self::new_streams(responses)
+    }
+
+    fn new_streams(
+        responses: Vec<Result<Vec<Result<LlmEvent, ProviderFailure>>, ProviderFailure>>,
+    ) -> Self {
         Self {
             responses: Mutex::new(VecDeque::from(responses)),
         }
@@ -54,7 +64,7 @@ impl MockProvider {
     }
 
     /// Create a provider that returns an error.
-    fn with_error(error: ProviderError) -> Self {
+    fn with_error(error: ProviderFailure) -> Self {
         Self::new(vec![Err(error)])
     }
 }
@@ -64,7 +74,7 @@ impl LlmProvider for MockProvider {
     async fn stream(
         &self,
         _request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         let response = self
             .responses
             .lock()
@@ -75,8 +85,8 @@ impl LlmProvider for MockProvider {
         match response {
             Ok(events) => {
                 let (tx, rx) = mpsc::channel(events.len() + 1);
-                for event in events {
-                    tx.send(event).await.ok();
+                for item in events {
+                    tx.send(item).await.ok();
                 }
                 Ok(rx)
             }
@@ -315,10 +325,13 @@ async fn tc_2_4_16_success_resets_failure_counter() {
 
 #[tokio::test]
 async fn tc_2_4_17_failure_increments_counter() {
-    let provider = MockProvider::with_error(ProviderError::Api {
-        status: 500,
-        message: "Internal error".to_string(),
-    });
+    let provider = MockProvider::with_error(
+        ProviderError::Api {
+            status: 500,
+            message: "Internal error".to_string(),
+        }
+        .into(),
+    );
     let messages = sample_conversation(10);
     let config = default_config();
     let mut state = CompactState::new();
@@ -334,9 +347,7 @@ async fn tc_2_4_17_failure_increments_counter() {
 async fn tc_2_4_18_ptl_retry_succeeds() {
     let provider = MockProvider::new(vec![
         // First attempt: prompt too long
-        Err(ProviderError::PromptTooLong(
-            "prompt exceeds limit".to_string(),
-        )),
+        Err(ProviderError::PromptTooLong("prompt exceeds limit".to_string()).into()),
         // Second attempt (after truncation): success
         Ok(vec![
             LlmEvent::TextDelta("<summary>retried summary</summary>".to_string()),
@@ -373,9 +384,9 @@ async fn tc_2_4_18_ptl_retry_succeeds() {
 #[tokio::test]
 async fn tc_2_4_19_ptl_retry_exhausted() {
     let provider = MockProvider::new(vec![
-        Err(ProviderError::PromptTooLong("too long 1".to_string())),
-        Err(ProviderError::PromptTooLong("too long 2".to_string())),
-        Err(ProviderError::PromptTooLong("too long 3".to_string())),
+        Err(ProviderError::PromptTooLong("too long 1".to_string()).into()),
+        Err(ProviderError::PromptTooLong("too long 2".to_string()).into()),
+        Err(ProviderError::PromptTooLong("too long 3".to_string()).into()),
     ]);
 
     let messages = sample_conversation(20);
@@ -407,7 +418,7 @@ async fn tc_2_4_20_ptl_retry_truncates_messages() {
         async fn stream(
             &self,
             request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<ProviderStreamReceiver, ProviderFailure> {
             // Scope the lock so the MutexGuard is dropped before the await
             let current_attempt = {
                 let mut attempt = self.attempt.lock().unwrap();
@@ -418,20 +429,20 @@ async fn tc_2_4_20_ptl_retry_truncates_messages() {
             };
 
             if current_attempt == 0 {
-                return Err(ProviderError::PromptTooLong("too long".to_string()));
+                return Err(ProviderError::PromptTooLong("too long".to_string()).into());
             }
 
             // Second attempt: succeed
             let (tx, rx) = mpsc::channel(2);
-            tx.send(LlmEvent::TextDelta(
+            tx.send(Ok(LlmEvent::TextDelta(
                 "<summary>truncated summary</summary>".to_string(),
-            ))
+            )))
             .await
             .ok();
-            tx.send(LlmEvent::Done {
+            tx.send(Ok(LlmEvent::Done {
                 stop_reason: StopReason::EndTurn,
                 usage: TokenUsage::default(),
-            })
+            }))
             .await
             .ok();
             Ok(rx)
@@ -484,9 +495,9 @@ async fn empty_response_fails() {
 
 #[tokio::test]
 async fn stream_error_fails() {
-    let provider = MockProvider::new(vec![Ok(vec![
-        LlmEvent::TextDelta("partial".to_string()),
-        LlmEvent::Error("connection reset".to_string()),
+    let provider = MockProvider::new_streams(vec![Ok(vec![
+        Ok(LlmEvent::TextDelta("partial".to_string())),
+        Err(ProviderError::Connection("connection reset".to_string()).into()),
     ])]);
 
     let messages = sample_conversation(10);
@@ -494,7 +505,7 @@ async fn stream_error_fails() {
     let mut state = CompactState::new();
 
     let result = autocompact(&provider, &messages, "test-model", &config, &mut state).await;
-    assert!(matches!(result, Err(CompactError::StreamError(_))));
+    assert!(matches!(result, Err(CompactError::Provider(_))));
     assert_eq!(state.consecutive_failures, 1);
 }
 

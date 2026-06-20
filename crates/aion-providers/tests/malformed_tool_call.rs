@@ -1,7 +1,7 @@
 use aion_config::compat::ProviderCompat;
-use aion_providers::LlmProvider;
 use aion_providers::anthropic_shared;
 use aion_providers::openai::OpenAIProvider;
+use aion_providers::{LlmProvider, ProviderFailure};
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role};
 use serde_json::{Value, json};
@@ -70,9 +70,12 @@ fn openai_request(messages: Vec<Message>) -> LlmRequest {
     }
 }
 
-async fn collect_events(mut rx: tokio::sync::mpsc::Receiver<LlmEvent>) -> Vec<LlmEvent> {
+async fn collect_events(
+    mut rx: tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>,
+) -> Vec<LlmEvent> {
     let mut events = Vec::new();
-    while let Some(event) = rx.recv().await {
+    while let Some(item) = rx.recv().await {
+        let event = item.expect("provider stream item should be an event");
         events.push(event);
     }
     events

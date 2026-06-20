@@ -226,20 +226,36 @@ An error occurred. The agent may or may not continue depending on severity.
   "type": "error",
   "msg_id": "abc-123",
   "error": {
-    "code": "provider_error",
-    "message": "Rate limit exceeded",
-    "retryable": true
+    "code": "provider_rate_limited",
+    "message": "Rate limit exceeded. Retry after 30s.",
+    "ownership": "provider",
+    "details": [
+      {
+        "key": "provider",
+        "value": "openai"
+      },
+      {
+        "key": "status",
+        "value": "429"
+      }
+    ]
   }
 }
 ```
 
-| Error Code | Description |
-|------------|-------------|
-| `provider_error` | LLM API error (rate limit, auth, etc.) |
-| `tool_error` | Built-in tool execution error |
-| `config_error` | Configuration or initialization error |
-| `protocol_error` | Invalid command from client |
-| `internal_error` | Unexpected internal error |
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | string | Stable snake_case public error code, for example `provider_rate_limited`, `tool_execution_failed`, `protocol_parse_failed`, or `internal_error` |
+| `message` | string | Human-readable error message suitable for display |
+| `ownership` | string | Responsible party: `user`, `provider`, `aionrs`, `host`, `tool`, `mcp_server`, or `unknown` |
+| `details` | array | Structured key/value metadata entries; always present and empty when no metadata is available |
+
+Each `details` entry has:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | string | Stable snake_case detail key, such as `provider`, `model`, `status`, `request_id`, `phase`, `config_key`, `profile`, `session_id`, `tool_name`, `mcp_server`, `mcp_capability`, `command`, `raw_code`, or `raw_type` |
+| `value` | string | Detail value |
 
 ### 1.11 `info`
 
@@ -490,9 +506,15 @@ After the first `message`, any further `add_mcp_server` commands are rejected:
 {
   "type": "error",
   "error": {
-    "code": "protocol_error",
-    "message": "AddMcpServer 'name': rejected — only allowed before first Message",
-    "retryable": false
+    "code": "protocol_state_violation",
+    "message": "AddMcpServer 'name': rejected - only allowed before first Message",
+    "ownership": "host",
+    "details": [
+      {
+        "key": "command",
+        "value": "add_mcp_server"
+      }
+    ]
   }
 }
 ```
@@ -583,16 +605,23 @@ Client closes stdin (EOF) or sends SIGTERM. Agent cleans up and exits.
 
 ### 4.1 Invalid Command
 
-If client sends malformed JSON or unknown command type:
+`protocol_parse_failed` is reserved for host-visible command parse failures such as malformed JSON or an unknown command type. The current stdin reader logs malformed lines before command dispatch and continues; commands that parse successfully but violate the current state are emitted as `protocol_state_violation`.
+
+Reserved shape:
 
 ```json
 {
   "type": "error",
-  "msg_id": null,
   "error": {
-    "code": "protocol_error",
+    "code": "protocol_parse_failed",
     "message": "Unknown command type: foo",
-    "retryable": false
+    "ownership": "host",
+    "details": [
+      {
+        "key": "raw_type",
+        "value": "foo"
+      }
+    ]
   }
 }
 ```
@@ -606,9 +635,19 @@ Agent should emit error and let the conversation continue if possible:
   "type": "error",
   "msg_id": "m3",
   "error": {
-    "code": "provider_error",
+    "code": "provider_rate_limited",
     "message": "Rate limit exceeded. Retry after 30s.",
-    "retryable": true
+    "ownership": "provider",
+    "details": [
+      {
+        "key": "provider",
+        "value": "openai"
+      },
+      {
+        "key": "status",
+        "value": "429"
+      }
+    ]
   }
 }
 ```
@@ -620,11 +659,16 @@ For unrecoverable errors, agent emits error and exits with non-zero status:
 ```json
 {
   "type": "error",
-  "msg_id": null,
   "error": {
-    "code": "config_error",
+    "code": "config_env_missing",
     "message": "ANTHROPIC_API_KEY not set",
-    "retryable": false
+    "ownership": "user",
+    "details": [
+      {
+        "key": "config_key",
+        "value": "ANTHROPIC_API_KEY"
+      }
+    ]
   }
 }
 ```

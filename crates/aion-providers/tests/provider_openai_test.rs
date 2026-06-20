@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use aion_config::compat::ProviderCompat;
-use aion_providers::LlmProvider;
 use aion_providers::openai::OpenAIProvider;
+use aion_providers::{LlmProvider, ProviderFailure, ProviderFailureKind, ProviderFailurePhase};
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason};
 use serde_json::json;
@@ -34,9 +34,12 @@ fn make_request() -> LlmRequest {
 }
 
 /// Collect all events from the receiver until the channel closes.
-async fn collect_events(mut rx: tokio::sync::mpsc::Receiver<LlmEvent>) -> Vec<LlmEvent> {
+async fn collect_events(
+    mut rx: tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>,
+) -> Vec<LlmEvent> {
     let mut events = Vec::new();
-    while let Some(event) = rx.recv().await {
+    while let Some(item) = rx.recv().await {
+        let event = item.expect("provider stream item should be an event");
         events.push(event);
     }
     events
@@ -74,6 +77,22 @@ async fn start_server_after_initial_connect_refusal(sse_body: String) -> String 
             sse_body
         );
         second.write_all(response.as_bytes()).await.unwrap();
+    });
+
+    format!("http://{addr}")
+}
+
+async fn start_server_with_two_raw_responses(first: String, second: String) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        for response in [first, second] {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0_u8; 4096];
+            let _ = stream.read(&mut buf).await.unwrap();
+            stream.write_all(response.as_bytes()).await.unwrap();
+        }
     });
 
     format!("http://{addr}")
@@ -526,7 +545,7 @@ async fn test_openai_stream_state_transitions() {
 // test_openai_api_error_non_success_status
 // ---------------------------------------------------------------------------
 
-/// Verify that a non-2xx HTTP response is surfaced as a ProviderError::Api.
+/// Verify that a non-2xx HTTP response is surfaced as a ProviderFailure.
 #[tokio::test]
 async fn test_openai_api_error_non_success_status() {
     let server = MockServer::start().await;
@@ -543,19 +562,16 @@ async fn test_openai_api_error_non_success_status() {
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
-        aion_providers::ProviderError::Api { status, .. } => {
-            assert_eq!(status, 401);
-        }
-        e => panic!("expected Api error, got: {:?}", e),
-    }
+    let failure = result.unwrap_err();
+    assert_eq!(failure.kind, ProviderFailureKind::AuthFailed);
+    assert_eq!(failure.meta.status, Some(401));
 }
 
 // ---------------------------------------------------------------------------
 // test_openai_rate_limited
 // ---------------------------------------------------------------------------
 
-/// Verify that a 429 response is surfaced as ProviderError::RateLimited.
+/// Verify that a 429 response is surfaced as ProviderFailureKind::RateLimited.
 #[tokio::test]
 async fn test_openai_rate_limited() {
     let server = MockServer::start().await;
@@ -571,12 +587,9 @@ async fn test_openai_rate_limited() {
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
-        aion_providers::ProviderError::RateLimited { retry_after_ms } => {
-            assert_eq!(retry_after_ms, 5000);
-        }
-        e => panic!("expected RateLimited error, got: {:?}", e),
-    }
+    let failure = result.unwrap_err();
+    assert_eq!(failure.kind, ProviderFailureKind::RateLimited);
+    assert_eq!(failure.meta.retry_after_ms, Some(5000));
 }
 
 // ---------------------------------------------------------------------------
@@ -709,4 +722,68 @@ async fn test_openai_stream_empty_content_delta_skipped() {
         LlmEvent::Done { stop_reason, .. } => assert_eq!(*stop_reason, StopReason::EndTurn),
         e => panic!("expected Done, got: {:?}", e),
     }
+}
+
+#[tokio::test]
+async fn test_openai_malformed_sse_json_emits_response_parse_failure() {
+    let server = MockServer::start().await;
+    let sse_body = "data: {not-json}\n\n";
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
+        .mount(&server)
+        .await;
+
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let mut rx = provider.stream(&make_request()).await.unwrap();
+
+    let item = rx
+        .recv()
+        .await
+        .expect("malformed JSON should produce a stream item");
+    let failure = item.expect_err("malformed JSON should be a provider failure");
+    assert_eq!(failure.kind, ProviderFailureKind::ResponseParse);
+    assert_eq!(failure.meta.phase, ProviderFailurePhase::BeforeFirstDelta);
+}
+
+#[tokio::test]
+async fn test_openai_retry_partial_failure_preserves_after_first_delta_phase() {
+    let first_response =
+        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: 999\r\nconnection: close\r\n\r\n"
+            .to_string();
+
+    let chunk = json!({
+        "id": "chatcmpl-retry-partial",
+        "object": "chat.completion.chunk",
+        "choices": [{
+            "index": 0,
+            "delta": { "content": "partial" },
+            "finish_reason": null
+        }]
+    })
+    .to_string();
+    let second_body = format!("data: {chunk}\n\ndata: {{not-json}}\n\n");
+    let second_response = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+        second_body.len(),
+        second_body
+    );
+    let base_url = start_server_with_two_raw_responses(first_response, second_response).await;
+
+    let provider = OpenAIProvider::new("test-key", &base_url, ProviderCompat::openai_defaults());
+    let mut rx = provider.stream(&make_request()).await.unwrap();
+
+    let mut failure = None;
+    while let Some(item) = rx.recv().await {
+        if let Err(err) = item {
+            failure = Some(err);
+            break;
+        }
+    }
+
+    let failure = failure.expect("retry response partial parse failure should be emitted");
+    assert_eq!(failure.kind, ProviderFailureKind::ResponseParse);
+    assert_eq!(failure.meta.phase, ProviderFailurePhase::AfterFirstDelta);
 }

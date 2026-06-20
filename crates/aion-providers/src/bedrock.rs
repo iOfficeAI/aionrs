@@ -18,7 +18,11 @@ use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{StopReason, TokenUsage};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError};
+use crate::{
+    LlmProvider, ProviderError, ProviderFailure, ProviderFailurePhase, ProviderStreamItem,
+    ProviderStreamReceiver, provider_api_error, provider_failure_from_error,
+    retry_after_ms_from_headers,
+};
 use aion_config::compat::{self, ProviderCompat};
 
 pub struct BedrockProvider {
@@ -244,22 +248,46 @@ impl LlmProvider for BedrockProvider {
     async fn stream(
         &self,
         request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request);
+        let model = Some(request.model.clone());
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
         let body_bytes = serde_json::to_vec(&body)
-            .map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))?;
+            .map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))
+            .map_err(|error| {
+                provider_failure_from_error(
+                    "bedrock",
+                    model.clone(),
+                    error,
+                    ProviderFailurePhase::BeforeFirstDelta,
+                )
+            })?;
 
-        let credentials = self.resolve_credentials()?;
+        let credentials = self.resolve_credentials().map_err(|error| {
+            provider_failure_from_error(
+                "bedrock",
+                model.clone(),
+                error,
+                ProviderFailurePhase::BeforeFirstDelta,
+            )
+        })?;
 
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-        let signed_headers =
-            self.sign_request("POST", &url, &headers, &body_bytes, &credentials)?;
+        let signed_headers = self
+            .sign_request("POST", &url, &headers, &body_bytes, &credentials)
+            .map_err(|error| {
+                provider_failure_from_error(
+                    "bedrock",
+                    model.clone(),
+                    error,
+                    ProviderFailurePhase::BeforeFirstDelta,
+                )
+            })?;
 
         let response = self
             .client
@@ -267,33 +295,55 @@ impl LlmProvider for BedrockProvider {
             .headers(signed_headers)
             .body(body_bytes)
             .send()
-            .await?;
+            .await
+            .map_err(ProviderError::from)
+            .map_err(|error| {
+                provider_failure_from_error(
+                    "bedrock",
+                    model.clone(),
+                    error,
+                    ProviderFailurePhase::BeforeFirstDelta,
+                )
+            })?;
 
         let status = response.status();
         if !status.is_success() {
+            let retry_after_ms = retry_after_ms_from_headers(response.headers());
             let body_text = response.text().await.unwrap_or_default();
-            if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 5000,
-                });
-            }
             let message = format_bedrock_error(status.as_u16(), &body_text);
-            return Err(ProviderError::Api {
-                status: status.as_u16(),
-                message,
-            });
+            return Err(provider_failure_from_error(
+                "bedrock",
+                model,
+                provider_api_error(status.as_u16(), message, retry_after_ms),
+                ProviderFailurePhase::BeforeFirstDelta,
+            ));
         }
 
         let (tx, rx) = mpsc::channel(64);
+        let stream_model = model.clone();
 
         // AWS event stream uses binary framing
         tokio::spawn(async move {
             match process_aws_event_stream(response, &tx).await {
                 anthropic_shared::StreamOutcome::Ok => {}
-                anthropic_shared::StreamOutcome::FailedPartial(e)
-                | anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                anthropic_shared::StreamOutcome::FailedPartial(e) => {
                     // Bedrock retry requires re-signing; not implemented yet.
-                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                    let failure = provider_failure_from_error(
+                        "bedrock",
+                        stream_model.clone(),
+                        e,
+                        ProviderFailurePhase::AfterFirstDelta,
+                    );
+                    let _ = tx.send(Err(failure)).await;
+                }
+                anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                    let failure = provider_failure_from_error(
+                        "bedrock",
+                        stream_model.clone(),
+                        e,
+                        ProviderFailurePhase::BeforeFirstDelta,
+                    );
+                    let _ = tx.send(Err(failure)).await;
                 }
             }
         });
@@ -305,7 +355,7 @@ impl LlmProvider for BedrockProvider {
 /// Process the AWS event stream (binary framed) from Bedrock
 async fn process_aws_event_stream(
     response: reqwest::Response,
-    tx: &mpsc::Sender<LlmEvent>,
+    tx: &mpsc::Sender<ProviderStreamItem>,
 ) -> anthropic_shared::StreamOutcome {
     use futures::StreamExt;
 
@@ -334,33 +384,74 @@ async fn process_aws_event_stream(
 
             if let Some(payload) = event_data {
                 // The payload contains an SSE-like structure with "bytes" field
-                if let Ok(wrapper) = serde_json::from_slice::<Value>(&payload) {
-                    // Bedrock wraps the payload in {"bytes": "base64-encoded-data"}
-                    if let Some(b64) = wrapper["bytes"].as_str()
-                        && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64)
-                        && let Ok(inner) = String::from_utf8(decoded)
-                    {
-                        tracing::debug!(target: "aion_providers", chunk = %inner, "bedrock event chunk");
-                        // Inner payload is JSON with event type hints
-                        if let Ok(json_val) = serde_json::from_str::<Value>(&inner) {
-                            let event_type = json_val["type"].as_str().unwrap_or("");
-                            let events =
-                                anthropic_shared::parse_sse_data(event_type, &inner, &mut state);
-                            for event in events {
-                                if matches!(
-                                    event,
-                                    LlmEvent::TextDelta(_)
-                                        | LlmEvent::ThinkingDelta(_)
-                                        | LlmEvent::ThinkingSignature(_)
-                                        | LlmEvent::ToolUse { .. }
-                                ) {
-                                    emitted_content = true;
-                                }
-                                if tx.send(event).await.is_err() {
-                                    return anthropic_shared::StreamOutcome::Ok;
-                                }
-                            }
+                let wrapper = match serde_json::from_slice::<Value>(&payload) {
+                    Ok(wrapper) => wrapper,
+                    Err(e) => {
+                        return bedrock_parse_failure(
+                            format!("Bedrock event wrapper JSON parse error: {e}"),
+                            emitted_content,
+                        );
+                    }
+                };
+
+                // Bedrock wraps the payload in {"bytes": "base64-encoded-data"}.
+                let Some(b64) = wrapper["bytes"].as_str() else {
+                    continue;
+                };
+                let decoded = match base64::engine::general_purpose::STANDARD.decode(b64) {
+                    Ok(decoded) => decoded,
+                    Err(e) => {
+                        return bedrock_parse_failure(
+                            format!("Bedrock event payload base64 decode error: {e}"),
+                            emitted_content,
+                        );
+                    }
+                };
+                let inner = match String::from_utf8(decoded) {
+                    Ok(inner) => inner,
+                    Err(e) => {
+                        return bedrock_parse_failure(
+                            format!("Bedrock event payload UTF-8 decode error: {e}"),
+                            emitted_content,
+                        );
+                    }
+                };
+                tracing::debug!(target: "aion_providers", chunk = %inner, "bedrock event chunk");
+
+                // Inner payload is JSON with event type hints.
+                let json_val = match serde_json::from_str::<Value>(&inner) {
+                    Ok(json_val) => json_val,
+                    Err(e) => {
+                        return bedrock_parse_failure(
+                            format!("Bedrock inner JSON parse error: {e}"),
+                            emitted_content,
+                        );
+                    }
+                };
+                let event_type = json_val["type"].as_str().unwrap_or("");
+                let items = anthropic_shared::parse_sse_data(event_type, &inner, &mut state);
+                for item in items {
+                    let event = match item {
+                        Ok(event) => event,
+                        Err(error) => {
+                            return if emitted_content {
+                                anthropic_shared::StreamOutcome::FailedPartial(error)
+                            } else {
+                                anthropic_shared::StreamOutcome::FailedEmpty(error)
+                            };
                         }
+                    };
+                    if matches!(
+                        event,
+                        LlmEvent::TextDelta(_)
+                            | LlmEvent::ThinkingDelta(_)
+                            | LlmEvent::ThinkingSignature(_)
+                            | LlmEvent::ToolUse { .. }
+                    ) {
+                        emitted_content = true;
+                    }
+                    if tx.send(Ok(event)).await.is_err() {
+                        return anthropic_shared::StreamOutcome::Ok;
                     }
                 }
             }
@@ -370,7 +461,7 @@ async fn process_aws_event_stream(
     // If we haven't sent a Done event, send one now
     if state.input_tokens > 0 || state.output_tokens > 0 {
         let _ = tx
-            .send(LlmEvent::Done {
+            .send(Ok(LlmEvent::Done {
                 stop_reason: StopReason::EndTurn,
                 usage: TokenUsage {
                     input_tokens: state.input_tokens,
@@ -378,11 +469,23 @@ async fn process_aws_event_stream(
                     cache_creation_tokens: state.cache_creation_tokens,
                     cache_read_tokens: state.cache_read_tokens,
                 },
-            })
+            }))
             .await;
     }
 
     anthropic_shared::StreamOutcome::Ok
+}
+
+fn bedrock_parse_failure(
+    message: String,
+    emitted_content: bool,
+) -> anthropic_shared::StreamOutcome {
+    let error = ProviderError::Parse(message);
+    if emitted_content {
+        anthropic_shared::StreamOutcome::FailedPartial(error)
+    } else {
+        anthropic_shared::StreamOutcome::FailedEmpty(error)
+    }
 }
 
 /// Parse one AWS event stream message from the buffer.
@@ -475,5 +578,76 @@ pub fn credentials_from_config(bc: &aion_config::config::BedrockConfig) -> AwsCr
         AwsCredentials::Profile(profile.clone())
     } else {
         AwsCredentials::Environment
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use base64::Engine;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    fn aws_event_frame(payload: &[u8]) -> Vec<u8> {
+        let total_len = 12 + payload.len() + 4;
+        let mut frame = Vec::with_capacity(total_len);
+        frame.extend_from_slice(&(total_len as u32).to_be_bytes());
+        frame.extend_from_slice(&0_u32.to_be_bytes());
+        frame.extend_from_slice(&0_u32.to_be_bytes());
+        frame.extend_from_slice(payload);
+        frame.extend_from_slice(&0_u32.to_be_bytes());
+        frame
+    }
+
+    async fn response_for_body(body: Vec<u8>) -> reqwest::Response {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buf = [0_u8; 4096];
+            let _ = stream.read(&mut buf).await.unwrap();
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/vnd.amazon.eventstream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(headers.as_bytes()).await.unwrap();
+            stream.write_all(&body).await.unwrap();
+        });
+
+        reqwest::Client::new()
+            .get(format!("http://{addr}"))
+            .send()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn bedrock_invalid_event_wrapper_returns_parse_failure() {
+        let response = response_for_body(aws_event_frame(b"{not-json}")).await;
+        let (tx, _rx) = mpsc::channel(1);
+
+        let outcome = process_aws_event_stream(response, &tx).await;
+
+        assert!(matches!(
+            outcome,
+            anthropic_shared::StreamOutcome::FailedEmpty(ProviderError::Parse(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn bedrock_invalid_inner_json_returns_parse_failure() {
+        let inner = base64::engine::general_purpose::STANDARD.encode("{not-json}");
+        let wrapper = serde_json::json!({ "bytes": inner }).to_string();
+        let response = response_for_body(aws_event_frame(wrapper.as_bytes())).await;
+        let (tx, _rx) = mpsc::channel(1);
+
+        let outcome = process_aws_event_stream(response, &tx).await;
+
+        assert!(matches!(
+            outcome,
+            anthropic_shared::StreamOutcome::FailedEmpty(ProviderError::Parse(_))
+        ));
     }
 }

@@ -5,7 +5,7 @@ use reqwest::header::HeaderMap;
 use serde_json::Value;
 
 use super::anthropic_shared::StreamOutcome;
-use crate::error::ProviderError;
+use crate::error::{ProviderError, provider_api_error, retry_after_ms_from_headers};
 
 /// Retry a fallible async operation with exponential backoff
 pub async fn with_retry<F, Fut, T>(max_retries: u32, f: F) -> Result<T, ProviderError>
@@ -87,11 +87,13 @@ pub async fn send_and_check(
 
     let status = response.status();
     if !status.is_success() {
+        let retry_after_ms = retry_after_ms_from_headers(response.headers());
         let body_text = response.text().await.unwrap_or_default();
-        return Err(ProviderError::Api {
-            status: status.as_u16(),
-            message: body_text,
-        });
+        return Err(provider_api_error(
+            status.as_u16(),
+            body_text,
+            retry_after_ms,
+        ));
     }
 
     Ok(response)
@@ -137,6 +139,8 @@ mod tests {
 
     use super::*;
     use crate::error::ProviderError;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn test_retry_succeeds_first_try() {
@@ -243,6 +247,37 @@ mod tests {
             }
         ));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_send_and_check_preserves_retry_after() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(
+                ResponseTemplate::new(429)
+                    .insert_header("retry-after", "7")
+                    .set_body_string("Too Many Requests"),
+            )
+            .mount(&server)
+            .await;
+
+        let result = send_and_check(
+            &reqwest::Client::new(),
+            &format!("{}/v1/chat/completions", server.uri()),
+            &HeaderMap::new(),
+            &serde_json::json!({}),
+        )
+        .await;
+
+        assert!(matches!(
+            result.unwrap_err(),
+            ProviderError::ApiSignal {
+                status: 429,
+                retry_after_ms: Some(7000),
+                ..
+            }
+        ));
     }
 
     // --- evaluate_outcome tests ---

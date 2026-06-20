@@ -6,7 +6,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use aionrs::provider::anthropic::AnthropicProvider;
 use aionrs::provider::compat::ProviderCompat;
 use aionrs::provider::debug::DebugConfig;
-use aionrs::provider::{LlmProvider, ProviderError};
+use aionrs::provider::{LlmProvider, ProviderFailure, ProviderFailureKind};
 use aionrs::types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aionrs::types::message::{ContentBlock, Message, Role, StopReason};
 
@@ -50,9 +50,12 @@ fn text_sse_body(text: &str) -> String {
 }
 
 /// Collect all events from a receiver into a Vec, draining until closed.
-async fn collect_events(mut rx: tokio::sync::mpsc::Receiver<LlmEvent>) -> Vec<LlmEvent> {
+async fn collect_events(
+    mut rx: tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>,
+) -> Vec<LlmEvent> {
     let mut events = Vec::new();
-    while let Some(ev) = rx.recv().await {
+    while let Some(item) = rx.recv().await {
+        let ev = item.expect("provider stream item should be an event");
         events.push(ev);
     }
     events
@@ -259,7 +262,7 @@ data: {\"type\":\"message_stop\"}\n\n";
 // test_anthropic_auth_error
 // ---------------------------------------------------------------------------
 
-/// A 401 response from the API should produce a ProviderError::Api with status 401.
+/// A 401 response from the API should produce an auth ProviderFailure.
 #[tokio::test]
 async fn test_anthropic_auth_error() {
     let server = MockServer::start().await;
@@ -280,25 +283,21 @@ async fn test_anthropic_auth_error() {
     // Act
     let result = provider.stream(&request).await;
 
-    // Assert: returns an Api error with status 401
-    match result {
-        Err(ProviderError::Api { status, message }) => {
-            assert_eq!(status, 401);
-            assert!(
-                message.contains("authentication_error") || message.contains("invalid x-api-key"),
-                "unexpected error message: {message}"
-            );
-        }
-        Err(other) => panic!("expected Api error, got: {other:?}"),
-        Ok(_) => panic!("expected an error but stream succeeded"),
-    }
+    let failure = result.expect_err("expected an error but stream succeeded");
+    assert_eq!(failure.kind, ProviderFailureKind::AuthFailed);
+    assert_eq!(failure.meta.status, Some(401));
+    let message = failure.meta.raw.message.as_deref().unwrap_or_default();
+    assert!(
+        message.contains("authentication_error") || message.contains("invalid x-api-key"),
+        "unexpected error message: {message}"
+    );
 }
 
 // ---------------------------------------------------------------------------
 // test_anthropic_rate_limit_retryable
 // ---------------------------------------------------------------------------
 
-/// A 429 response from the API should produce a ProviderError::RateLimited.
+/// A 429 response from the API should produce a rate-limit ProviderFailure.
 #[tokio::test]
 async fn test_anthropic_rate_limit_retryable() {
     let server = MockServer::start().await;
@@ -318,14 +317,12 @@ async fn test_anthropic_rate_limit_retryable() {
     // Act
     let result = provider.stream(&request).await;
 
-    // Assert: RateLimited error, which is retryable
-    match result {
-        Err(ProviderError::RateLimited { retry_after_ms }) => {
-            assert!(retry_after_ms > 0, "retry_after_ms should be positive");
-        }
-        Err(other) => panic!("expected RateLimited error, got: {other:?}"),
-        Ok(_) => panic!("expected an error but stream succeeded"),
-    }
+    let failure = result.expect_err("expected an error but stream succeeded");
+    assert_eq!(failure.kind, ProviderFailureKind::RateLimited);
+    assert!(
+        failure.meta.retry_after_ms.unwrap_or_default() > 0,
+        "retry_after_ms should be positive"
+    );
 }
 
 // ---------------------------------------------------------------------------

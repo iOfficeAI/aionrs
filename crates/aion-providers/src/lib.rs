@@ -8,5 +8,12 @@ pub mod retry;
 mod tool_call_sanitize;
 pub mod vertex;
 
-pub use error::ProviderError;
-pub use provider::{LlmProvider, create_provider};
+pub use error::{
+    InvalidProviderRequestFailure, InvalidProviderRequestReason, InvalidProviderRequestSource,
+    ProviderError, ProviderFailure, ProviderFailureKind, ProviderFailureMeta, ProviderFailurePhase,
+    ProviderRawSignalSource, ProviderRawSignals, RawProviderErrorSummary, ToolCallFailure,
+    ToolCallFailureReason, ToolSchemaFailure, ToolSchemaFailureReason, ToolSchemaSource,
+    classify_provider_failure, provider_api_error, provider_failure_from_error,
+    retry_after_ms_from_headers,
+};
+pub use provider::{LlmProvider, ProviderStreamItem, ProviderStreamReceiver, create_provider};

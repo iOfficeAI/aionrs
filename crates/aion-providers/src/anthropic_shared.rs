@@ -9,8 +9,8 @@ use aion_types::llm::LlmEvent;
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
-use crate::error::ProviderError;
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
+use crate::{ProviderError, ProviderStreamItem};
 use aion_config::compat::ProviderCompat;
 
 /// Convert internal Message format to Anthropic API message format.
@@ -322,7 +322,7 @@ pub enum StreamOutcome {
 /// Process the SSE stream from an Anthropic-compatible API
 pub async fn process_sse_stream(
     response: reqwest::Response,
-    tx: &mpsc::Sender<LlmEvent>,
+    tx: &mpsc::Sender<ProviderStreamItem>,
 ) -> StreamOutcome {
     use futures::StreamExt;
 
@@ -357,8 +357,18 @@ pub async fn process_sse_stream(
                     current_event_type = event_type.to_string();
                 } else if let Some(data) = line.strip_prefix("data: ") {
                     tracing::debug!(target: "aion_providers", chunk = %data, "sse chunk received");
-                    let events = parse_sse_data(&current_event_type, data, &mut state);
-                    for event in events {
+                    let items = parse_sse_data(&current_event_type, data, &mut state);
+                    for item in items {
+                        let event = match item {
+                            Ok(event) => event,
+                            Err(error) => {
+                                return if emitted_content {
+                                    StreamOutcome::FailedPartial(error)
+                                } else {
+                                    StreamOutcome::FailedEmpty(error)
+                                };
+                            }
+                        };
                         if matches!(
                             event,
                             LlmEvent::TextDelta(_)
@@ -368,7 +378,7 @@ pub async fn process_sse_stream(
                         ) {
                             emitted_content = true;
                         }
-                        if tx.send(event).await.is_err() {
+                        if tx.send(Ok(event)).await.is_err() {
                             return StreamOutcome::Ok; // receiver dropped
                         }
                     }
@@ -381,12 +391,20 @@ pub async fn process_sse_stream(
 }
 
 /// Parse a single SSE data payload into zero or more LlmEvents
-pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> Vec<LlmEvent> {
+pub fn parse_sse_data(
+    event_type: &str,
+    data: &str,
+    state: &mut StreamState,
+) -> Vec<Result<LlmEvent, ProviderError>> {
     let mut events = Vec::new();
 
     let json: Value = match serde_json::from_str(data) {
         Ok(v) => v,
-        Err(_) => return events,
+        Err(e) => {
+            return vec![Err(ProviderError::Parse(format!(
+                "Anthropic SSE JSON parse error: {e}"
+            )))];
+        }
     };
 
     match event_type {
@@ -418,7 +436,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
             match delta_type {
                 "text_delta" => {
                     if let Some(text) = delta["text"].as_str() {
-                        events.push(LlmEvent::TextDelta(text.to_string()));
+                        events.push(Ok(LlmEvent::TextDelta(text.to_string())));
                     }
                 }
                 "input_json_delta" => {
@@ -428,12 +446,12 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                 }
                 "thinking_delta" => {
                     if let Some(thinking) = delta["thinking"].as_str() {
-                        events.push(LlmEvent::ThinkingDelta(thinking.to_string()));
+                        events.push(Ok(LlmEvent::ThinkingDelta(thinking.to_string())));
                     }
                 }
                 "signature_delta" => {
                     if let Some(signature) = delta["signature"].as_str() {
-                        events.push(LlmEvent::ThinkingSignature(signature.to_string()));
+                        events.push(Ok(LlmEvent::ThinkingSignature(signature.to_string())));
                     }
                 }
                 _ => {}
@@ -451,12 +469,12 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                         "provider emitted tool_call with empty function name; recorded to history as-is"
                     );
                 }
-                events.push(LlmEvent::ToolUse {
+                events.push(Ok(LlmEvent::ToolUse {
                     id: state.tool_id.clone(),
                     name: state.tool_name.clone(),
                     input,
                     extra: None,
-                });
+                }));
                 state.tool_input_json.clear();
             }
             state.current_block_type = None;
@@ -475,7 +493,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                 state.output_tokens = usage["output_tokens"].as_u64().unwrap_or(0);
             }
 
-            events.push(LlmEvent::Done {
+            events.push(Ok(LlmEvent::Done {
                 stop_reason,
                 usage: TokenUsage {
                     input_tokens: state.input_tokens,
@@ -483,7 +501,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
                     cache_creation_tokens: state.cache_creation_tokens,
                     cache_read_tokens: state.cache_read_tokens,
                 },
-            });
+            }));
         }
 
         "message_stop" => {
@@ -491,10 +509,15 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
         }
 
         "error" => {
-            let msg = json["error"]["message"]
-                .as_str()
-                .unwrap_or("Unknown API error");
-            events.push(LlmEvent::Error(msg.to_string()));
+            let error = &json["error"];
+            let msg = error["message"].as_str().unwrap_or("Unknown API error");
+            events.push(Err(ProviderError::ApiSignal {
+                status: 400,
+                message: msg.to_string(),
+                raw_code: error["code"].as_str().map(str::to_string),
+                raw_type: error["type"].as_str().map(str::to_string),
+                retry_after_ms: None,
+            }));
         }
 
         _ => {}
@@ -1270,7 +1293,7 @@ mod tests {
         let events = parse_sse_data("content_block_delta", data, &mut state);
         // assert
         assert_eq!(events.len(), 1);
-        match &events[0] {
+        match events[0].as_ref().unwrap() {
             LlmEvent::TextDelta(t) => assert_eq!(t, "Hello"),
             _ => panic!("expected TextDelta"),
         }
@@ -1298,7 +1321,7 @@ mod tests {
         let events = parse_sse_data("content_block_stop", r#"{}"#, &mut state);
         // assert
         assert_eq!(events.len(), 1);
-        match &events[0] {
+        match events[0].as_ref().unwrap() {
             LlmEvent::ToolUse {
                 id, name, input, ..
             } => {
@@ -1325,7 +1348,7 @@ mod tests {
         let events = parse_sse_data("content_block_stop", r#"{}"#, &mut state);
         assert_eq!(events.len(), 1);
 
-        match &events[0] {
+        match events[0].as_ref().unwrap() {
             LlmEvent::ToolUse { id, name, .. } => {
                 assert_eq!(id, "call_x");
                 assert_eq!(name, "");
@@ -1343,7 +1366,7 @@ mod tests {
         let events = parse_sse_data("message_delta", data, &mut state);
         // assert
         assert_eq!(events.len(), 1);
-        match &events[0] {
+        match events[0].as_ref().unwrap() {
             LlmEvent::Done { stop_reason, usage } => {
                 assert_eq!(*stop_reason, StopReason::EndTurn);
                 assert_eq!(usage.output_tokens, 42);
@@ -1361,7 +1384,7 @@ mod tests {
         let events = parse_sse_data("content_block_delta", data, &mut state);
         // assert
         assert_eq!(events.len(), 1);
-        match &events[0] {
+        match events[0].as_ref().unwrap() {
             LlmEvent::ThinkingDelta(t) => assert_eq!(t, "reasoning step"),
             _ => panic!("expected ThinkingDelta"),
         }
@@ -1375,7 +1398,7 @@ mod tests {
         let events = parse_sse_data("content_block_delta", data, &mut state);
 
         assert_eq!(events.len(), 1);
-        match &events[0] {
+        match events[0].as_ref().unwrap() {
             LlmEvent::ThinkingSignature(signature) => assert_eq!(signature, "sig-123"),
             _ => panic!("expected ThinkingSignature"),
         }
@@ -1390,5 +1413,43 @@ mod tests {
         let events = parse_sse_data("unknown_event", data, &mut state);
         // assert
         assert!(events.is_empty());
+    }
+
+    #[test]
+    fn test_parse_anthropic_malformed_json_returns_parse_error() {
+        let mut state = StreamState::new();
+
+        let events = parse_sse_data("content_block_delta", "{not-json}", &mut state);
+
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0], Err(ProviderError::Parse(_))));
+    }
+
+    #[test]
+    fn test_parse_anthropic_error_preserves_provider_error_type() {
+        let mut state = StreamState::new();
+        let events = parse_sse_data(
+            "error",
+            r#"{"type":"error","error":{"type":"rate_limit_error","message":"rate limit exceeded"}}"#,
+            &mut state,
+        );
+
+        assert_eq!(events.len(), 1);
+        let error = events.into_iter().next().unwrap();
+        let Err(error) = error else {
+            panic!("expected provider error")
+        };
+        let failure = crate::provider_failure_from_error(
+            "anthropic",
+            Some("claude-3-5-sonnet".to_string()),
+            error,
+            crate::ProviderFailurePhase::BeforeFirstDelta,
+        );
+
+        assert_eq!(failure.kind, crate::ProviderFailureKind::RateLimited);
+        assert_eq!(
+            failure.meta.raw.raw_type.as_deref(),
+            Some("rate_limit_error")
+        );
     }
 }

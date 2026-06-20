@@ -18,7 +18,7 @@ use aion_agent::output::OutputSink;
 use aion_agent::output::terminal::TerminalSink;
 use aion_agent::session::SessionManager;
 use aion_config::compact::CompactConfig;
-use aion_providers::{LlmProvider, ProviderError};
+use aion_providers::{LlmProvider, ProviderError, ProviderFailure, ProviderStreamReceiver};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{StopReason, TokenUsage};
@@ -57,7 +57,7 @@ impl LlmProvider for CompactMockProvider {
     async fn stream(
         &self,
         _request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         *self.call_count.lock().unwrap() += 1;
         let events = self.turns.lock().unwrap().pop_front().unwrap_or_else(|| {
             vec![LlmEvent::Done {
@@ -69,7 +69,7 @@ impl LlmProvider for CompactMockProvider {
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
             for event in events {
-                let _ = tx.send(event).await;
+                let _ = tx.send(Ok(event)).await;
             }
         });
         Ok(rx)
@@ -485,7 +485,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
         async fn stream(
             &self,
             request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<ProviderStreamReceiver, ProviderFailure> {
             let is_compact = request.tools.is_empty();
 
             if is_compact {
@@ -506,7 +506,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
                 let (tx, rx) = mpsc::channel(64);
                 tokio::spawn(async move {
                     for e in events {
-                        let _ = tx.send(e).await;
+                        let _ = tx.send(Ok(e)).await;
                     }
                 });
                 return Ok(rx);
@@ -562,7 +562,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
             let (tx, rx) = mpsc::channel(64);
             tokio::spawn(async move {
                 for e in events {
-                    let _ = tx.send(e).await;
+                    let _ = tx.send(Ok(e)).await;
                 }
             });
             Ok(rx)
@@ -646,7 +646,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
         async fn stream(
             &self,
             request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<ProviderStreamReceiver, ProviderFailure> {
             let is_compact = request.tools.is_empty();
 
             if is_compact {
@@ -666,7 +666,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
                 let (tx, rx) = mpsc::channel(64);
                 tokio::spawn(async move {
                     for e in events {
-                        let _ = tx.send(e).await;
+                        let _ = tx.send(Ok(e)).await;
                     }
                 });
                 return Ok(rx);
@@ -718,7 +718,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
             let (tx, rx) = mpsc::channel(64);
             tokio::spawn(async move {
                 for e in events {
-                    let _ = tx.send(e).await;
+                    let _ = tx.send(Ok(e)).await;
                 }
             });
             Ok(rx)
@@ -786,7 +786,7 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
         async fn stream(
             &self,
             request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<ProviderStreamReceiver, ProviderFailure> {
             let idx = {
                 let mut i = self.call_index.lock().unwrap();
                 let v = *i;
@@ -802,7 +802,8 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
                 return Err(ProviderError::Api {
                     status: 500,
                     message: "Internal error".to_string(),
-                });
+                }
+                .into());
             }
 
             // Regular conversation turns: tool use on odd calls, text on even
@@ -842,7 +843,7 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
             let (tx, rx) = mpsc::channel(64);
             tokio::spawn(async move {
                 for event in events {
-                    let _ = tx.send(event).await;
+                    let _ = tx.send(Ok(event)).await;
                 }
             });
             Ok(rx)

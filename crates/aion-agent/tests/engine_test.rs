@@ -7,7 +7,10 @@ use aion_agent::error::AgentError;
 use aion_agent::output::OutputSink;
 use aion_agent::output::terminal::TerminalSink;
 use aion_agent::session::SessionManager;
-use aion_providers::{LlmProvider, ProviderError};
+use aion_providers::{
+    LlmProvider, ProviderFailure, ProviderFailurePhase, ProviderRawSignalSource,
+    ProviderRawSignals, ProviderStreamReceiver, classify_provider_failure,
+};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
@@ -107,13 +110,13 @@ impl LlmProvider for RecordingRequestProvider {
     async fn stream(
         &self,
         request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         self.requests.lock().unwrap().push(request.messages.clone());
         let events = self.responses.lock().unwrap().remove(0);
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
             for event in events {
-                let _ = tx.send(event).await;
+                let _ = tx.send(Ok(event)).await;
             }
         });
         Ok(rx)
@@ -793,17 +796,43 @@ async fn mixed_valid_and_malformed_tool_calls_do_not_trip_breaker() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// test_engine_api_error_handling
-//
-// Verifies that an LlmEvent::Error propagates as AgentError::ApiError with
-// the original error message intact.
-// ---------------------------------------------------------------------------
 #[tokio::test]
-async fn test_engine_api_error_handling() {
-    let events = vec![LlmEvent::Error("test error".to_string())];
+async fn provider_stream_failure_maps_to_agent_provider_failure() {
+    struct StreamFailureProvider {
+        failure: ProviderFailure,
+    }
 
-    let provider = Arc::new(MockLlmProvider::with_events(events));
+    #[async_trait]
+    impl LlmProvider for StreamFailureProvider {
+        async fn stream(
+            &self,
+            _request: &LlmRequest,
+        ) -> Result<mpsc::Receiver<Result<LlmEvent, ProviderFailure>>, ProviderFailure> {
+            let (tx, rx) = mpsc::channel(1);
+            let failure = self.failure.clone();
+            tokio::spawn(async move {
+                let _ = tx.send(Err(failure)).await;
+            });
+            Ok(rx)
+        }
+    }
+
+    let failure = classify_provider_failure(ProviderRawSignals {
+        provider: "test-provider".to_string(),
+        model: Some("test-model".to_string()),
+        status: None,
+        raw_code: None,
+        raw_type: None,
+        message: Some("connection reset".to_string()),
+        request_id: None,
+        retry_after_ms: None,
+        source: ProviderRawSignalSource::Transport,
+        phase: ProviderFailurePhase::AfterFirstDelta,
+    });
+
+    let provider = Arc::new(StreamFailureProvider {
+        failure: failure.clone(),
+    });
     let config = test_config();
     let registry = ToolRegistry::new();
     let output = silent_output();
@@ -816,8 +845,5 @@ async fn test_engine_api_error_handling() {
         .map(|_| panic!("expected error, got Ok"))
         .unwrap_err();
 
-    match err {
-        AgentError::ApiError(msg) => assert_eq!(msg, "test error"),
-        other => panic!("expected ApiError(\"test error\"), got: {:?}", other),
-    }
+    assert!(matches!(err, AgentError::Provider(actual) if actual == failure));
 }

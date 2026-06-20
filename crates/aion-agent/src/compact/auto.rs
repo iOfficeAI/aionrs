@@ -6,11 +6,10 @@
 //! summary.  A circuit breaker prevents runaway retries.
 
 use aion_config::compact::CompactConfig;
-use aion_providers::{LlmProvider, ProviderError};
+use aion_providers::{LlmProvider, ProviderFailure, ProviderFailureKind, ProviderStreamReceiver};
 use aion_types::compact::{CompactMetadata, CompactTrigger};
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, Message, Role, TokenUsage};
-use tokio::sync::mpsc;
 
 use super::prompt::{
     COMPACT_MAX_OUTPUT_TOKENS, COMPACT_SYSTEM_PROMPT, build_compact_prompt, build_summary_content,
@@ -42,13 +41,11 @@ pub struct CompactResult {
 #[derive(Debug, thiserror::Error)]
 pub enum CompactError {
     #[error("LLM provider error: {0}")]
-    Provider(#[from] ProviderError),
+    Provider(#[from] ProviderFailure),
     #[error("Prompt too long after {attempts} retries")]
     PromptTooLong { attempts: u32 },
     #[error("Empty response from LLM")]
     EmptyResponse,
-    #[error("Stream error: {0}")]
-    StreamError(String),
     #[error("Circuit breaker tripped after {failures} consecutive failures")]
     CircuitBroken { failures: u32 },
 }
@@ -130,7 +127,7 @@ pub async fn autocompact(
                     return Err(e);
                 }
             },
-            Err(ProviderError::PromptTooLong(_)) if ptl_attempts < MAX_PTL_RETRIES => {
+            Err(e) if is_context_too_large(&e) && ptl_attempts < MAX_PTL_RETRIES => {
                 ptl_attempts += 1;
                 // Remove the summary prompt (last msg), truncate, re-add prompt
                 let conversation_part = &conv_messages[..conv_messages.len() - 1];
@@ -152,7 +149,7 @@ pub async fn autocompact(
                     }
                 }
             }
-            Err(ProviderError::PromptTooLong(_)) => {
+            Err(e) if is_context_too_large(&e) => {
                 state.record_failure();
                 return Err(CompactError::PromptTooLong {
                     attempts: ptl_attempts,
@@ -212,15 +209,15 @@ pub async fn autocompact(
 
 /// Collect all text from a streaming LLM response.
 async fn collect_stream_text(
-    mut rx: mpsc::Receiver<LlmEvent>,
+    mut rx: ProviderStreamReceiver,
 ) -> Result<(String, TokenUsage), CompactError> {
     let mut text = String::new();
 
-    while let Some(event) = rx.recv().await {
+    while let Some(item) = rx.recv().await {
+        let event = item?;
         match event {
             LlmEvent::TextDelta(delta) => text.push_str(&delta),
             LlmEvent::Done { usage, .. } => return Ok((text, usage)),
-            LlmEvent::Error(e) => return Err(CompactError::StreamError(e)),
             // Ignore thinking deltas and tool calls (shouldn't happen in compact)
             _ => {}
         }
@@ -228,6 +225,10 @@ async fn collect_stream_text(
 
     // Channel closed without a Done event
     Err(CompactError::EmptyResponse)
+}
+
+fn is_context_too_large(error: &ProviderFailure) -> bool {
+    matches!(error.kind, ProviderFailureKind::ContextTooLarge)
 }
 
 /// Truncate the oldest ~20% of messages for PTL retry.

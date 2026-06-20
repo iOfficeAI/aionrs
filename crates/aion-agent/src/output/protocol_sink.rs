@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use aion_config::compat::ProviderCompat;
-use aion_protocol::events::{Capabilities, ErrorInfo, ProtocolEvent, Usage};
+use aion_protocol::events::{
+    Capabilities, ErrorInfo, ErrorOwnership, ProtocolEvent, PublicError, PublicErrorCode, Usage,
+};
 use aion_protocol::writer::{ProtocolEmitter, ProtocolWriter};
 
 use super::OutputSink;
@@ -132,10 +134,18 @@ impl OutputSink for ProtocolSink {
         let _ = self.writer.emit(&ProtocolEvent::Error {
             msg_id: None,
             error: ErrorInfo {
-                code: "engine_error".to_string(),
+                code: PublicErrorCode::InternalError,
                 message: msg.to_string(),
-                retryable: false,
+                ownership: ErrorOwnership::Aionrs,
+                details: vec![],
             },
+        });
+    }
+
+    fn emit_public_error(&self, error: &PublicError) {
+        let _ = self.writer.emit(&ProtocolEvent::Error {
+            msg_id: None,
+            error: error.clone(),
         });
     }
 

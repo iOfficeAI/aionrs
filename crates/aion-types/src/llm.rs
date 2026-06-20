@@ -45,8 +45,6 @@ pub enum LlmEvent {
         stop_reason: StopReason,
         usage: TokenUsage,
     },
-    /// Error from the API
-    Error(String),
 }
 
 #[cfg(test)]
