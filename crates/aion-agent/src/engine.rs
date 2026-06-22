@@ -6,7 +6,7 @@ use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::compact::state::CompactState;
 use crate::compact::{auto, emergency, estimate, micro};
 use crate::confirm::ToolConfirmer;
-pub use crate::error::AgentError;
+use crate::error::AgentError;
 use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
 };
