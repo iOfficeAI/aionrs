@@ -9,3 +9,6 @@ repository.workspace = true
 [dependencies]
 tokio.workspace = true
 workspace-hack.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true

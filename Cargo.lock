@@ -143,6 +143,7 @@ dependencies = [
 name = "aion-process"
 version = "0.1.30"
 dependencies = [
+ "libc",
  "tokio",
  "workspace-hack",
 ]
