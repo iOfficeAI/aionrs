@@ -83,8 +83,8 @@ impl SlashCommand for CompactCommand {
 mod tests {
     use std::sync::Arc;
 
-    use aion_providers::{LlmProvider, ProviderError};
-    use aion_types::llm::{LlmEvent, LlmRequest};
+    use aion_providers::{LlmProvider, ProviderFailure, ProviderStreamReceiver};
+    use aion_types::llm::LlmRequest;
     use aion_types::message::{ContentBlock, Message, Role};
 
     use super::*;
@@ -95,10 +95,7 @@ mod tests {
     struct NullProvider;
     #[async_trait::async_trait]
     impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, _: &LlmRequest) -> Result<ProviderStreamReceiver, ProviderFailure> {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 use aionrs::engine::{AgentEngine, AgentError};
 use aionrs::output::terminal::TerminalSink;
 use aionrs::output::OutputSink;
+use aionrs::provider::ProviderError;
 use aionrs::session::SessionManager;
 use aionrs::tools::registry::ToolRegistry;
 use aionrs::types::llm::LlmEvent;
@@ -306,16 +307,11 @@ async fn test_engine_max_turns_returns_ok() {
 }
 
 // ---------------------------------------------------------------------------
-// test_engine_api_error_handling
-//
-// Verifies that an LlmEvent::Error propagates as AgentError::ApiError with
-// the original error message intact.
-// ---------------------------------------------------------------------------
 #[tokio::test]
-async fn test_engine_api_error_handling() {
-    let events = vec![LlmEvent::Error("test error".to_string())];
-
-    let provider = Arc::new(MockLlmProvider::with_events(events));
+async fn provider_stream_failure_maps_to_agent_provider_failure() {
+    let provider = Arc::new(MockLlmProvider::with_stream_items(vec![Err(
+        ProviderError::Connection("test error".to_string()).into(),
+    )]));
     let config = test_config();
     let registry = ToolRegistry::new();
     let output = silent_output();
@@ -327,8 +323,5 @@ async fn test_engine_api_error_handling() {
         .map(|_| panic!("expected error, got Ok"))
         .unwrap_err();
 
-    match err {
-        AgentError::ApiError(msg) => assert_eq!(msg, "test error"),
-        other => panic!("expected ApiError(\"test error\"), got: {:?}", other),
-    }
+    assert!(matches!(err, AgentError::Provider(_)));
 }

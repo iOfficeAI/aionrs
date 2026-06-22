@@ -3,6 +3,7 @@ mod common;
 use std::sync::Arc;
 
 use aion_agent::spawner::{AgentSpawner, SubAgentConfig};
+use aion_providers::ProviderError;
 use aion_types::llm::LlmEvent;
 use aion_types::message::{StopReason, TokenUsage};
 use common::{MockLlmProvider, test_config};
@@ -140,13 +141,11 @@ async fn test_spawn_shares_provider() {
     assert_eq!(result2.text, "second");
 }
 
-/// An LLM error event causes the sub-agent result to be marked as an error.
+/// A provider stream failure causes the sub-agent result to be marked as an error.
 #[tokio::test]
 async fn test_spawn_agent_error_captured() {
-    // Emit an Error event — the engine converts this to AgentError::ApiError,
-    // which spawner catches and stores in SubAgentResult::is_error.
-    let provider = Arc::new(MockLlmProvider::with_events(vec![LlmEvent::Error(
-        "provider failed".to_string(),
+    let provider = Arc::new(MockLlmProvider::with_stream_items(vec![Err(
+        ProviderError::Connection("provider failed".to_string()).into(),
     )]));
 
     let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir());

@@ -8,13 +8,17 @@ use aion_agent::bootstrap::AgentBootstrap;
 use aion_agent::output::OutputSink;
 use aion_agent::output::protocol_sink::ProtocolSink;
 use aion_agent::output::terminal::TerminalSink;
+use aion_agent::public_error::agent_failure_to_public_error;
 use aion_agent::session;
 use aion_config::auth;
 use aion_config::config::{self, CliArgs, Config, McpServerConfig, TransportType};
 use aion_mcp::manager::McpManager;
 use aion_mcp::tool_proxy::register_single_server_tools;
 use aion_protocol::commands::{ApprovalScope, ProtocolCommand};
-use aion_protocol::events::ProtocolEvent;
+use aion_protocol::events::{
+    ErrorOwnership, ProtocolEvent, PublicError, PublicErrorCode, PublicErrorDetail,
+    PublicErrorDetailKey,
+};
 use aion_protocol::reader::spawn_stdin_reader;
 use aion_protocol::writer::{ProtocolEmitter, ProtocolWriter};
 use aion_protocol::{ToolApprovalManager, ToolApprovalResult};
@@ -285,18 +289,27 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let prompt = cli.prompt.join(" ");
+    let mut prompt_error = None;
     if prompt.is_empty() {
         repl_loop(&mut engine, &terminal, &output).await?;
     } else {
-        let run_result = engine.run(&prompt, "").await?;
-        output.emit_stream_end(
-            "",
-            run_result.turns,
-            run_result.usage.input_tokens,
-            run_result.usage.output_tokens,
-            run_result.usage.cache_creation_tokens,
-            run_result.usage.cache_read_tokens,
-        );
+        match engine.run(&prompt, "").await {
+            Ok(run_result) => {
+                output.emit_stream_end(
+                    "",
+                    run_result.turns,
+                    run_result.usage.input_tokens,
+                    run_result.usage.output_tokens,
+                    run_result.usage.cache_creation_tokens,
+                    run_result.usage.cache_read_tokens,
+                );
+            }
+            Err(e) => {
+                let public = agent_failure_to_public_error(&e);
+                output.emit_public_error(&public);
+                prompt_error = Some(e);
+            }
+        }
     }
 
     engine.run_stop_hooks().await;
@@ -305,7 +318,16 @@ async fn main() -> anyhow::Result<()> {
         mgr.shutdown().await;
     }
 
-    Ok(())
+    non_interactive_prompt_run_result(prompt_error)
+}
+
+fn non_interactive_prompt_run_result(
+    error: Option<aion_agent::error::AgentError>,
+) -> anyhow::Result<()> {
+    match error {
+        Some(error) => Err(error.into()),
+        None => Ok(()),
+    }
 }
 
 async fn repl_loop(
@@ -341,7 +363,8 @@ async fn repl_loop(
             }
             Err(aion_agent::error::AgentError::UserAborted) => break,
             Err(e) => {
-                output.emit_error(&e.to_string());
+                let public = agent_failure_to_public_error(&e);
+                output.emit_public_error(&public);
             }
         }
     }
@@ -416,6 +439,18 @@ fn to_mcp_server_config(
         deferred: Some(false),
         startup_timeout_ms: None,
     })
+}
+
+fn add_mcp_after_message_public_error(name: &str) -> PublicError {
+    PublicError {
+        code: PublicErrorCode::ProtocolStateViolation,
+        message: format!("AddMcpServer '{name}': rejected - only allowed before first Message"),
+        ownership: ErrorOwnership::Host,
+        details: vec![PublicErrorDetail::new(
+            PublicErrorDetailKey::Command,
+            "add_mcp_server",
+        )],
+    }
 }
 
 /// Pending config fields: (model, thinking, thinking_budget, effort)
@@ -581,7 +616,8 @@ async fn run_json_stream_mode(
                                         );
                                     }
                                     Err(e) => {
-                                        output.emit_error(&e.to_string());
+                                        let public = agent_failure_to_public_error(&e);
+                                        output.emit_public_error(&public);
                                         output.emit_stream_end(&msg_id, 0, 0, 0, 0, 0);
                                     }
                                 }
@@ -616,6 +652,9 @@ async fn run_json_stream_mode(
                                     }
                                     ProtocolCommand::Ping => {
                                         let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Pong);
+                                    }
+                                    ProtocolCommand::AddMcpServer { name, .. } => {
+                                        output.emit_public_error(&add_mcp_after_message_public_error(&name));
                                     }
                                     _ => {
                                         tracing::debug!(target: "aion_protocol", "ignoring command during active message processing");
@@ -717,9 +756,7 @@ async fn run_json_stream_mode(
                 );
             }
             ProtocolCommand::AddMcpServer { name, .. } => {
-                output.emit_error(&format!(
-                    "AddMcpServer '{name}': rejected — only allowed before first Message"
-                ));
+                output.emit_public_error(&add_mcp_after_message_public_error(&name));
             }
             ProtocolCommand::Ping => {
                 let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Pong);
@@ -736,4 +773,37 @@ async fn run_json_stream_mode(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn non_interactive_prompt_error_returns_error() {
+        let result = super::non_interactive_prompt_run_result(Some(
+            aion_agent::error::AgentError::UserAborted,
+        ));
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn add_mcp_after_message_uses_protocol_state_violation_public_error() {
+        let error = add_mcp_after_message_public_error("tools");
+
+        assert_eq!(error.code, PublicErrorCode::ProtocolStateViolation);
+        assert_eq!(error.ownership, ErrorOwnership::Host);
+        assert_eq!(
+            error.details,
+            vec![PublicErrorDetail::new(
+                PublicErrorDetailKey::Command,
+                "add_mcp_server",
+            )]
+        );
+        assert_eq!(
+            error.message,
+            "AddMcpServer 'tools': rejected - only allowed before first Message"
+        );
+    }
 }

@@ -3,7 +3,6 @@ mod common;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 
 use aion_agent::context::{SystemPromptCache, build_system_prompt};
 use aion_agent::engine::AgentEngine;
@@ -11,7 +10,7 @@ use aion_agent::orchestration::execute_tool_calls;
 use aion_agent::output::OutputSink;
 use aion_agent::output::null_sink::NullSink;
 use aion_compact::CompactionLevel;
-use aion_providers::{LlmProvider, ProviderError};
+use aion_providers::{LlmProvider, ProviderFailure, ProviderStreamReceiver};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, StopReason, TokenUsage};
@@ -260,7 +259,7 @@ impl LlmProvider for CapturingProvider {
     async fn stream(
         &self,
         request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         self.captured.lock().unwrap().push(request.clone());
         self.inner.stream(request).await
     }

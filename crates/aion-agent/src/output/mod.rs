@@ -2,6 +2,7 @@ pub mod null_sink;
 pub mod protocol_sink;
 pub mod terminal;
 
+use aion_protocol::events::PublicError;
 use crossterm::execute;
 use crossterm::style::{Attribute, Color, Print, ResetColor, SetAttribute, SetForegroundColor};
 use std::io::{self, Write};
@@ -30,6 +31,10 @@ pub trait OutputSink: Send + Sync {
     );
     /// Display error
     fn emit_error(&self, msg: &str);
+    /// Display a structured public error.
+    fn emit_public_error(&self, error: &PublicError) {
+        self.emit_error(&error.message);
+    }
     /// Display informational message
     fn emit_info(&self, msg: &str);
 }

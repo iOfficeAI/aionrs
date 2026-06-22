@@ -12,7 +12,7 @@ use aion_config::config::{Config, ProviderType, SessionConfig, ToolsConfig};
 use aion_config::hooks::HooksConfig;
 use aion_mcp::config::McpConfig;
 use aion_protocol::events::ToolCategory;
-use aion_providers::{LlmProvider, ProviderError};
+use aion_providers::{LlmProvider, ProviderFailure, ProviderStreamReceiver};
 use aion_tools::Tool;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{StopReason, TokenUsage};
@@ -26,7 +26,7 @@ use aion_types::tool::ToolResult;
 /// Each call to `stream` pops the first sequence from `responses`.
 /// When `responses` is empty it falls back to a single EndTurn with empty text.
 pub struct MockLlmProvider {
-    responses: Mutex<Vec<Vec<LlmEvent>>>,
+    responses: Mutex<Vec<Vec<Result<LlmEvent, ProviderFailure>>>>,
 }
 
 impl MockLlmProvider {
@@ -45,7 +45,7 @@ impl MockLlmProvider {
             },
         ];
         Self {
-            responses: Mutex::new(vec![events]),
+            responses: Mutex::new(vec![Self::ok_events(events)]),
         }
     }
 
@@ -69,7 +69,7 @@ impl MockLlmProvider {
             },
         ];
         Self {
-            responses: Mutex::new(vec![events]),
+            responses: Mutex::new(vec![Self::ok_events(events)]),
         }
     }
 
@@ -77,15 +77,25 @@ impl MockLlmProvider {
     /// Each call to `stream` consumes the next sequence.
     pub fn with_turns(turns: Vec<Vec<LlmEvent>>) -> Self {
         Self {
-            responses: Mutex::new(turns),
+            responses: Mutex::new(turns.into_iter().map(Self::ok_events).collect()),
         }
     }
 
     /// Create a provider that returns custom events.
     pub fn with_events(events: Vec<LlmEvent>) -> Self {
         Self {
-            responses: Mutex::new(vec![events]),
+            responses: Mutex::new(vec![Self::ok_events(events)]),
         }
+    }
+
+    pub fn with_stream_items(items: Vec<Result<LlmEvent, ProviderFailure>>) -> Self {
+        Self {
+            responses: Mutex::new(vec![items]),
+        }
+    }
+
+    fn ok_events(events: Vec<LlmEvent>) -> Vec<Result<LlmEvent, ProviderFailure>> {
+        events.into_iter().map(Ok).collect()
     }
 }
 
@@ -94,15 +104,15 @@ impl LlmProvider for MockLlmProvider {
     async fn stream(
         &self,
         _request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         let events = {
             let mut responses = self.responses.lock().unwrap();
             if responses.is_empty() {
                 // Fallback: end turn with empty text
-                vec![LlmEvent::Done {
+                vec![Ok(LlmEvent::Done {
                     stop_reason: StopReason::EndTurn,
                     usage: TokenUsage::default(),
-                }]
+                })]
             } else {
                 responses.remove(0)
             }
@@ -110,8 +120,8 @@ impl LlmProvider for MockLlmProvider {
 
         let (tx, rx) = mpsc::channel(64);
         tokio::spawn(async move {
-            for event in events {
-                let _ = tx.send(event).await;
+            for item in events {
+                let _ = tx.send(item).await;
             }
         });
         Ok(rx)

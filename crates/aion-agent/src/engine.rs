@@ -6,7 +6,7 @@ use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::compact::state::CompactState;
 use crate::compact::{auto, emergency, estimate, micro};
 use crate::confirm::ToolConfirmer;
-use crate::error::AgentError;
+use crate::error::{AgentError, CommandFailure};
 use crate::orchestration::{
     ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
 };
@@ -466,7 +466,9 @@ impl AgentEngine {
                 }
                 Err(e) => {
                     tracing::error!(command = cmd_name, error = %e, "Slash command failed");
-                    Err(AgentError::ApiError(e.to_string()))
+                    Err(AgentError::Command(CommandFailure::Failed {
+                        command: cmd_name.to_string(),
+                    }))
                 }
             };
         }
@@ -543,7 +545,8 @@ impl AgentEngine {
             let mut stop_reason = StopReason::EndTurn;
             let mut turn_usage = TokenUsage::default();
 
-            while let Some(event) = rx.recv().await {
+            while let Some(item) = rx.recv().await {
+                let event = item?;
                 match event {
                     LlmEvent::TextDelta(text) => {
                         self.output.emit_text_delta(&text, &self.current_msg_id);
@@ -591,9 +594,6 @@ impl AgentEngine {
                     } => {
                         stop_reason = sr;
                         turn_usage = usage;
-                    }
-                    LlmEvent::Error(e) => {
-                        return Err(AgentError::ApiError(e));
                     }
                 }
             }
@@ -1084,7 +1084,7 @@ impl AgentEngine {
 mod tests_set_config {
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::error::ProviderError;
+    use aion_providers::error::ProviderFailure;
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
@@ -1110,7 +1110,8 @@ mod tests_set_config {
         async fn stream(
             &self,
             _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>, ProviderFailure>
+        {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }
@@ -1413,7 +1414,7 @@ mod tests_set_config {
 mod tests_phase6 {
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::error::ProviderError;
+    use aion_providers::error::ProviderFailure;
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
@@ -1440,7 +1441,8 @@ mod tests_phase6 {
         async fn stream(
             &self,
             _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>, ProviderFailure>
+        {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }
@@ -1612,7 +1614,7 @@ mod tests_compact {
     use std::sync::{Arc, Mutex};
 
     use aion_config::compact::CompactConfig;
-    use aion_providers::error::ProviderError;
+    use aion_providers::error::ProviderFailure;
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
@@ -1664,7 +1666,8 @@ mod tests_compact {
         async fn stream(
             &self,
             _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>, ProviderFailure>
+        {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }
@@ -1995,7 +1998,7 @@ mod tests_plan_mode {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::error::ProviderError;
+    use aion_providers::error::ProviderFailure;
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
@@ -2024,7 +2027,8 @@ mod tests_plan_mode {
         async fn stream(
             &self,
             _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>, ProviderFailure>
+        {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }
@@ -2211,7 +2215,7 @@ mod tests_plan_mode {
 mod tests_handle_command {
     use std::sync::{Arc, Mutex};
 
-    use aion_providers::error::ProviderError;
+    use aion_providers::error::ProviderFailure;
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
@@ -2239,7 +2243,8 @@ mod tests_handle_command {
         async fn stream(
             &self,
             _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        ) -> Result<tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>, ProviderFailure>
+        {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }

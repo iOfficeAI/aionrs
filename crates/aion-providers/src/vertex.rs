@@ -10,10 +10,13 @@ use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
-use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
+use aion_types::llm::{LlmRequest, ThinkingConfig};
 
 use super::anthropic_shared;
-use crate::{LlmProvider, ProviderError};
+use crate::{
+    LlmProvider, ProviderError, ProviderFailure, ProviderFailurePhase, ProviderStreamReceiver,
+    provider_api_error, provider_failure_from_error, retry_after_ms_from_headers,
+};
 use aion_config::compat::ProviderCompat;
 
 pub struct VertexProvider {
@@ -255,20 +258,36 @@ impl LlmProvider for VertexProvider {
     async fn stream(
         &self,
         request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request);
+        let model = Some(request.model.clone());
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
-        let access_token = self.get_access_token().await?;
+        let access_token = self.get_access_token().await.map_err(|error| {
+            provider_failure_from_error(
+                "vertex",
+                model.clone(),
+                error,
+                ProviderFailurePhase::BeforeFirstDelta,
+            )
+        })?;
 
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         headers.insert(
             AUTHORIZATION,
             HeaderValue::from_str(&format!("Bearer {}", access_token))
-                .map_err(|e| ProviderError::Connection(format!("Header error: {}", e)))?,
+                .map_err(|e| ProviderError::Connection(format!("Header error: {}", e)))
+                .map_err(|error| {
+                    provider_failure_from_error(
+                        "vertex",
+                        model.clone(),
+                        error,
+                        ProviderFailurePhase::BeforeFirstDelta,
+                    )
+                })?,
         );
 
         let response = self
@@ -277,20 +296,27 @@ impl LlmProvider for VertexProvider {
             .headers(headers)
             .json(&body)
             .send()
-            .await?;
+            .await
+            .map_err(ProviderError::from)
+            .map_err(|error| {
+                provider_failure_from_error(
+                    "vertex",
+                    model.clone(),
+                    error,
+                    ProviderFailurePhase::BeforeFirstDelta,
+                )
+            })?;
 
         let status = response.status();
         if !status.is_success() {
+            let retry_after_ms = retry_after_ms_from_headers(response.headers());
             let body_text = response.text().await.unwrap_or_default();
-            if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 5000,
-                });
-            }
-            return Err(ProviderError::Api {
-                status: status.as_u16(),
-                message: body_text,
-            });
+            return Err(provider_failure_from_error(
+                "vertex",
+                model,
+                provider_api_error(status.as_u16(), body_text, retry_after_ms),
+                ProviderFailurePhase::BeforeFirstDelta,
+            ));
         }
 
         let (tx, rx) = mpsc::channel(64);
@@ -302,22 +328,37 @@ impl LlmProvider for VertexProvider {
             h.insert(
                 AUTHORIZATION,
                 HeaderValue::from_str(&format!("Bearer {}", access_token))
-                    .map_err(|e| ProviderError::Connection(format!("Header error: {}", e)))?,
+                    .map_err(|e| ProviderError::Connection(format!("Header error: {}", e)))
+                    .map_err(|error| {
+                        provider_failure_from_error(
+                            "vertex",
+                            model.clone(),
+                            error,
+                            ProviderFailurePhase::BeforeFirstDelta,
+                        )
+                    })?,
             );
             h
         };
+        let stream_model = model.clone();
 
         // Vertex uses standard SSE (same as Anthropic)
         tokio::spawn(async move {
             match anthropic_shared::process_sse_stream(response, &tx).await {
                 anthropic_shared::StreamOutcome::Ok => {}
                 anthropic_shared::StreamOutcome::FailedPartial(e) => {
-                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                    let failure = provider_failure_from_error(
+                        "vertex",
+                        stream_model.clone(),
+                        e,
+                        ProviderFailurePhase::AfterFirstDelta,
+                    );
+                    let _ = tx.send(Err(failure)).await;
                 }
                 anthropic_shared::StreamOutcome::FailedEmpty(e) => {
                     if e.is_retryable() {
                         let mut backoff = std::time::Duration::from_secs(1);
-                        let mut final_err = Some(e);
+                        let mut final_err = Some((e, ProviderFailurePhase::BeforeFirstDelta));
                         for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
                             backoff = crate::retry::backoff_sleep(attempt, backoff).await;
                             match crate::retry::send_and_check(
@@ -331,30 +372,51 @@ impl LlmProvider for VertexProvider {
                                 Ok(resp) => {
                                     let outcome =
                                         anthropic_shared::process_sse_stream(resp, &tx).await;
+                                    let phase = match &outcome {
+                                        anthropic_shared::StreamOutcome::FailedPartial(_) => {
+                                            ProviderFailurePhase::AfterFirstDelta
+                                        }
+                                        anthropic_shared::StreamOutcome::Ok
+                                        | anthropic_shared::StreamOutcome::FailedEmpty(_) => {
+                                            ProviderFailurePhase::BeforeFirstDelta
+                                        }
+                                    };
                                     match crate::retry::evaluate_outcome(outcome, attempt) {
                                         Ok(None) => {
                                             final_err = None;
                                             break;
                                         }
                                         Ok(Some(e)) => {
-                                            final_err = Some(e);
+                                            final_err = Some((e, phase));
                                             break;
                                         }
                                         Err(_) => continue,
                                     }
                                 }
                                 Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
-                                    final_err = Some(e);
+                                    final_err = Some((e, ProviderFailurePhase::BeforeFirstDelta));
                                     break;
                                 }
                                 Err(_) => continue,
                             }
                         }
-                        if let Some(err) = final_err {
-                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+                        if let Some((err, phase)) = final_err {
+                            let failure = provider_failure_from_error(
+                                "vertex",
+                                stream_model.clone(),
+                                err,
+                                phase,
+                            );
+                            let _ = tx.send(Err(failure)).await;
                         }
                     } else {
-                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                        let failure = provider_failure_from_error(
+                            "vertex",
+                            stream_model.clone(),
+                            e,
+                            ProviderFailurePhase::BeforeFirstDelta,
+                        );
+                        let _ = tx.send(Err(failure)).await;
                     }
                 }
             }

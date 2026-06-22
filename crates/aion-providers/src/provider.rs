@@ -8,15 +8,18 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 
 use crate::anthropic;
 use crate::bedrock;
-use crate::error::ProviderError;
+use crate::error::ProviderFailure;
 use crate::openai;
 use crate::vertex;
 
 /// Unified interface for LLM API providers
+pub type ProviderStreamItem = Result<LlmEvent, ProviderFailure>;
+pub type ProviderStreamReceiver = mpsc::Receiver<ProviderStreamItem>;
+
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn stream(&self, request: &LlmRequest)
-    -> Result<mpsc::Receiver<LlmEvent>, ProviderError>;
+    -> Result<ProviderStreamReceiver, ProviderFailure>;
 }
 
 /// Create a provider from resolved config

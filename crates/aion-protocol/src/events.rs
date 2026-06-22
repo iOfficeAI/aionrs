@@ -136,11 +136,128 @@ pub struct Usage {
     pub cache_write_tokens: Option<u64>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ErrorInfo {
-    pub code: String,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PublicError {
+    pub code: PublicErrorCode,
     pub message: String,
-    pub retryable: bool,
+    pub ownership: ErrorOwnership,
+    pub details: Vec<PublicErrorDetail>,
+}
+
+pub type ErrorInfo = PublicError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicErrorCode {
+    ProviderCredentialMissing,
+    ProviderAuthFailed,
+    ProviderPermissionDenied,
+    ProviderBillingRequired,
+    ProviderQuotaExceeded,
+    ProviderRateLimited,
+    ProviderModelNotFound,
+    ProviderModelUnsupported,
+    ProviderModelUnavailable,
+    ProviderEndpointNotFound,
+    ProviderContextTooLarge,
+    ProviderToolSchemaInvalid,
+    ProviderToolCallInvalid,
+    ProviderContentBlocked,
+    ProviderTimeout,
+    ProviderStreamInterrupted,
+    ProviderTransportFailed,
+    ProviderServerError,
+    ProviderInvalidRequest,
+    ProviderResponseParseFailed,
+    ProviderEmptyResponse,
+    ProviderUnknownError,
+    ConfigInvalid,
+    ConfigProfileNotFound,
+    ConfigProviderAliasInvalid,
+    ConfigEnvMissing,
+    ConfigFileReadFailed,
+    ConfigFileParseFailed,
+    ConfigFileWriteFailed,
+    BootstrapFailed,
+    BootstrapProviderInitFailed,
+    BootstrapToolInitFailed,
+    BootstrapMcpInitFailed,
+    BootstrapMemoryInitFailed,
+    SessionCreateFailed,
+    SessionLoadFailed,
+    SessionSaveFailed,
+    SessionListFailed,
+    SessionIndexFailed,
+    SessionNotFound,
+    ToolNotFound,
+    ToolInputInvalid,
+    ToolExecutionFailed,
+    ToolTimeout,
+    ToolPermissionDenied,
+    McpServerUnavailable,
+    McpServerConfigInvalid,
+    McpProtocolError,
+    McpCapabilityDiscoveryFailed,
+    McpInvocationFailed,
+    ApprovalRejected,
+    ApprovalTimeout,
+    ApprovalChannelClosed,
+    CompactionFailed,
+    CompactionContextStillTooLarge,
+    CommandFailed,
+    UserAborted,
+    ProtocolInvalidCommand,
+    ProtocolParseFailed,
+    ProtocolClientDisconnected,
+    ProtocolStateViolation,
+    InternalError,
+    InternalInvariantViolation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorOwnership {
+    User,
+    Provider,
+    Aionrs,
+    Host,
+    Tool,
+    McpServer,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PublicErrorDetail {
+    pub key: PublicErrorDetailKey,
+    pub value: String,
+}
+
+impl PublicErrorDetail {
+    pub fn new(key: PublicErrorDetailKey, value: impl Into<String>) -> Self {
+        Self {
+            key,
+            value: value.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PublicErrorDetailKey {
+    Provider,
+    Model,
+    Status,
+    RequestId,
+    Phase,
+    ConfigKey,
+    Profile,
+    SessionId,
+    ToolName,
+    McpServer,
+    McpCapability,
+    Command,
+    RawCode,
+    RawType,
 }
 
 #[cfg(test)]
@@ -238,15 +355,97 @@ mod tests {
         let event = ProtocolEvent::Error {
             msg_id: None,
             error: ErrorInfo {
-                code: "rate_limit".to_string(),
+                code: PublicErrorCode::ProviderRateLimited,
                 message: "Too many requests".to_string(),
-                retryable: true,
+                ownership: ErrorOwnership::Provider,
+                details: vec![],
             },
         };
         let json = serde_json::to_value(&event).unwrap();
         assert_eq!(json["type"], "error");
         assert!(json.get("msg_id").is_none());
-        assert_eq!(json["error"]["retryable"], true);
+        assert_eq!(json["error"]["code"], "provider_rate_limited");
+        assert_eq!(json["error"]["ownership"], "provider");
+        assert!(json["error"].get("retryable").is_none());
+    }
+
+    #[test]
+    fn public_error_serializes_stable_snake_case_contract() {
+        let event = ProtocolEvent::Error {
+            msg_id: Some("msg-1".to_string()),
+            error: PublicError {
+                code: PublicErrorCode::ProviderAuthFailed,
+                message: "The model provider rejected the configured credentials.".to_string(),
+                ownership: ErrorOwnership::User,
+                details: vec![
+                    PublicErrorDetail::new(PublicErrorDetailKey::Provider, "openai"),
+                    PublicErrorDetail::new(PublicErrorDetailKey::Status, "401"),
+                ],
+            },
+        };
+
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["type"], "error");
+        assert_eq!(json["msg_id"], "msg-1");
+        assert_eq!(json["error"]["code"], "provider_auth_failed");
+        assert_eq!(
+            json["error"]["message"],
+            "The model provider rejected the configured credentials."
+        );
+        assert_eq!(json["error"]["ownership"], "user");
+        assert_eq!(json["error"]["details"][0]["key"], "provider");
+        assert_eq!(json["error"]["details"][0]["value"], "openai");
+        assert!(json["error"].get("retryable").is_none());
+    }
+
+    #[test]
+    fn public_error_supports_mcp_capability_detail() {
+        let event = ProtocolEvent::Error {
+            msg_id: None,
+            error: PublicError {
+                code: PublicErrorCode::McpInvocationFailed,
+                message: "The MCP server failed while invoking a capability.".to_string(),
+                ownership: ErrorOwnership::McpServer,
+                details: vec![
+                    PublicErrorDetail::new(PublicErrorDetailKey::McpServer, "filesystem"),
+                    PublicErrorDetail::new(PublicErrorDetailKey::McpCapability, "read_file"),
+                ],
+            },
+        };
+
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["error"]["code"], "mcp_invocation_failed");
+        assert_eq!(json["error"]["ownership"], "mcp_server");
+        assert_eq!(json["error"]["details"][1]["key"], "mcp_capability");
+        assert_eq!(json["error"]["details"][1]["value"], "read_file");
+    }
+
+    #[test]
+    fn public_error_values_support_equality() {
+        fn assert_eq_trait<T: Eq>(_: &T) {}
+
+        let left = PublicError {
+            code: PublicErrorCode::InternalError,
+            message: "Unexpected failure".to_string(),
+            ownership: ErrorOwnership::Aionrs,
+            details: vec![PublicErrorDetail::new(
+                PublicErrorDetailKey::Phase,
+                "streaming",
+            )],
+        };
+        let right = PublicError {
+            code: PublicErrorCode::InternalError,
+            message: "Unexpected failure".to_string(),
+            ownership: ErrorOwnership::Aionrs,
+            details: vec![PublicErrorDetail::new(
+                PublicErrorDetailKey::Phase,
+                "streaming",
+            )],
+        };
+
+        assert_eq!(left, right);
+        assert_eq_trait(&left);
+        assert_eq_trait(&left.details[0]);
     }
 
     #[test]

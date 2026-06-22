@@ -1,4 +1,4 @@
-use aionrs::provider::LlmProvider;
+use aionrs::provider::{LlmProvider, ProviderFailure, ProviderFailureKind};
 use aionrs::provider::compat::ProviderCompat;
 use aionrs::provider::debug::DebugConfig;
 use aionrs::provider::openai::OpenAIProvider;
@@ -31,9 +31,12 @@ fn make_request() -> LlmRequest {
 }
 
 /// Collect all events from the receiver until the channel closes.
-async fn collect_events(mut rx: tokio::sync::mpsc::Receiver<LlmEvent>) -> Vec<LlmEvent> {
+async fn collect_events(
+    mut rx: tokio::sync::mpsc::Receiver<Result<LlmEvent, ProviderFailure>>,
+) -> Vec<LlmEvent> {
     let mut events = Vec::new();
-    while let Some(event) = rx.recv().await {
+    while let Some(item) = rx.recv().await {
+        let event = item.expect("provider stream item should be an event");
         events.push(event);
     }
     events
@@ -449,7 +452,7 @@ async fn test_openai_stream_state_transitions() {
 // test_openai_api_error_non_success_status
 // ---------------------------------------------------------------------------
 
-/// Verify that a non-2xx HTTP response is surfaced as a ProviderError::Api.
+/// Verify that a non-2xx HTTP response is surfaced as a ProviderFailure.
 #[tokio::test]
 async fn test_openai_api_error_non_success_status() {
     let server = MockServer::start().await;
@@ -468,19 +471,16 @@ async fn test_openai_api_error_non_success_status() {
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
-        aionrs::provider::ProviderError::Api { status, .. } => {
-            assert_eq!(status, 401);
-        }
-        e => panic!("expected Api error, got: {:?}", e),
-    }
+    let failure = result.unwrap_err();
+    assert_eq!(failure.kind, ProviderFailureKind::AuthFailed);
+    assert_eq!(failure.meta.status, Some(401));
 }
 
 // ---------------------------------------------------------------------------
 // test_openai_rate_limited
 // ---------------------------------------------------------------------------
 
-/// Verify that a 429 response is surfaced as ProviderError::RateLimited.
+/// Verify that a 429 response is surfaced as ProviderFailureKind::RateLimited.
 #[tokio::test]
 async fn test_openai_rate_limited() {
     let server = MockServer::start().await;
@@ -495,12 +495,9 @@ async fn test_openai_rate_limited() {
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
-    match result.unwrap_err() {
-        aionrs::provider::ProviderError::RateLimited { retry_after_ms } => {
-            assert_eq!(retry_after_ms, 5000);
-        }
-        e => panic!("expected RateLimited error, got: {:?}", e),
-    }
+    let failure = result.unwrap_err();
+    assert_eq!(failure.kind, ProviderFailureKind::RateLimited);
+    assert_eq!(failure.meta.retry_after_ms, Some(5000));
 }
 
 // ---------------------------------------------------------------------------

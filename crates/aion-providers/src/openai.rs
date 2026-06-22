@@ -10,7 +10,11 @@ use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use crate::anthropic_shared::StreamOutcome;
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
-use crate::{LlmProvider, ProviderError};
+use crate::{
+    LlmProvider, ProviderError, ProviderFailure, ProviderFailurePhase, ProviderStreamItem,
+    ProviderStreamReceiver, provider_api_error, provider_failure_from_error,
+    retry_after_ms_from_headers,
+};
 use aion_config::compat::ProviderCompat;
 
 pub struct OpenAIProvider {
@@ -604,10 +608,18 @@ impl LlmProvider for OpenAIProvider {
     async fn stream(
         &self,
         request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    ) -> Result<ProviderStreamReceiver, ProviderFailure> {
         let url = format!("{}{}", self.base_url, self.compat.api_path());
         let body = self.build_request_body(request);
-        let headers = self.build_headers()?;
+        let model = Some(request.model.clone());
+        let headers = self.build_headers().map_err(|error| {
+            provider_failure_from_error(
+                "openai",
+                model.clone(),
+                error,
+                ProviderFailurePhase::BeforeFirstDelta,
+            )
+        })?;
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
@@ -622,37 +634,49 @@ impl LlmProvider for OpenAIProvider {
 
             let status = response.status();
             if !status.is_success() {
+                let retry_after_ms = retry_after_ms_from_headers(response.headers());
                 let body_text = response.text().await.unwrap_or_default();
-                if status.as_u16() == 429 {
-                    return Err(ProviderError::RateLimited {
-                        retry_after_ms: 5000,
-                    });
-                }
-                return Err(ProviderError::Api {
-                    status: status.as_u16(),
-                    message: body_text,
-                });
+                return Err(provider_api_error(
+                    status.as_u16(),
+                    body_text,
+                    retry_after_ms,
+                ));
             }
 
             Ok(response)
         })
-        .await?;
+        .await
+        .map_err(|error| {
+            provider_failure_from_error(
+                "openai",
+                model.clone(),
+                error,
+                ProviderFailurePhase::BeforeFirstDelta,
+            )
+        })?;
 
         let (tx, rx) = mpsc::channel(64);
         let auto_tool_id = self.compat.auto_tool_id();
         let client = self.client.clone();
         let url_clone = url.clone();
+        let stream_model = model.clone();
 
         tokio::spawn(async move {
             match process_sse_stream(response, &tx, auto_tool_id).await {
                 StreamOutcome::Ok => {}
                 StreamOutcome::FailedPartial(e) => {
-                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                    let failure = provider_failure_from_error(
+                        "openai",
+                        stream_model.clone(),
+                        e,
+                        ProviderFailurePhase::AfterFirstDelta,
+                    );
+                    let _ = tx.send(Err(failure)).await;
                 }
                 StreamOutcome::FailedEmpty(e) => {
                     if e.is_retryable() {
                         let mut backoff = std::time::Duration::from_secs(1);
-                        let mut final_err = Some(e);
+                        let mut final_err = Some((e, ProviderFailurePhase::BeforeFirstDelta));
                         for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
                             backoff = crate::retry::backoff_sleep(attempt, backoff).await;
                             match crate::retry::send_and_check(&client, &url_clone, &headers, &body)
@@ -660,30 +684,43 @@ impl LlmProvider for OpenAIProvider {
                             {
                                 Ok(resp) => {
                                     let outcome = process_sse_stream(resp, &tx, auto_tool_id).await;
+                                    let phase = stream_outcome_phase(&outcome);
                                     match crate::retry::evaluate_outcome(outcome, attempt) {
                                         Ok(None) => {
                                             final_err = None;
                                             break;
                                         }
                                         Ok(Some(e)) => {
-                                            final_err = Some(e);
+                                            final_err = Some((e, phase));
                                             break;
                                         }
                                         Err(_) => continue,
                                     }
                                 }
                                 Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
-                                    final_err = Some(e);
+                                    final_err = Some((e, ProviderFailurePhase::BeforeFirstDelta));
                                     break;
                                 }
                                 Err(_) => continue,
                             }
                         }
-                        if let Some(err) = final_err {
-                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
+                        if let Some((err, phase)) = final_err {
+                            let failure = provider_failure_from_error(
+                                "openai",
+                                stream_model.clone(),
+                                err,
+                                phase,
+                            );
+                            let _ = tx.send(Err(failure)).await;
                         }
                     } else {
-                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
+                        let failure = provider_failure_from_error(
+                            "openai",
+                            stream_model.clone(),
+                            e,
+                            ProviderFailurePhase::BeforeFirstDelta,
+                        );
+                        let _ = tx.send(Err(failure)).await;
                     }
                 }
             }
@@ -695,7 +732,7 @@ impl LlmProvider for OpenAIProvider {
 
 async fn process_sse_stream(
     response: reqwest::Response,
-    tx: &mpsc::Sender<LlmEvent>,
+    tx: &mpsc::Sender<ProviderStreamItem>,
     auto_tool_id: bool,
 ) -> StreamOutcome {
     use futures::StreamExt;
@@ -735,12 +772,21 @@ async fn process_sse_stream(
                     // Flush the deferred Done event now that the final
                     // usage-only chunk (choices:[]) has updated token counts.
                     if let Some(done) = state.flush_done() {
-                        let _ = tx.send(done).await;
+                        let _ = tx.send(Ok(done)).await;
                     }
                     return StreamOutcome::Ok;
                 }
 
-                let events = parse_sse_chunk(data, &mut state, auto_tool_id);
+                let events = match parse_sse_chunk(data, &mut state, auto_tool_id) {
+                    Ok(events) => events,
+                    Err(err) => {
+                        return if emitted_content {
+                            StreamOutcome::FailedPartial(err)
+                        } else {
+                            StreamOutcome::FailedEmpty(err)
+                        };
+                    }
+                };
                 for event in events {
                     if matches!(
                         event,
@@ -750,7 +796,7 @@ async fn process_sse_stream(
                     ) {
                         emitted_content = true;
                     }
-                    if tx.send(event).await.is_err() {
+                    if tx.send(Ok(event)).await.is_err() {
                         return StreamOutcome::Ok;
                     }
                 }
@@ -761,13 +807,22 @@ async fn process_sse_stream(
     StreamOutcome::Ok
 }
 
-fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
+fn stream_outcome_phase(outcome: &StreamOutcome) -> ProviderFailurePhase {
+    match outcome {
+        StreamOutcome::FailedPartial(_) => ProviderFailurePhase::AfterFirstDelta,
+        StreamOutcome::Ok | StreamOutcome::FailedEmpty(_) => ProviderFailurePhase::BeforeFirstDelta,
+    }
+}
+
+fn parse_sse_chunk(
+    data: &str,
+    state: &mut StreamState,
+    auto_tool_id: bool,
+) -> Result<Vec<LlmEvent>, ProviderError> {
     let mut events = Vec::new();
 
-    let json: Value = match serde_json::from_str(data) {
-        Ok(v) => v,
-        Err(_) => return events,
-    };
+    let json: Value = serde_json::from_str(data)
+        .map_err(|e| ProviderError::Parse(format!("OpenAI SSE JSON parse error: {e}")))?;
 
     // Extract usage if present
     if let Some(usage) = json.get("usage") {
@@ -787,7 +842,7 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> V
     }
 
     let Some(choice) = json["choices"].as_array().and_then(|c| c.first()) else {
-        return events;
+        return Ok(events);
     };
 
     let delta = &choice["delta"];
@@ -887,7 +942,7 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> V
         }
     }
 
-    events
+    Ok(events)
 }
 
 #[cfg(test)]
@@ -1640,7 +1695,7 @@ mod tests {
 
         // chunk 1: finish_reason + text delta, no usage
         let chunk1 = r#"{"choices":[{"delta":{"content":"hi"},"finish_reason":"stop"}]}"#;
-        let events = parse_sse_chunk(chunk1, &mut state, false);
+        let events = parse_sse_chunk(chunk1, &mut state, false).unwrap();
         // TextDelta is emitted immediately; Done is deferred.
         assert!(
             events.iter().all(|e| !matches!(e, LlmEvent::Done { .. })),
@@ -1650,7 +1705,7 @@ mod tests {
 
         // chunk 2: trailing usage-only chunk (choices:[])
         let chunk2 = r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#;
-        let events2 = parse_sse_chunk(chunk2, &mut state, false);
+        let events2 = parse_sse_chunk(chunk2, &mut state, false).unwrap();
         assert!(events2.is_empty());
         assert_eq!(state.input_tokens, 10);
         assert_eq!(state.output_tokens, 5);
@@ -1675,7 +1730,7 @@ mod tests {
 
         // No text delta here, only finish_reason + usage in the same chunk.
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}"#;
-        let events = parse_sse_chunk(chunk, &mut state, false);
+        let events = parse_sse_chunk(chunk, &mut state, false).unwrap();
         assert!(
             events.iter().all(|e| !matches!(e, LlmEvent::Done { .. })),
             "Done should be deferred even when usage is in the finish chunk"
@@ -1727,7 +1782,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":500,"completion_tokens":100,"prompt_cache_hit_tokens":999500}}"#;
-        let _ = parse_sse_chunk(chunk, &mut state, false);
+        let _ = parse_sse_chunk(chunk, &mut state, false).unwrap();
 
         assert_eq!(state.input_tokens, 1_000_000);
         assert_eq!(state.output_tokens, 100);
@@ -1740,7 +1795,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1000000,"completion_tokens":100,"prompt_tokens_details":{"cached_tokens":999000}}}"#;
-        let _ = parse_sse_chunk(chunk, &mut state, false);
+        let _ = parse_sse_chunk(chunk, &mut state, false).unwrap();
 
         // prompt_tokens is already the full total for OpenAI
         assert_eq!(state.input_tokens, 1_000_000);
@@ -1753,7 +1808,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":50000,"completion_tokens":200}}"#;
-        let _ = parse_sse_chunk(chunk, &mut state, false);
+        let _ = parse_sse_chunk(chunk, &mut state, false).unwrap();
 
         assert_eq!(state.input_tokens, 50_000);
         assert_eq!(state.output_tokens, 200);
@@ -1767,14 +1822,14 @@ mod tests {
 
         // chunk 1: tool call delta (name + partial args)
         let chunk1 = r#"{"choices":[{"delta":{"role":"assistant","tool_calls":[{"extra_content":{},"function":{"arguments":"{\"skill\":\"test\",\"args\":\"hello\"}","name":"Skill"},"id":"call_abc123","type":"function"}]},"index":0}]}"#;
-        let events1 = parse_sse_chunk(chunk1, &mut state, false);
+        let events1 = parse_sse_chunk(chunk1, &mut state, false).unwrap();
         assert!(events1.is_empty(), "no events until finish_reason");
         assert_eq!(state.tool_calls.len(), 1);
         assert_eq!(state.tool_calls[0].name, "Skill");
 
         // chunk 2: finish_reason:"stop" (not "tool_calls")
         let chunk2 = r#"{"choices":[{"delta":{"role":"assistant"},"finish_reason":"stop","index":0}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}"#;
-        let events2 = parse_sse_chunk(chunk2, &mut state, false);
+        let events2 = parse_sse_chunk(chunk2, &mut state, false).unwrap();
 
         // Tool call should be emitted
         let tool_events: Vec<_> = events2
@@ -1809,11 +1864,11 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk1 = r#"{"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"","arguments":"{}"}}]},"index":0}]}"#;
-        let events1 = parse_sse_chunk(chunk1, &mut state, false);
+        let events1 = parse_sse_chunk(chunk1, &mut state, false).unwrap();
         assert!(events1.is_empty(), "no events until finish_reason");
 
         let chunk2 = r#"{"choices":[{"delta":{},"finish_reason":"tool_calls","index":0}]}"#;
-        let events2 = parse_sse_chunk(chunk2, &mut state, false);
+        let events2 = parse_sse_chunk(chunk2, &mut state, false).unwrap();
 
         let tool_use_name = events2.iter().find_map(|event| match event {
             LlmEvent::ToolUse { name, .. } => Some(name.clone()),
@@ -1834,7 +1889,7 @@ mod tests {
 
         let chunk =
             r#"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}"#;
-        let events = parse_sse_chunk(chunk, &mut state, false);
+        let events = parse_sse_chunk(chunk, &mut state, false).unwrap();
 
         let text_events: Vec<_> = events
             .iter()
@@ -1857,7 +1912,7 @@ mod tests {
 
         // Simulate a provider that returns tool_calls without an id field
         let chunk = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"get_weather","arguments":"{\"city\":\"Beijing\"}"}}]},"finish_reason":"tool_calls","index":0}]}"#;
-        let events = parse_sse_chunk(chunk, &mut state, true);
+        let events = parse_sse_chunk(chunk, &mut state, true).unwrap();
 
         let tool_use = events
             .iter()
@@ -1876,7 +1931,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_existing_123","function":{"name":"read_file","arguments":"{}"}}]},"finish_reason":"tool_calls","index":0}]}"#;
-        let events = parse_sse_chunk(chunk, &mut state, true);
+        let events = parse_sse_chunk(chunk, &mut state, true).unwrap();
 
         let tool_use = events
             .iter()
@@ -1893,7 +1948,7 @@ mod tests {
         let mut state = StreamState::new();
 
         let chunk = r#"{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"get_weather","arguments":"{}"}}]},"finish_reason":"tool_calls","index":0}]}"#;
-        let events = parse_sse_chunk(chunk, &mut state, false);
+        let events = parse_sse_chunk(chunk, &mut state, false).unwrap();
 
         let tool_use = events
             .iter()
