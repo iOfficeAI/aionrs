@@ -240,6 +240,9 @@ async fn run_hook_command(
         "hook executing"
     );
 
+    // TODO(aio-168): migrate hook command execution to aion-process so timeout
+    // results can preserve partial stdout/stderr. Keep behavior unchanged in
+    // this patch because hooks have their own blocking semantics.
     let result = tokio::time::timeout(timeout, async {
         shell_command_builder(&shell, &interpolated, false)
             .envs(env_vars)
