@@ -25,8 +25,7 @@ which.workspace      = true
 tracing.workspace            = true
 tracing-appender.workspace   = true
 tracing-subscriber.workspace = true
-
-workspace-hack.workspace = true
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
 wiremock.workspace            = true

@@ -42,6 +42,16 @@ jobs:
         with:
           tool: cargo-audit
 
+      - name: Install cargo-hakari
+        if: matrix.os == 'ubuntu-latest'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+
+      - name: Verify workspace-hack is up to date
+        if: matrix.os == 'ubuntu-latest'
+        run: vx just hakari-verify
+
       - name: Check formatting
         run: vx just fmt-check
 
