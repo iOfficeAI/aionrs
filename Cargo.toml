@@ -119,6 +119,9 @@ unicode-width = "0.2.2"
 # Unix file flags (O_NOFOLLOW) for secure bundled skill file extraction
 libc = "0.2"
 
+# Windows process containment
+windows-sys = "0.61"
+
 # workspace-hack (managed by cargo-hakari for build speed)
 workspace-hack = { path = "workspace-hack" }
 
