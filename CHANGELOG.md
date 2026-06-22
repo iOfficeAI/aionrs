@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.32](https://github.com/iOfficeAI/aionrs/compare/v0.1.31...v0.1.32) (2026-06-22)
+
+
+### Bug Fixes
+
+* **aionrs:** preserve exec output on timeout ([#143](https://github.com/iOfficeAI/aionrs/issues/143)) ([9635f2d](https://github.com/iOfficeAI/aionrs/commit/9635f2da49ac2a35a0d9cb08fc55a01422d13c76))
+
 ## [0.1.31](https://github.com/iOfficeAI/aionrs/compare/v0.1.30...v0.1.31) (2026-06-22)
 
 
