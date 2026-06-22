@@ -1,8 +1,6 @@
-mod command_runner;
 mod containment;
+mod runner;
 #[cfg(windows)]
 mod windows_job;
 
-pub use command_runner::{
-    CommandRunResult, CommandRunner, DEFAULT_POST_PROCESS_DRAIN, DEFAULT_TIMEOUT,
-};
+pub use runner::{CommandResult, CommandRunner, DEFAULT_POST_PROCESS_DRAIN, DEFAULT_TIMEOUT};

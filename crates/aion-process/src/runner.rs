@@ -38,7 +38,7 @@ impl CommandRunner {
         self
     }
 
-    pub async fn run(mut self) -> Result<CommandRunResult> {
+    pub async fn run(mut self) -> Result<CommandResult> {
         self.command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -70,7 +70,7 @@ impl CommandRunner {
                 stdout_result?;
                 stderr_result?;
 
-                Ok(CommandRunResult {
+                Ok(CommandResult {
                     exit_code: status.code(),
                     timed_out: false,
                     stdout: take_output(stdout),
@@ -89,7 +89,7 @@ impl CommandRunner {
                     drain_reader(stderr_reader, self.post_process_drain)
                 );
 
-                Ok(CommandRunResult {
+                Ok(CommandResult {
                     exit_code: None,
                     timed_out: true,
                     stdout: take_output(stdout),
@@ -101,7 +101,7 @@ impl CommandRunner {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommandRunResult {
+pub struct CommandResult {
     pub exit_code: Option<i32>,
     pub timed_out: bool,
     pub stdout: Vec<u8>,
