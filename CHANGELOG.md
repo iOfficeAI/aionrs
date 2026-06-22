@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.31](https://github.com/iOfficeAI/aionrs/compare/v0.1.30...v0.1.31) (2026-06-22)
+
+
+### Bug Fixes
+
+* **aionrs:** add platform context regressions ([#133](https://github.com/iOfficeAI/aionrs/issues/133)) ([b085171](https://github.com/iOfficeAI/aionrs/commit/b08517171bb86616b84431f485d7e142722d3795))
+* **mcp:** tolerate CRLF line endings in SSE responses ([#134](https://github.com/iOfficeAI/aionrs/issues/134)) ([dcec839](https://github.com/iOfficeAI/aionrs/commit/dcec8394757e88c82f8854e1df1628ba211e924f))
+
 ## [0.1.30](https://github.com/iOfficeAI/aionrs/compare/v0.1.29...v0.1.30) (2026-06-18)
 
 
