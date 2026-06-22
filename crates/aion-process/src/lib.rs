@@ -1,4 +1,5 @@
 mod command_runner;
+mod containment;
 #[cfg(windows)]
 mod windows_job;
 

@@ -4,8 +4,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
 use tokio::task::JoinHandle;
+
+use crate::containment::ChildContainment;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
 pub const DEFAULT_POST_PROCESS_DRAIN: Duration = Duration::from_millis(250);
@@ -41,11 +43,11 @@ impl CommandRunner {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-        configure_command(&mut self.command);
+        ChildContainment::configure(&mut self.command);
 
         let mut child = self.command.spawn()?;
         let child_id = child.id();
-        let containment = ChildContainment::new(&mut child)?;
+        let containment = ChildContainment::attach(&mut child)?;
         let stdout = Arc::new(Mutex::new(Vec::new()));
         let stderr = Arc::new(Mutex::new(Vec::new()));
 
@@ -76,7 +78,7 @@ impl CommandRunner {
                 })
             }
             Err(_) => {
-                terminate_child(&mut child, child_id, &containment)?;
+                containment.terminate(&mut child, child_id)?;
                 if let Ok(status) =
                     tokio::time::timeout(self.post_process_drain, child.wait()).await
                 {
@@ -96,103 +98,6 @@ impl CommandRunner {
             }
         }
     }
-}
-
-#[cfg(unix)]
-fn configure_command(command: &mut Command) {
-    command.process_group(0);
-}
-
-#[cfg(not(any(unix, windows)))]
-fn configure_command(_command: &mut Command) {}
-
-#[cfg(windows)]
-fn configure_command(command: &mut Command) {
-    use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
-
-    command.creation_flags(CREATE_SUSPENDED);
-}
-
-#[cfg(windows)]
-struct ChildContainment {
-    job: crate::windows_job::JobObject,
-}
-
-#[cfg(windows)]
-impl ChildContainment {
-    fn new(child: &mut Child) -> Result<Self> {
-        let pid = child
-            .id()
-            .ok_or_else(|| Error::other("spawned child has no pid"))?;
-        let raw_handle = child
-            .raw_handle()
-            .ok_or_else(|| Error::other("spawned child has no raw handle"))?;
-
-        let job = crate::windows_job::JobObject::assign_and_resume(raw_handle, pid)
-            .map_err(|error| Error::other(format!("windows job containment failed: {error}")))?;
-
-        Ok(Self { job })
-    }
-}
-
-#[cfg(not(windows))]
-struct ChildContainment;
-
-#[cfg(not(windows))]
-impl ChildContainment {
-    fn new(_child: &mut Child) -> Result<Self> {
-        Ok(Self)
-    }
-}
-
-#[cfg(unix)]
-fn terminate_child(
-    child: &mut Child,
-    child_id: Option<u32>,
-    _containment: &ChildContainment,
-) -> Result<()> {
-    if let Some(target) = child_id.and_then(group_kill_target) {
-        let rc = unsafe { libc::kill(target, libc::SIGKILL) };
-        if rc == 0 {
-            return Ok(());
-        }
-
-        let err = Error::last_os_error();
-        if err.raw_os_error() == Some(libc::ESRCH) {
-            return Ok(());
-        }
-
-        return Err(err);
-    }
-
-    child.start_kill()
-}
-
-#[cfg(windows)]
-fn terminate_child(
-    _child: &mut Child,
-    _child_id: Option<u32>,
-    containment: &ChildContainment,
-) -> Result<()> {
-    containment.job.terminate()
-}
-
-#[cfg(not(any(unix, windows)))]
-fn terminate_child(
-    child: &mut Child,
-    _child_id: Option<u32>,
-    _containment: &ChildContainment,
-) -> Result<()> {
-    child.start_kill()
-}
-
-#[cfg(unix)]
-fn group_kill_target(pid: u32) -> Option<i32> {
-    if pid <= 1 {
-        return None;
-    }
-
-    i32::try_from(pid).ok().map(|pid| -pid)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
