@@ -46,22 +46,28 @@ aionrs --help
 
 ## Runtime Limits
 
-`max_turns` is the broad agent-loop limit. `max_malformed_tool_call_turns`
-stops repeated same malformed-only tool-call turns earlier; it defaults to `3`.
-Set it to `0` to disable this breaker and rely on `max_turns`.
+`max_turns` is the broad agent-loop limit; it defaults to `20`. Set it to `0`
+to disable the broad limit. A separate consecutive tool-failure fuse stops
+zero-text turns where every executable tool result failed after 3 turns.
+`max_malformed_tool_call_turns` stops repeated same malformed-only tool-call
+turns earlier; it defaults to `3`. Set it to `0` to disable this breaker and
+rely on `max_turns`.
 
 ```toml
 [default]
+max_turns = 20
 max_malformed_tool_call_turns = 3
 
 # Profile names are user-defined; this is not a built-in profile.
 [profiles.my-weak-provider]
+max_turns = 10
 max_malformed_tool_call_turns = 2
 ```
 
 CLI override:
 
 ```bash
+aionrs --max-turns 10 "Run the task"
 aionrs --max-malformed-tool-call-turns 2 "Run the task"
 ```
 

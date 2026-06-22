@@ -581,6 +581,69 @@ async fn test_engine_max_turns_returns_ok() {
 }
 
 #[tokio::test]
+async fn repeated_tool_error_turns_stop_before_another_provider_request() {
+    let tool_error_turn = |id: &str| {
+        vec![
+            LlmEvent::ToolUse {
+                id: id.to_string(),
+                name: "mock_tool".to_string(),
+                input: json!({}),
+                extra: None,
+            },
+            LlmEvent::Done {
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+            },
+        ]
+    };
+    let provider = Arc::new(RecordingRequestProvider::new(vec![
+        tool_error_turn("tool-1"),
+        tool_error_turn("tool-2"),
+        tool_error_turn("tool-3"),
+        vec![
+            LlmEvent::TextDelta("should not be requested".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.max_turns = Some(10);
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new(
+        "mock_tool",
+        "permission denied",
+        true,
+    )));
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        registry,
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    let err = engine
+        .run("keep retrying a failing tool", "")
+        .await
+        .expect_err("engine should stop repeated tool-error loops");
+
+    assert!(
+        err.to_string().contains("consecutive tool failures"),
+        "unexpected error: {err}"
+    );
+    assert_eq!(
+        requests.lock().unwrap().len(),
+        3,
+        "fourth provider request must not be sent"
+    );
+}
+
+#[tokio::test]
 async fn repeated_malformed_tool_call_stops_on_default_third_turn() {
     let dir = tempdir().expect("tempdir should be created");
     let provider = Arc::new(RecordingRequestProvider::new(vec![

@@ -46,7 +46,7 @@ struct Cli {
     #[arg(long)]
     max_tokens: Option<u32>,
 
-    /// Max agent loop turns
+    /// Max agent loop turns. Defaults to 20; 0 disables.
     #[arg(long)]
     max_turns: Option<usize>,
 

@@ -8,6 +8,10 @@ pub enum AgentError {
         "provider repeatedly returned malformed tool calls ({count}/{limit}); stopped to avoid wasting tokens"
     )]
     RepeatedMalformedToolCall { count: usize, limit: usize },
+    #[error(
+        "stopped after {count}/{limit} consecutive tool failures; the task did not converge. Try adjusting the request or retrying."
+    )]
+    RepeatedToolFailures { count: usize, limit: usize },
     #[error("Provider error: {0}")]
     Provider(#[from] ProviderError),
     #[error("User aborted the session")]

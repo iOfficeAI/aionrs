@@ -30,6 +30,8 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 use tracing::Instrument;
 
+const DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS: usize = 3;
+
 #[derive(Debug)]
 pub struct AgentResult {
     pub text: String,
@@ -482,11 +484,17 @@ impl AgentEngine {
 
         let mut turn: usize = 0;
         let mut repeated_malformed_tool_calls = RepeatedMalformedToolCallTracker::default();
+        let mut consecutive_tool_error_turns: usize = 0;
         loop {
             if let Some(limit) = self.max_turns
                 && turn >= limit
             {
                 self.save_session();
+                let message = format!(
+                    "Stopped after reaching max_turns ({limit}); the task did not converge. Try adjusting the request or retrying."
+                );
+                tracing::warn!(target: "aion_agent", limit, "stopping agent loop at max_turns");
+                self.output.emit_error(&message);
                 return Ok(AgentResult {
                     text: String::new(),
                     stop_reason: StopReason::MaxTurns,
@@ -826,6 +834,13 @@ impl AgentEngine {
                 }
             }
 
+            let executable_tool_error_turn = malformed_only_fingerprint.is_none()
+                && assistant_text.trim().is_empty()
+                && !tool_results.is_empty()
+                && tool_results.iter().all(|result| {
+                    matches!(result, ContentBlock::ToolResult { is_error: true, .. })
+                });
+
             self.messages.push(Message::now(Role::User, tool_results));
 
             // Save session after each turn
@@ -844,6 +859,23 @@ impl AgentEngine {
                 return Err(AgentError::RepeatedMalformedToolCall {
                     count: repeated_malformed_count,
                     limit: self.max_malformed_tool_call_turns,
+                });
+            }
+            if executable_tool_error_turn {
+                consecutive_tool_error_turns += 1;
+            } else {
+                consecutive_tool_error_turns = 0;
+            }
+            if consecutive_tool_error_turns >= DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS {
+                tracing::warn!(
+                    target: "aion_agent",
+                    count = consecutive_tool_error_turns,
+                    limit = DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS,
+                    "stopping repeated tool failure loop"
+                );
+                return Err(AgentError::RepeatedToolFailures {
+                    count: consecutive_tool_error_turns,
+                    limit: DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS,
                 });
             }
             turn += 1;

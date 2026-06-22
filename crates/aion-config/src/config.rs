@@ -13,6 +13,8 @@ use crate::plan::PlanConfig;
 use crate::shell::ShellConfig;
 use aion_types::llm::ThinkingConfig;
 
+pub const DEFAULT_MAX_TURNS: usize = 20;
+
 // ---------------------------------------------------------------------------
 // Provider-specific sub-configurations (defined here to avoid circular deps)
 // ---------------------------------------------------------------------------
@@ -252,6 +254,14 @@ fn default_max_sessions() -> usize {
     20
 }
 
+fn resolve_max_turns(configured: Option<usize>) -> Option<usize> {
+    match configured {
+        Some(0) => None,
+        Some(limit) => Some(limit),
+        None => Some(DEFAULT_MAX_TURNS),
+    }
+}
+
 // --- Resolved runtime config ---
 
 #[derive(Debug, Clone)]
@@ -365,7 +375,7 @@ impl Config {
             });
 
         let max_tokens = cli.max_tokens.unwrap_or(merged.default.max_tokens);
-        let max_turns = cli.max_turns.or(merged.default.max_turns);
+        let max_turns = resolve_max_turns(cli.max_turns.or(merged.default.max_turns));
         let max_malformed_tool_call_turns = cli
             .max_malformed_tool_call_turns
             .or(merged.default.max_malformed_tool_call_turns);
@@ -864,7 +874,7 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r#"# aionrs configuration
 provider = "anthropic"            # built-in provider or custom alias from [providers.<name>]
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
-# max_turns = 30                  # optional: omit for unlimited turns
+# max_turns = 20                  # defaults to 20; set 0 to disable
 # max_malformed_tool_call_turns = 3  # 0 disables the malformed tool-call loop breaker
 # system_prompt = "..."          # optional custom system prompt
 
@@ -1533,6 +1543,13 @@ allow = ["commit", "review-pr", "db:*"]
     }
 
     #[test]
+    fn resolve_max_turns_defaults_and_allows_explicit_disable() {
+        assert_eq!(resolve_max_turns(None), Some(DEFAULT_MAX_TURNS));
+        assert_eq!(resolve_max_turns(Some(0)), None);
+        assert_eq!(resolve_max_turns(Some(7)), Some(7));
+    }
+
+    #[test]
     fn mcp_server_config_deserializes_startup_timeout_ms() {
         let toml_str = r#"
 [mcp.servers.slow-tools]
@@ -2080,6 +2097,27 @@ max_malformed_tool_call_turns = 2
 
         let config = Config::resolve(&cli_args).unwrap();
         assert_eq!(config.max_malformed_tool_call_turns, Some(0));
+    }
+
+    #[test]
+    fn test_resolve_zero_max_turns_disables_turn_limit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli_args = CliArgs {
+            provider: Some("anthropic".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: Some(0),
+            max_malformed_tool_call_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli_args).unwrap();
+        assert_eq!(config.max_turns, None);
     }
 
     #[test]
