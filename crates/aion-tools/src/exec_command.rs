@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use aion_config::shell::{resolve_shell, shell_command_builder};
+use aion_process::CommandRunner;
 use aion_protocol::events::ToolCategory;
 use aion_types::tool::{JsonSchema, ToolResult};
 
@@ -21,6 +22,18 @@ impl ExecCommandTool {
     pub fn new(cwd: PathBuf) -> Self {
         Self { cwd }
     }
+}
+
+fn render_exit_result(exit_code: i32, stdout: &[u8], stderr: &[u8]) -> String {
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
+    format!("Exit code: {exit_code}\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}")
+}
+
+fn render_timeout_result(timeout_ms: u64, stdout: &[u8], stderr: &[u8]) -> String {
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
+    format!("Command timed out after {timeout_ms}ms\nSTDOUT:\n{stdout}\nSTDERR:\n{stderr}")
 }
 
 #[async_trait]
@@ -105,36 +118,28 @@ impl Tool for ExecCommandTool {
         let timeout = Duration::from_millis(timeout_ms);
 
         let cwd = self.cwd.clone();
-        let result = tokio::time::timeout(timeout, async {
-            shell_command_builder(&shell, command, false)
-                .current_dir(&cwd)
-                .output()
-                .await
-        })
-        .await;
+        let mut command_builder = shell_command_builder(&shell, command, false);
+        command_builder.current_dir(&cwd);
+
+        let result = CommandRunner::new(command_builder)
+            .timeout(timeout)
+            .run()
+            .await;
 
         match result {
-            Ok(Ok(output)) => {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                let exit_code = output.status.code().unwrap_or(-1);
-
-                let content = format!(
-                    "Exit code: {}\nSTDOUT:\n{}\nSTDERR:\n{}",
-                    exit_code, stdout, stderr
-                );
-
+            Ok(result) if result.timed_out => ToolResult {
+                content: render_timeout_result(timeout_ms, &result.stdout, &result.stderr),
+                is_error: true,
+            },
+            Ok(result) => {
+                let exit_code = result.exit_code.unwrap_or(-1);
                 ToolResult {
-                    content,
+                    content: render_exit_result(exit_code, &result.stdout, &result.stderr),
                     is_error: exit_code != 0,
                 }
             }
-            Ok(Err(e)) => ToolResult {
-                content: format!("Failed to execute command: {}", e),
-                is_error: true,
-            },
-            Err(_) => ToolResult {
-                content: format!("Command timed out after {}ms", timeout_ms),
+            Err(err) => ToolResult {
+                content: format!("Failed to execute command: {}", err),
                 is_error: true,
             },
         }
@@ -188,6 +193,107 @@ mod tests {
         assert!(
             result.content.contains("proof"),
             "ExecCommandTool should execute in injected cwd, got: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_timeout_preserves_stdout_emitted_before_timeout() {
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        #[cfg(windows)]
+        let cmd = "Write-Output aion_stdout_before_timeout; Start-Sleep -Seconds 5";
+        #[cfg(not(windows))]
+        let cmd = "printf 'aion_stdout_before_timeout\\n'; sleep 5";
+        let input = json!({
+            "cmd": cmd,
+            "timeout": 1500
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(
+            result.is_error,
+            "timeout should be an error: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("Command timed out after 1500ms"),
+            "timeout message missing: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("STDOUT:\n")
+                && result.content.contains("aion_stdout_before_timeout"),
+            "stdout emitted before timeout should be preserved, got: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_timeout_preserves_stderr_emitted_before_timeout() {
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        #[cfg(windows)]
+        let cmd =
+            "[Console]::Error.WriteLine('aion_stderr_before_timeout'); Start-Sleep -Seconds 5";
+        #[cfg(not(windows))]
+        let cmd = "printf 'aion_stderr_before_timeout\\n' >&2; sleep 5";
+        let input = json!({
+            "cmd": cmd,
+            "timeout": 1500
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(
+            result.is_error,
+            "timeout should be an error: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("Command timed out after 1500ms"),
+            "timeout message missing: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("STDERR:\n")
+                && result.content.contains("aion_stderr_before_timeout"),
+            "stderr emitted before timeout should be preserved, got: {}",
+            result.content
+        );
+    }
+
+    #[tokio::test]
+    async fn execute_timeout_omits_output_after_timeout() {
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        #[cfg(windows)]
+        let cmd = "Write-Output aion_before_timeout; Start-Sleep -Seconds 5; Write-Output aion_after_timeout";
+        #[cfg(not(windows))]
+        let cmd = "printf 'aion_before_timeout\\n'; sleep 5; printf 'aion_after_timeout\\n'";
+        let input = json!({
+            "cmd": cmd,
+            "timeout": 1500
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(
+            result.is_error,
+            "timeout should be an error: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("Command timed out after 1500ms"),
+            "timeout message missing: {}",
+            result.content
+        );
+        assert!(
+            result.content.contains("aion_before_timeout"),
+            "output emitted before timeout should be preserved, got: {}",
+            result.content
+        );
+        assert!(
+            !result.content.contains("aion_after_timeout"),
+            "output after timeout should not be present, got: {}",
             result.content
         );
     }

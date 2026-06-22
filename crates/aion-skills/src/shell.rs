@@ -190,6 +190,10 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
 /// Execute a single shell command and return its combined stdout/stderr output.
 async fn execute_command(command: &str, cwd: &str) -> Result<String, ShellExecutionError> {
     let shell = aion_config::shell::default_shell();
+    // TODO(aio-168): migrate embedded skill shell execution to aion-process so
+    // future timeout handling can preserve partial stdout/stderr. Keep behavior
+    // unchanged in this patch because skill shell output formatting differs
+    // from ExecCommand tool output.
     let output = aion_config::shell::shell_command_builder(&shell, command, false)
         .current_dir(cwd)
         .output()

@@ -140,6 +140,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aion-process"
+version = "0.1.30"
+dependencies = [
+ "libc",
+ "tokio",
+ "windows-sys 0.61.2",
+ "workspace-hack",
+]
+
+[[package]]
 name = "aion-protocol"
 version = "0.1.30"
 dependencies = [
@@ -214,6 +224,7 @@ name = "aion-tools"
 version = "0.1.30"
 dependencies = [
  "aion-config",
+ "aion-process",
  "aion-protocol",
  "aion-types",
  "anyhow",
