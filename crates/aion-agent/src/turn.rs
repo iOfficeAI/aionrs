@@ -108,12 +108,12 @@ impl TurnGuards {
     pub(crate) fn new(
         max_turns_per_run: Option<usize>,
         max_tool_call_malformed_turns: usize,
-        max_tool_call_failure_rounds: usize,
+        max_tool_call_failure_turns: usize,
     ) -> Self {
         Self {
             turns: TurnTracker::new(max_turns_per_run),
             tool_call_malformed: ToolCallMalformedTracker::new(max_tool_call_malformed_turns),
-            tool_call_failures: ToolCallFailureTracker::new(max_tool_call_failure_rounds),
+            tool_call_failures: ToolCallFailureTracker::new(max_tool_call_failure_turns),
         }
     }
 

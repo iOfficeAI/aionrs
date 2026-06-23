@@ -16,9 +16,8 @@ use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
 use crate::stream::StreamOutcome;
 use crate::tool_call::{
-    DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS, DEFAULT_MAX_TOOL_CALL_MALFORMED_TURNS,
-    ToolCallMalformedFingerprint, merge_tool_results, tool_call_malformed_fingerprint,
-    tool_call_malformed_reason,
+    DEFAULT_MAX_TOOL_CALL_FAILURE, DEFAULT_MAX_TOOL_CALL_MALFORMED, ToolCallMalformedFingerprint,
+    merge_tool_results, tool_call_malformed_fingerprint, tool_call_malformed_reason,
 };
 use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 use aion_config::compact::CompactConfig;
@@ -50,6 +49,7 @@ pub struct AgentEngine {
     max_tokens: u32,
     max_turns_per_run: Option<usize>,
     max_tool_call_malformed_turns: usize,
+    max_tool_call_failure_turns: usize,
     total_usage: TokenUsage,
     thinking: Option<ThinkingConfig>,
     /// Resolved provider compat settings (for capability validation)
@@ -127,7 +127,10 @@ impl AgentEngine {
             max_turns_per_run: config.max_turns,
             max_tool_call_malformed_turns: config
                 .max_tool_call_malformed_turns
-                .unwrap_or(DEFAULT_MAX_TOOL_CALL_MALFORMED_TURNS),
+                .unwrap_or(DEFAULT_MAX_TOOL_CALL_MALFORMED),
+            max_tool_call_failure_turns: config
+                .max_tool_call_failure_turns
+                .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
             total_usage: TokenUsage::default(),
             thinking: config.thinking,
             compat: config.compat.clone(),
@@ -199,7 +202,10 @@ impl AgentEngine {
             max_turns_per_run: config.max_turns,
             max_tool_call_malformed_turns: config
                 .max_tool_call_malformed_turns
-                .unwrap_or(DEFAULT_MAX_TOOL_CALL_MALFORMED_TURNS),
+                .unwrap_or(DEFAULT_MAX_TOOL_CALL_MALFORMED),
+            max_tool_call_failure_turns: config
+                .max_tool_call_failure_turns
+                .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
             total_usage: session.total_usage.clone(),
             thinking: config.thinking,
             compat: config.compat.clone(),
@@ -337,7 +343,7 @@ impl AgentEngine {
         let mut guards = TurnGuards::new(
             self.max_turns_per_run,
             self.max_tool_call_malformed_turns,
-            DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS,
+            self.max_tool_call_failure_turns,
         );
         loop {
             if let Some(limit) = guards.turn_budget_reached() {
@@ -1307,6 +1313,7 @@ mod tests_set_config {
             max_tokens: 4096,
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
+            max_tool_call_failure_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1637,6 +1644,7 @@ mod tests_phase6 {
             max_tokens: 4096,
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
+            max_tool_call_failure_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1879,6 +1887,7 @@ mod tests_compact {
             max_tokens: 4096,
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
+            max_tool_call_failure_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2222,6 +2231,7 @@ mod tests_plan_mode {
             max_tokens: 4096,
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
+            max_tool_call_failure_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2436,6 +2446,7 @@ mod tests_handle_command {
             max_tokens: 4096,
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
+            max_tool_call_failure_turns: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2563,9 +2574,7 @@ mod tests_loop_helpers {
 
     use super::{AgentError, merge_tool_results, tool_call_malformed_fingerprint};
     use crate::stream::StreamOutcome;
-    use crate::tool_call::{
-        DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS, ToolCallMalformedReason,
-    };
+    use crate::tool_call::{DEFAULT_MAX_TOOL_CALL_FAILURE, ToolCallMalformedReason};
     use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 
     fn tool_use(id: &str, name: &str) -> ContentBlock {
@@ -2640,16 +2649,14 @@ mod tests_loop_helpers {
 
     #[test]
     fn turn_budget_reached_respects_limit_and_none() {
-        let mut guards =
-            TurnGuards::new(Some(2), 3, DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS);
+        let mut guards = TurnGuards::new(Some(2), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         assert_eq!(guards.turn_budget_reached(), None);
         guards.record_counted_turn();
         guards.record_counted_turn();
         assert_eq!(guards.turn_budget_reached(), Some(2));
 
         // No limit configured → never reached.
-        let mut unlimited =
-            TurnGuards::new(None, 3, DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS);
+        let mut unlimited = TurnGuards::new(None, 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         for _ in 0..1_000 {
             unlimited.record_counted_turn();
         }
@@ -2658,13 +2665,9 @@ mod tests_loop_helpers {
 
     #[test]
     fn after_tool_round_trips_consecutive_tool_call_failure_breaker() {
-        let mut guards = TurnGuards::new(
-            Some(100),
-            3,
-            DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS,
-        );
+        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         // First N-1 tool-call-failure rounds: no stop yet.
-        for _ in 0..DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS - 1 {
+        for _ in 0..DEFAULT_MAX_TOOL_CALL_FAILURE - 1 {
             assert!(matches!(
                 guards.after_tool_round(None, true),
                 TurnGuardAction::Continue
@@ -2679,11 +2682,7 @@ mod tests_loop_helpers {
 
     #[test]
     fn after_tool_round_resets_tool_call_failure_streak_on_success() {
-        let mut guards = TurnGuards::new(
-            Some(100),
-            3,
-            DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS,
-        );
+        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         assert!(matches!(
             guards.after_tool_round(None, true),
             TurnGuardAction::Continue
@@ -2703,8 +2702,7 @@ mod tests_loop_helpers {
 
     #[test]
     fn after_tool_round_requests_finalize_when_budget_is_exhausted() {
-        let mut guards =
-            TurnGuards::new(Some(1), 3, DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS);
+        let mut guards = TurnGuards::new(Some(1), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         guards.record_counted_turn();
         assert!(matches!(
             guards.after_tool_round(None, false),
@@ -2714,8 +2712,7 @@ mod tests_loop_helpers {
 
     #[test]
     fn after_tool_round_stop_breaker_takes_priority_over_finalize() {
-        let mut guards =
-            TurnGuards::new(Some(1), 1, DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS);
+        let mut guards = TurnGuards::new(Some(1), 1, DEFAULT_MAX_TOOL_CALL_FAILURE);
         guards.record_counted_turn();
 
         let calls = vec![tool_use("bad", "")];

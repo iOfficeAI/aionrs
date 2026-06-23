@@ -15,6 +15,7 @@ fn minimal_config() -> Config {
         max_tokens: 1024,
         max_turns: Some(5),
         max_tool_call_malformed_turns: Some(3),
+        max_tool_call_failure_turns: Some(3),
         system_prompt: None,
         thinking: None,
         prompt_caching: false,

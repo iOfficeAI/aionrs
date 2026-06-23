@@ -36,6 +36,7 @@ fn openai_config(api_key: &str) -> Config {
         max_tokens: 256,
         max_turns: Some(3),
         max_tool_call_malformed_turns: Some(3),
+        max_tool_call_failure_turns: Some(3),
         system_prompt: Some(
             "You are a helpful assistant. Be concise. Answer exactly what is asked.".to_string(),
         ),

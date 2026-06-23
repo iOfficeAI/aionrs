@@ -70,6 +70,7 @@ mcp_servers = ["filesystem", "github"]
 [profiles.my-weak-provider]
 extends = "base-anthropic"
 max_tool_call_malformed_turns = 2
+max_tool_call_failure_turns = 2
 ```
 
 ### Usage
@@ -84,7 +85,8 @@ aionrs --profile dev "Create a GitHub issue"
 - Auto-detects circular inheritance
 - Child profile settings override parent
 - `max_tool_call_malformed_turns` can be set per profile. It defaults to `3`; `0` disables this tool-call-malformed round breaker and leaves stopping to `max_turns`.
-- Override it for one run with `--max-tool-call-malformed-turns <n>`.
+- `max_tool_call_failure_turns` can be set per profile. It defaults to `3`; `0` disables this tool-call-failure round breaker and leaves stopping to `max_turns`.
+- Override them for one run with `--max-tool-call-malformed-turns <n>` or `--max-tool-call-failure-turns <n>`.
 
 ---
 

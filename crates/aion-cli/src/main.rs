@@ -54,6 +54,10 @@ struct Cli {
     #[arg(long)]
     max_tool_call_malformed_turns: Option<usize>,
 
+    /// Max consecutive tool-call-failure rounds before stopping. 0 disables.
+    #[arg(long)]
+    max_tool_call_failure_turns: Option<usize>,
+
     /// Custom system prompt
     #[arg(long)]
     system_prompt: Option<String>,
@@ -180,6 +184,7 @@ async fn main() -> anyhow::Result<()> {
         max_tokens: cli.max_tokens,
         max_turns: cli.max_turns,
         max_tool_call_malformed_turns: cli.max_tool_call_malformed_turns,
+        max_tool_call_failure_turns: cli.max_tool_call_failure_turns,
         system_prompt: cli.system_prompt,
         profile: cli.profile,
         auto_approve: cli.auto_approve,

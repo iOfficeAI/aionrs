@@ -45,6 +45,21 @@ fn tool_call_malformed_turn(id: &str, name: &str, input: Value) -> Vec<LlmEvent>
     ]
 }
 
+fn tool_call_failure_turn(id: &str) -> Vec<LlmEvent> {
+    vec![
+        LlmEvent::ToolUse {
+            id: id.to_string(),
+            name: "mock_tool".to_string(),
+            input: json!({}),
+            extra: None,
+        },
+        LlmEvent::Done {
+            stop_reason: StopReason::ToolUse,
+            usage: TokenUsage::default(),
+        },
+    ]
+}
+
 #[derive(Default)]
 struct RecordingOutputSink {
     tool_calls: Mutex<Vec<(String, String)>>,
@@ -971,20 +986,6 @@ async fn finalization_requests_can_be_asserted_without_tools() {
 
 #[tokio::test]
 async fn repeated_tool_call_failure_turns_stop_before_another_provider_request() {
-    let tool_call_failure_turn = |id: &str| {
-        vec![
-            LlmEvent::ToolUse {
-                id: id.to_string(),
-                name: "mock_tool".to_string(),
-                input: json!({}),
-                extra: None,
-            },
-            LlmEvent::Done {
-                stop_reason: StopReason::ToolUse,
-                usage: TokenUsage::default(),
-            },
-        ]
-    };
     let provider = Arc::new(RecordingRequestProvider::new(vec![
         tool_call_failure_turn("tool-1"),
         tool_call_failure_turn("tool-2"),
@@ -1029,6 +1030,107 @@ async fn repeated_tool_call_failure_turns_stop_before_another_provider_request()
         requests.lock().unwrap().len(),
         3,
         "fourth provider request must not be sent"
+    );
+}
+
+#[tokio::test]
+async fn repeated_tool_call_failure_threshold_one_stops_immediately() {
+    let provider = Arc::new(RecordingRequestProvider::new(vec![
+        tool_call_failure_turn("tool-1"),
+        tool_call_failure_turn("tool-2"),
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.max_turns = Some(10);
+    config.max_tool_call_failure_turns = Some(1);
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new(
+        "mock_tool",
+        "permission denied",
+        true,
+    )));
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        registry,
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    let err = engine
+        .run("keep retrying a failing tool", "")
+        .await
+        .expect_err("engine should stop repeated tool-call-failure loops");
+
+    assert!(matches!(
+        err,
+        AgentError::ToolCallFailures { count: 1, limit: 1 }
+    ));
+    assert_eq!(requests.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn repeated_tool_call_failure_disabled_runs_grace_finalization() {
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
+        tool_call_failure_turn("tool-1"),
+        tool_call_failure_turn("tool-2"),
+        vec![
+            LlmEvent::TextDelta("Final after tool-call failures".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.max_turns = Some(2);
+    config.max_tool_call_failure_turns = Some(0);
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new(
+        "mock_tool",
+        "permission denied",
+        true,
+    )));
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        registry,
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    let result = engine
+        .run("keep retrying a failing tool", "")
+        .await
+        .expect("engine should stop cleanly");
+
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.text, "Final after tool-call failures");
+    assert_eq!(result.turns, 2);
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 3);
+    assert!(
+        recorded[0].tool_count > 0,
+        "normal requests should include registered tools"
+    );
+    assert_eq!(recorded[2].tool_count, 0);
+    let last_message = recorded[2]
+        .messages
+        .last()
+        .expect("grace finalization request should include control prompt");
+    assert_eq!(last_message.role, Role::User);
+    assert!(
+        matches!(
+            &last_message.content[..],
+            [ContentBlock::Text { text }] if text.contains("Do not call any more tools")
+        ),
+        "grace finalization prompt should forbid more tool calls"
     );
 }
 

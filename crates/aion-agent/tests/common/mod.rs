@@ -246,6 +246,7 @@ pub fn test_config() -> Config {
         max_tokens: 4096,
         max_turns: Some(10),
         max_tool_call_malformed_turns: Some(3),
+        max_tool_call_failure_turns: Some(3),
         system_prompt: Some("You are a test assistant.".to_string()),
         thinking: None,
         prompt_caching: false,
