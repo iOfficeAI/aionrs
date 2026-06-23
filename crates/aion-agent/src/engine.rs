@@ -15,9 +15,9 @@ use crate::plan::prompt as plan_prompt;
 use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
 use crate::tool_call::{
-    DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS, RepeatedMalformedToolCallTracker,
-    malformed_only_fingerprint, reason as malformed_tool_call_reason,
-    synthetic_result as synthetic_malformed_tool_result,
+    DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS, MalformedToolCallFingerprint, MalformedToolCallReason,
+    RepeatedMalformedToolCallTracker, malformed_only_fingerprint,
+    reason as malformed_tool_call_reason, synthetic_result as synthetic_malformed_tool_result,
 };
 use aion_config::compact::CompactConfig;
 use aion_config::config::Config;
@@ -333,11 +333,9 @@ impl AgentEngine {
             }],
         ));
 
-        let mut turn: usize = 0;
-        let mut repeated_malformed_tool_calls = RepeatedMalformedToolCallTracker::default();
-        let mut consecutive_tool_error_turns: usize = 0;
+        let mut guards = TurnGuards::new(self.max_turns, self.max_malformed_tool_call_turns);
         loop {
-            if let Some(limit) = self.max_turns && turn >= limit {
+            if let Some(limit) = guards.max_turns_reached() {
                 self.save_session();
                 let message = format!(
                     "Stopped after reaching max_turns ({limit}); the task did not converge. Try adjusting the request or retrying."
@@ -348,7 +346,7 @@ impl AgentEngine {
                     text: String::new(),
                     stop_reason: StopReason::MaxTurns,
                     usage: self.total_usage.clone(),
-                    turns: turn,
+                    turns: guards.turn,
                 });
             }
             // Run multi-level compaction before each API call.
@@ -356,377 +354,379 @@ impl AgentEngine {
             // autocompact nor emergency will fire.
             self.run_compaction().await?;
 
-            // Build tool list: filter based on plan mode state
-            let tools = if self.plan_state.is_active {
-                // Plan mode: only Info-category tools (excluding EnterPlanMode)
-                self.tools.to_tool_defs_filtered(|t| {
-                    t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
-                })
-            } else {
-                // Normal mode: all tools except ExitPlanMode
-                self.tools
-                    .to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
-            };
-
-            // Build system prompt: append plan mode instructions when active
-            let system = if self.plan_state.is_active {
-                format!(
-                    "{}\n\n{}",
-                    self.system_prompt,
-                    plan_prompt::plan_mode_instructions()
-                )
-            } else {
-                self.system_prompt.clone()
-            };
-
-            // Record prompt state for cache diagnostics
-            self.cache_detector.record_request(&system, &tools);
-
-            let request = LlmRequest {
-                model: self.model.clone(),
-                system,
-                messages: self.messages.clone(),
-                tools,
-                max_tokens: self.max_tokens,
-                thinking: self.thinking.clone(),
-                reasoning_effort: self.current_reasoning_effort.clone(),
-            };
+            let request = self.build_request();
 
             let mut rx = self.provider.stream(&request).await?;
-            let mut assistant_text = String::new();
-            let mut thinking_text = String::new();
-            let mut thinking_signature: Option<String> = None;
-            let mut tool_calls: Vec<ContentBlock> = Vec::new();
-            let mut stop_reason = StopReason::EndTurn;
-            let mut turn_usage = TokenUsage::default();
+            let outcome = self.consume_stream(&mut rx).await?;
 
-            while let Some(event) = rx.recv().await {
-                match event {
-                    LlmEvent::TextDelta(text) => {
-                        self.output.emit_text_delta(&text, &self.current_msg_id);
-                        assistant_text.push_str(&text);
-                    }
-                    LlmEvent::ToolUse {
-                        id,
-                        name,
-                        input,
-                        extra,
-                    } => {
-                        if id.trim().is_empty() {
-                            tracing::error!(
-                                target: "aion_agent",
-                                tool = %name,
-                                "provider emitted tool call with empty tool_use_id"
-                            );
-                        } else {
-                            tracing::debug!(
-                                target: "aion_agent",
-                                tool_use_id = %id,
-                                tool = %name,
-                                "provider tool call received"
-                            );
-                        }
-                        let input_str = serde_json::to_string(&input).unwrap_or_default();
-                        self.output.emit_tool_call(&id, &name, &input_str);
-                        tool_calls.push(ContentBlock::ToolUse {
-                            id,
-                            name,
-                            input,
-                            extra,
-                        });
-                    }
-                    LlmEvent::ThinkingDelta(text) => {
-                        self.output.emit_thinking(&text, &self.current_msg_id);
-                        thinking_text.push_str(&text);
-                    }
-                    LlmEvent::ThinkingSignature(signature) => {
-                        thinking_signature = Some(signature);
-                    }
-                    LlmEvent::Done {
-                        stop_reason: sr,
-                        usage,
-                    } => {
-                        stop_reason = sr;
-                        turn_usage = usage;
-                    }
-                    LlmEvent::Error(e) => {
-                        return Err(AgentError::ApiError(e));
-                    }
-                }
-            }
+            self.record_turn_usage(&outcome.usage);
 
-            self.total_usage.input_tokens += turn_usage.input_tokens;
-            self.total_usage.output_tokens += turn_usage.output_tokens;
-            self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
-            self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
-
-            // Track per-turn input tokens for compaction watermark.
-            // Use max(provider_reported, local_estimate) as a safety net:
-            // some providers (e.g. DeepSeek with prefix caching) underreport
-            // prompt_tokens, causing compaction to never trigger.
-            let local_estimate = estimate::estimate_tokens_from_messages(&self.messages);
-            let effective_watermark = turn_usage.input_tokens.max(local_estimate);
-
-            if local_estimate > turn_usage.input_tokens
-                && local_estimate.saturating_sub(turn_usage.input_tokens) > 10_000
-            {
-                self.output.emit_info(&format!(
-                    "Token watermark override: provider={}, local_estimate={}, using={}",
-                    turn_usage.input_tokens, local_estimate, effective_watermark
-                ));
-            }
-
-            self.compact_state.last_input_tokens = effective_watermark;
-
-            // Cache break detection
-            let cache_stats = CacheStats {
-                input_tokens: turn_usage.input_tokens,
-                cache_read_tokens: turn_usage.cache_read_tokens,
-                cache_creation_tokens: turn_usage.cache_creation_tokens,
-            };
-            if let Some(diagnostic) = self.cache_detector.check_response(cache_stats) {
-                match &diagnostic {
-                    CacheDiagnostic::FullMiss { cause } => {
-                        self.output
-                            .emit_error(&format!("Cache full miss: {cause:?}"));
-                    }
-                    CacheDiagnostic::PartialMiss { hit_rate, cause } => {
-                        if self.compact_config.cache_diagnostics {
-                            self.output.emit_info(&format!(
-                                "Cache: {:.0}% hit rate (cause: {cause:?})",
-                                hit_rate * 100.0
-                            ));
-                        }
-                    }
-                    CacheDiagnostic::Healthy { hit_rate } => {
-                        if self.compact_config.cache_diagnostics {
-                            self.output
-                                .emit_info(&format!("Cache: {:.0}% hit rate", hit_rate * 100.0));
-                        }
-                    }
-                }
-            }
-
-            let mut assistant_content: Vec<ContentBlock> = Vec::new();
-            if !thinking_text.is_empty() || thinking_signature.is_some() {
-                assistant_content.push(ContentBlock::Thinking {
-                    thinking: thinking_text,
-                    signature: thinking_signature,
-                });
-            }
-            if !assistant_text.is_empty() {
-                assistant_content.push(ContentBlock::Text {
-                    text: assistant_text.clone(),
-                });
-            }
-            assistant_content.extend(tool_calls.clone());
-
+            let assistant_content = build_assistant_content(&outcome);
             self.messages
                 .push(Message::now(Role::Assistant, assistant_content));
 
-            if tool_calls.is_empty() {
+            if outcome.tool_calls.is_empty() {
                 self.save_session();
                 return Ok(AgentResult {
-                    text: assistant_text,
-                    stop_reason,
+                    text: outcome.assistant_text,
+                    stop_reason: outcome.stop_reason,
                     usage: self.total_usage.clone(),
-                    turns: turn + 1,
+                    turns: guards.turn + 1,
                 });
             }
 
-            let malformed_reasons: Vec<_> = tool_calls
-                .iter()
-                .map(|call| {
-                    let ContentBlock::ToolUse { id, name, .. } = call else {
-                        return None;
-                    };
-                    malformed_tool_call_reason(id, name)
-                })
-                .collect();
-            let malformed_only_fingerprint = malformed_only_fingerprint(&tool_calls, &malformed_reasons);
-            let executable_tool_calls: Vec<_> = tool_calls
-                .iter()
-                .zip(&malformed_reasons)
-                .filter_map(|(call, reason)| {
-                    if reason.is_none() {
-                        Some(call.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect();
+            let assistant_text = outcome.assistant_text;
+            let tool_calls = outcome.tool_calls;
 
-            let (executable_results, executable_modifiers) = if executable_tool_calls.is_empty() {
-                (Vec::new(), Vec::new())
-            } else if let Some(ref approval_mgr) = self.approval_manager {
-                // JSON stream mode: use protocol-based approval
-                let writer = self
-                    .protocol_writer
-                    .as_ref()
-                    .expect("protocol writer required for approval");
-                let auto_approve = self.confirmer.lock().unwrap().is_auto_approve();
-                match execute_tool_calls_with_approval(
-                    &self.tools,
-                    &executable_tool_calls,
-                    approval_mgr,
-                    writer,
-                    &self.current_msg_id,
-                    auto_approve,
-                    &self.allow_list,
-                    self.hooks.as_mut(),
-                    self.compaction_level,
-                    self.toon_enabled,
-                )
-                .await
-                {
-                    Ok(o) => (o.results, o.modifiers),
-                    Err(ExecutionControl::Quit) => {
-                        self.save_session();
-                        return Err(AgentError::UserAborted);
-                    }
-                }
-            } else {
-                // Terminal mode: use interactive confirmation
-                match execute_tool_calls(
-                    &self.tools,
-                    &executable_tool_calls,
-                    &self.confirmer,
-                    self.hooks.as_mut(),
-                    self.compaction_level,
-                    self.toon_enabled,
-                )
-                .await
-                {
-                    Ok(o) => (o.results, o.modifiers),
-                    Err(ExecutionControl::Quit) => {
-                        self.save_session();
-                        return Err(AgentError::UserAborted);
-                    }
-                }
-            };
-
-            let mut executable_results = executable_results.into_iter();
-            let mut executable_modifiers = executable_modifiers.into_iter();
-            let mut tool_results = Vec::with_capacity(tool_calls.len());
-            let mut tool_modifiers = Vec::with_capacity(tool_calls.len());
-
-            for (call, reason) in tool_calls.iter().zip(&malformed_reasons) {
-                if let Some(reason) = reason {
-                    let ContentBlock::ToolUse { id, name, .. } = call else {
-                        continue;
-                    };
-                    tracing::warn!(
-                        target: "aion_agent",
-                        tool_call_id = %id,
-                        tool = %name,
-                        reason = reason.log_reason(),
-                        "generated synthetic error result for malformed tool call"
-                    );
-                    tool_results.push(synthetic_malformed_tool_result(id.clone(), *reason));
-                    tool_modifiers.push(None);
-                } else {
-                    tool_results.push(
-                        executable_results
-                            .next()
-                            .expect("tool execution result missing for executable tool call"),
-                    );
-                    tool_modifiers.push(
-                        executable_modifiers
-                            .next()
-                            .expect("tool execution modifier missing for executable tool call"),
-                    );
-                }
-            }
+            let TurnToolOutput {
+                tool_results,
+                tool_modifiers,
+                malformed_only_fingerprint,
+                executable_tool_error_turn,
+            } = self
+                .execute_turn_tools(&tool_calls, &assistant_text)
+                .await?;
 
             // Apply any context modifiers from skill executions before the next turn.
             self.apply_context_modifiers(&tool_modifiers);
 
-            // Display tool results
-            for result in &tool_results {
-                if let ContentBlock::ToolResult {
-                    tool_use_id,
-                    content,
-                    is_error,
-                } = result
-                {
-                    let tool_name = tool_calls
-                        .iter()
-                        .find_map(|c| {
-                            if let ContentBlock::ToolUse { id, name, .. } = c
-                                && id == tool_use_id
-                            {
-                                return Some(name.as_str());
-                            }
-                            None
-                        })
-                        .unwrap_or("unknown");
-                    let status = if *is_error { "error" } else { "completed" };
-                    if tool_use_id.trim().is_empty() {
-                        tracing::error!(
-                            target: "aion_agent",
-                            tool = %tool_name,
-                            status,
-                            "tool result has empty tool_use_id"
-                        );
-                    } else {
-                        tracing::debug!(
-                            target: "aion_agent",
-                            tool_use_id = %tool_use_id,
-                            tool = %tool_name,
-                            status,
-                            "tool result emitted"
-                        );
-                    }
-                    self.output
-                        .emit_tool_result(tool_use_id, tool_name, *is_error, content);
-                }
-            }
-
-            let executable_tool_error_turn = malformed_only_fingerprint.is_none()
-                && assistant_text.trim().is_empty()
-                && !tool_results.is_empty()
-                && tool_results.iter().all(|result| {
-                    matches!(result, ContentBlock::ToolResult { is_error: true, .. })
-                });
+            self.emit_tool_results(&tool_calls, &tool_results);
 
             self.messages.push(Message::now(Role::User, tool_results));
 
             // Save session after each turn
             self.save_session();
-            let repeated_malformed_count =
-                repeated_malformed_tool_calls.observe(malformed_only_fingerprint);
-            if self.max_malformed_tool_call_turns > 0
-                && repeated_malformed_count >= self.max_malformed_tool_call_turns
+
+            if let Some(err) =
+                guards.after_turn(malformed_only_fingerprint, executable_tool_error_turn)
             {
-                tracing::warn!(
-                    target: "aion_agent",
-                    count = repeated_malformed_count,
-                    limit = self.max_malformed_tool_call_turns,
-                    "stopping repeated malformed tool call loop"
-                );
-                return Err(AgentError::RepeatedMalformedToolCall {
-                    count: repeated_malformed_count,
-                    limit: self.max_malformed_tool_call_turns,
-                });
+                return Err(err);
             }
-            if executable_tool_error_turn {
-                consecutive_tool_error_turns += 1;
-            } else {
-                consecutive_tool_error_turns = 0;
+            guards.turn += 1;
+        }
+    }
+
+    /// Build the next provider request, applying plan-mode tool/system filtering
+    /// and recording the prompt state for cache diagnostics.
+    fn build_request(&mut self) -> LlmRequest {
+        // Build tool list: filter based on plan mode state
+        let tools = if self.plan_state.is_active {
+            // Plan mode: only Info-category tools (excluding EnterPlanMode)
+            self.tools.to_tool_defs_filtered(|t| {
+                t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
+            })
+        } else {
+            // Normal mode: all tools except ExitPlanMode
+            self.tools
+                .to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
+        };
+
+        // Build system prompt: append plan mode instructions when active
+        let system = if self.plan_state.is_active {
+            format!(
+                "{}\n\n{}",
+                self.system_prompt,
+                plan_prompt::plan_mode_instructions()
+            )
+        } else {
+            self.system_prompt.clone()
+        };
+
+        // Record prompt state for cache diagnostics
+        self.cache_detector.record_request(&system, &tools);
+
+        LlmRequest {
+            model: self.model.clone(),
+            system,
+            messages: self.messages.clone(),
+            tools,
+            max_tokens: self.max_tokens,
+            thinking: self.thinking.clone(),
+            reasoning_effort: self.current_reasoning_effort.clone(),
+        }
+    }
+
+    /// Classify, execute and re-merge one model step's tool calls.
+    ///
+    /// Malformed calls get synthetic error results; the rest are executed via
+    /// the approval (JSON stream) or interactive (terminal) path. Results and
+    /// skill modifiers are interleaved back into the original call order.
+    /// `assistant_text` is the visible text from the same step, used only to
+    /// classify an all-error round for the consecutive-failure breaker.
+    ///
+    /// A `Quit` from tool execution is surfaced as `AgentError::UserAborted`
+    /// after saving the session.
+    async fn execute_turn_tools(
+        &mut self,
+        tool_calls: &[ContentBlock],
+        assistant_text: &str,
+    ) -> Result<TurnToolOutput, AgentError> {
+        let malformed_reasons: Vec<_> = tool_calls
+            .iter()
+            .map(|call| {
+                let ContentBlock::ToolUse { id, name, .. } = call else {
+                    return None;
+                };
+                malformed_tool_call_reason(id, name)
+            })
+            .collect();
+        let malformed_only_fingerprint = malformed_only_fingerprint(tool_calls, &malformed_reasons);
+        let executable_tool_calls: Vec<_> = tool_calls
+            .iter()
+            .zip(&malformed_reasons)
+            .filter(|(_, reason)| reason.is_none())
+            .map(|(call, _)| call.clone())
+            .collect();
+
+        let (executable_results, executable_modifiers) = if executable_tool_calls.is_empty() {
+            (Vec::new(), Vec::new())
+        } else if let Some(ref approval_mgr) = self.approval_manager {
+            // JSON stream mode: use protocol-based approval
+            let writer = self
+                .protocol_writer
+                .as_ref()
+                .expect("protocol writer required for approval");
+            let auto_approve = self.confirmer.lock().unwrap().is_auto_approve();
+            match execute_tool_calls_with_approval(
+                &self.tools,
+                &executable_tool_calls,
+                approval_mgr,
+                writer,
+                &self.current_msg_id,
+                auto_approve,
+                &self.allow_list,
+                self.hooks.as_mut(),
+                self.compaction_level,
+                self.toon_enabled,
+            )
+            .await
+            {
+                Ok(o) => (o.results, o.modifiers),
+                Err(ExecutionControl::Quit) => {
+                    self.save_session();
+                    return Err(AgentError::UserAborted);
+                }
             }
-            if consecutive_tool_error_turns >= DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS {
-                tracing::warn!(
-                    target: "aion_agent",
-                    count = consecutive_tool_error_turns,
-                    limit = DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS,
-                    "stopping repeated tool failure loop"
-                );
-                return Err(AgentError::RepeatedToolFailures {
-                    count: consecutive_tool_error_turns,
-                    limit: DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS,
-                });
+        } else {
+            // Terminal mode: use interactive confirmation
+            match execute_tool_calls(
+                &self.tools,
+                &executable_tool_calls,
+                &self.confirmer,
+                self.hooks.as_mut(),
+                self.compaction_level,
+                self.toon_enabled,
+            )
+            .await
+            {
+                Ok(o) => (o.results, o.modifiers),
+                Err(ExecutionControl::Quit) => {
+                    self.save_session();
+                    return Err(AgentError::UserAborted);
+                }
             }
-            turn += 1;
+        };
+
+        let (tool_results, tool_modifiers) = merge_tool_results(
+            tool_calls,
+            &malformed_reasons,
+            executable_results,
+            executable_modifiers,
+        );
+
+        let executable_tool_error_turn = malformed_only_fingerprint.is_none()
+            && assistant_text.trim().is_empty()
+            && !tool_results.is_empty()
+            && tool_results
+                .iter()
+                .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. }));
+
+        Ok(TurnToolOutput {
+            tool_results,
+            tool_modifiers,
+            malformed_only_fingerprint,
+            executable_tool_error_turn,
+        })
+    }
+
+    /// Emit each tool result to the output sink, resolving the tool name from
+    /// the originating `tool_calls` for display and logging.
+    fn emit_tool_results(&self, tool_calls: &[ContentBlock], tool_results: &[ContentBlock]) {
+        for result in tool_results {
+            if let ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } = result
+            {
+                let tool_name = tool_calls
+                    .iter()
+                    .find_map(|c| {
+                        if let ContentBlock::ToolUse { id, name, .. } = c
+                            && id == tool_use_id
+                        {
+                            return Some(name.as_str());
+                        }
+                        None
+                    })
+                    .unwrap_or("unknown");
+                let status = if *is_error { "error" } else { "completed" };
+                if tool_use_id.trim().is_empty() {
+                    tracing::error!(
+                        target: "aion_agent",
+                        tool = %tool_name,
+                        status,
+                        "tool result has empty tool_use_id"
+                    );
+                } else {
+                    tracing::debug!(
+                        target: "aion_agent",
+                        tool_use_id = %tool_use_id,
+                        tool = %tool_name,
+                        status,
+                        "tool result emitted"
+                    );
+                }
+                self.output
+                    .emit_tool_result(tool_use_id, tool_name, *is_error, content);
+            }
+        }
+    }
+
+    /// Drain one provider stream into a [`StreamOutcome`].
+    ///
+    /// Emits text/thinking/tool-call events to the output sink as they arrive
+    /// and accumulates the assistant text, thinking block, tool calls, stop
+    /// reason and usage for the caller. Returns early on `LlmEvent::Error`.
+    async fn consume_stream(
+        &self,
+        rx: &mut tokio::sync::mpsc::Receiver<LlmEvent>,
+    ) -> Result<StreamOutcome, AgentError> {
+        let mut assistant_text = String::new();
+        let mut thinking_text = String::new();
+        let mut thinking_signature: Option<String> = None;
+        let mut tool_calls: Vec<ContentBlock> = Vec::new();
+        let mut stop_reason = StopReason::EndTurn;
+        let mut usage = TokenUsage::default();
+
+        while let Some(event) = rx.recv().await {
+            match event {
+                LlmEvent::TextDelta(text) => {
+                    self.output.emit_text_delta(&text, &self.current_msg_id);
+                    assistant_text.push_str(&text);
+                }
+                LlmEvent::ToolUse {
+                    id,
+                    name,
+                    input,
+                    extra,
+                } => {
+                    if id.trim().is_empty() {
+                        tracing::error!(
+                            target: "aion_agent",
+                            tool = %name,
+                            "provider emitted tool call with empty tool_use_id"
+                        );
+                    } else {
+                        tracing::debug!(
+                            target: "aion_agent",
+                            tool_use_id = %id,
+                            tool = %name,
+                            "provider tool call received"
+                        );
+                    }
+                    let input_str = serde_json::to_string(&input).unwrap_or_default();
+                    self.output.emit_tool_call(&id, &name, &input_str);
+                    tool_calls.push(ContentBlock::ToolUse {
+                        id,
+                        name,
+                        input,
+                        extra,
+                    });
+                }
+                LlmEvent::ThinkingDelta(text) => {
+                    self.output.emit_thinking(&text, &self.current_msg_id);
+                    thinking_text.push_str(&text);
+                }
+                LlmEvent::ThinkingSignature(signature) => {
+                    thinking_signature = Some(signature);
+                }
+                LlmEvent::Done {
+                    stop_reason: sr,
+                    usage: u,
+                } => {
+                    stop_reason = sr;
+                    usage = u;
+                }
+                LlmEvent::Error(e) => {
+                    return Err(AgentError::ApiError(e));
+                }
+            }
+        }
+
+        Ok(StreamOutcome {
+            assistant_text,
+            thinking_text,
+            thinking_signature,
+            tool_calls,
+            stop_reason,
+            usage,
+        })
+    }
+
+    /// Fold one step's token usage into the running totals and update the
+    /// compaction watermark and cache-break diagnostics.
+    fn record_turn_usage(&mut self, turn_usage: &TokenUsage) {
+        self.total_usage.input_tokens += turn_usage.input_tokens;
+        self.total_usage.output_tokens += turn_usage.output_tokens;
+        self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
+        self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
+
+        // Track per-turn input tokens for compaction watermark.
+        // Use max(provider_reported, local_estimate) as a safety net:
+        // some providers (e.g. DeepSeek with prefix caching) underreport
+        // prompt_tokens, causing compaction to never trigger.
+        let local_estimate = estimate::estimate_tokens_from_messages(&self.messages);
+        let effective_watermark = turn_usage.input_tokens.max(local_estimate);
+
+        if local_estimate > turn_usage.input_tokens
+            && local_estimate.saturating_sub(turn_usage.input_tokens) > 10_000
+        {
+            self.output.emit_info(&format!(
+                "Token watermark override: provider={}, local_estimate={}, using={}",
+                turn_usage.input_tokens, local_estimate, effective_watermark
+            ));
+        }
+
+        self.compact_state.last_input_tokens = effective_watermark;
+
+        // Cache break detection
+        let cache_stats = CacheStats {
+            input_tokens: turn_usage.input_tokens,
+            cache_read_tokens: turn_usage.cache_read_tokens,
+            cache_creation_tokens: turn_usage.cache_creation_tokens,
+        };
+        if let Some(diagnostic) = self.cache_detector.check_response(cache_stats) {
+            match &diagnostic {
+                CacheDiagnostic::FullMiss { cause } => {
+                    self.output
+                        .emit_error(&format!("Cache full miss: {cause:?}"));
+                }
+                CacheDiagnostic::PartialMiss { hit_rate, cause } => {
+                    if self.compact_config.cache_diagnostics {
+                        self.output.emit_info(&format!(
+                            "Cache: {:.0}% hit rate (cause: {cause:?})",
+                            hit_rate * 100.0
+                        ));
+                    }
+                }
+                CacheDiagnostic::Healthy { hit_rate } => {
+                    if self.compact_config.cache_diagnostics {
+                        self.output
+                            .emit_info(&format!("Cache: {:.0}% hit rate", hit_rate * 100.0));
+                    }
+                }
+            }
         }
     }
 
@@ -1106,6 +1106,180 @@ impl AgentEngine {
             }
         }
     }
+}
+
+/// Everything a single provider stream produces in one model step.
+///
+/// Collected by [`AgentEngine::consume_stream`] so the main loop deals with a
+/// single named value instead of six mutable locals.
+struct StreamOutcome {
+    assistant_text: String,
+    thinking_text: String,
+    thinking_signature: Option<String>,
+    tool_calls: Vec<ContentBlock>,
+    stop_reason: StopReason,
+    usage: TokenUsage,
+}
+
+/// Result of running one model step's tool calls: the per-call results and
+/// skill modifiers (aligned 1:1 with the originating `tool_calls`), plus the
+/// loop-guard signals derived from this round.
+struct TurnToolOutput {
+    tool_results: Vec<ContentBlock>,
+    tool_modifiers: Vec<Option<ContextModifier>>,
+    /// `Some` only when every tool call in the round was malformed; feeds the
+    /// repeated-malformed-call breaker.
+    malformed_only_fingerprint: Option<MalformedToolCallFingerprint>,
+    /// True when this round produced executable (non-malformed) tool calls
+    /// that all errored and the model emitted no visible text; feeds the
+    /// consecutive-tool-failure breaker.
+    executable_tool_error_turn: bool,
+}
+
+/// Per-`run` loop-termination bookkeeping: the step counter and the two
+/// consecutive-failure breakers (repeated malformed calls, repeated tool
+/// errors). Keeps the counters and their thresholds out of the loop body so
+/// the main loop has a single stop decision: [`TurnGuards::after_turn`].
+struct TurnGuards {
+    /// Number of completed model steps so far (also the value reported as
+    /// `AgentResult.turns`).
+    turn: usize,
+    max_turns: Option<usize>,
+    max_malformed_tool_call_turns: usize,
+    repeated_malformed_tool_calls: RepeatedMalformedToolCallTracker,
+    consecutive_tool_error_turns: usize,
+}
+
+impl TurnGuards {
+    fn new(max_turns: Option<usize>, max_malformed_tool_call_turns: usize) -> Self {
+        Self {
+            turn: 0,
+            max_turns,
+            max_malformed_tool_call_turns,
+            repeated_malformed_tool_calls: RepeatedMalformedToolCallTracker::default(),
+            consecutive_tool_error_turns: 0,
+        }
+    }
+
+    /// Returns the configured limit when the step budget is exhausted, else `None`.
+    fn max_turns_reached(&self) -> Option<usize> {
+        self.max_turns.filter(|&limit| self.turn >= limit)
+    }
+
+    /// Fold one tool round into the breakers and return the terminating error
+    /// if either breaker trips. Must be called once per tool round, after the
+    /// results are recorded.
+    fn after_turn(
+        &mut self,
+        malformed_only_fingerprint: Option<MalformedToolCallFingerprint>,
+        executable_tool_error_turn: bool,
+    ) -> Option<AgentError> {
+        let repeated_malformed_count = self
+            .repeated_malformed_tool_calls
+            .observe(malformed_only_fingerprint);
+        if self.max_malformed_tool_call_turns > 0
+            && repeated_malformed_count >= self.max_malformed_tool_call_turns
+        {
+            tracing::warn!(
+                target: "aion_agent",
+                count = repeated_malformed_count,
+                limit = self.max_malformed_tool_call_turns,
+                "stopping repeated malformed tool call loop"
+            );
+            return Some(AgentError::RepeatedMalformedToolCall {
+                count: repeated_malformed_count,
+                limit: self.max_malformed_tool_call_turns,
+            });
+        }
+
+        if executable_tool_error_turn {
+            self.consecutive_tool_error_turns += 1;
+        } else {
+            self.consecutive_tool_error_turns = 0;
+        }
+        if self.consecutive_tool_error_turns >= DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS {
+            tracing::warn!(
+                target: "aion_agent",
+                count = self.consecutive_tool_error_turns,
+                limit = DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS,
+                "stopping repeated tool failure loop"
+            );
+            return Some(AgentError::RepeatedToolFailures {
+                count: self.consecutive_tool_error_turns,
+                limit: DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS,
+            });
+        }
+
+        None
+    }
+}
+
+/// Interleave synthetic malformed-call results with executed-tool results back
+/// into the original `tool_calls` order.
+///
+/// `malformed_reasons[i]` is `Some` when call `i` was malformed (and gets a
+/// synthetic error result), otherwise the next executed result/modifier is
+/// pulled from the `executable_*` iterators. Kept as a free function so the
+/// interleaving invariant can be unit-tested in isolation.
+fn merge_tool_results(
+    tool_calls: &[ContentBlock],
+    malformed_reasons: &[Option<MalformedToolCallReason>],
+    executable_results: Vec<ContentBlock>,
+    executable_modifiers: Vec<Option<ContextModifier>>,
+) -> (Vec<ContentBlock>, Vec<Option<ContextModifier>>) {
+    let mut executable_results = executable_results.into_iter();
+    let mut executable_modifiers = executable_modifiers.into_iter();
+    let mut tool_results = Vec::with_capacity(tool_calls.len());
+    let mut tool_modifiers = Vec::with_capacity(tool_calls.len());
+
+    for (call, reason) in tool_calls.iter().zip(malformed_reasons) {
+        if let Some(reason) = reason {
+            let ContentBlock::ToolUse { id, name, .. } = call else {
+                continue;
+            };
+            tracing::warn!(
+                target: "aion_agent",
+                tool_call_id = %id,
+                tool = %name,
+                reason = reason.log_reason(),
+                "generated synthetic error result for malformed tool call"
+            );
+            tool_results.push(synthetic_malformed_tool_result(id.clone(), *reason));
+            tool_modifiers.push(None);
+        } else {
+            tool_results.push(
+                executable_results
+                    .next()
+                    .expect("tool execution result missing for executable tool call"),
+            );
+            tool_modifiers.push(
+                executable_modifiers
+                    .next()
+                    .expect("tool execution modifier missing for executable tool call"),
+            );
+        }
+    }
+
+    (tool_results, tool_modifiers)
+}
+
+/// Assemble the assistant message content blocks (thinking, text, tool calls)
+/// from a completed [`StreamOutcome`], preserving the canonical block order.
+fn build_assistant_content(outcome: &StreamOutcome) -> Vec<ContentBlock> {
+    let mut content: Vec<ContentBlock> = Vec::new();
+    if !outcome.thinking_text.is_empty() || outcome.thinking_signature.is_some() {
+        content.push(ContentBlock::Thinking {
+            thinking: outcome.thinking_text.clone(),
+            signature: outcome.thinking_signature.clone(),
+        });
+    }
+    if !outcome.assistant_text.is_empty() {
+        content.push(ContentBlock::Text {
+            text: outcome.assistant_text.clone(),
+        });
+    }
+    content.extend(outcome.tool_calls.iter().cloned());
+    content
 }
 
 // ---------------------------------------------------------------------------
@@ -2400,5 +2574,128 @@ mod tests_handle_command {
         assert!(names.contains(&"compact"));
         assert!(names.contains(&"clear"));
         assert!(names.contains(&"quit"));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Refactor unit tests — merge_tool_results() / TurnGuards
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests_loop_helpers {
+    use aion_types::message::ContentBlock;
+    use serde_json::json;
+
+    use super::{
+        AgentError, DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS, MalformedToolCallReason, TurnGuards,
+        merge_tool_results,
+    };
+
+    fn tool_use(id: &str, name: &str) -> ContentBlock {
+        ContentBlock::ToolUse {
+            id: id.to_string(),
+            name: name.to_string(),
+            input: json!({}),
+            extra: None,
+        }
+    }
+
+    fn executed_result(id: &str) -> ContentBlock {
+        ContentBlock::ToolResult {
+            tool_use_id: id.to_string(),
+            content: format!("ok:{id}"),
+            is_error: false,
+        }
+    }
+
+    /// Mixed malformed + executable calls must re-interleave so each result
+    /// lands at its originating call's index, with executed results consumed
+    /// in order for the non-malformed slots.
+    #[test]
+    fn merge_interleaves_malformed_and_executed_in_call_order() {
+        let calls = vec![
+            tool_use("bad", ""),
+            tool_use("ok1", "Read"),
+            tool_use("ok2", "Glob"),
+        ];
+        let reasons = vec![Some(MalformedToolCallReason::EmptyFunctionName), None, None];
+        let executed = vec![executed_result("ok1"), executed_result("ok2")];
+        let modifiers = vec![None, None];
+
+        let (results, mods) = merge_tool_results(&calls, &reasons, executed, modifiers);
+
+        assert_eq!(results.len(), 3);
+        // Slot 0: synthetic malformed error result for "bad".
+        assert!(matches!(
+            &results[0],
+            ContentBlock::ToolResult { tool_use_id, is_error: true, .. } if tool_use_id == "bad"
+        ));
+        // Slots 1,2: executed results, consumed in order.
+        assert!(matches!(
+            &results[1],
+            ContentBlock::ToolResult { tool_use_id, is_error: false, .. } if tool_use_id == "ok1"
+        ));
+        assert!(matches!(
+            &results[2],
+            ContentBlock::ToolResult { tool_use_id, is_error: false, .. } if tool_use_id == "ok2"
+        ));
+        assert_eq!(mods.len(), 3);
+    }
+
+    #[test]
+    fn merge_all_malformed_needs_no_executed_results() {
+        let calls = vec![tool_use("bad1", ""), tool_use("bad2", "")];
+        let reasons = vec![
+            Some(MalformedToolCallReason::EmptyFunctionName),
+            Some(MalformedToolCallReason::EmptyFunctionName),
+        ];
+
+        let (results, mods) = merge_tool_results(&calls, &reasons, Vec::new(), Vec::new());
+
+        assert_eq!(results.len(), 2);
+        assert!(
+            results
+                .iter()
+                .all(|r| matches!(r, ContentBlock::ToolResult { is_error: true, .. }))
+        );
+        assert!(mods.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn max_turns_reached_respects_limit_and_none() {
+        let mut guards = TurnGuards::new(Some(2), 3);
+        assert_eq!(guards.max_turns_reached(), None);
+        guards.turn = 2;
+        assert_eq!(guards.max_turns_reached(), Some(2));
+
+        // No limit configured → never reached.
+        let mut unlimited = TurnGuards::new(None, 3);
+        unlimited.turn = 1_000;
+        assert_eq!(unlimited.max_turns_reached(), None);
+    }
+
+    #[test]
+    fn after_turn_trips_consecutive_tool_error_breaker() {
+        let mut guards = TurnGuards::new(Some(100), 3);
+        // First N-1 error turns: no stop yet.
+        for _ in 0..DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_TURNS - 1 {
+            assert!(guards.after_turn(None, true).is_none());
+        }
+        // The Nth consecutive error turn trips the breaker.
+        assert!(matches!(
+            guards.after_turn(None, true),
+            Some(AgentError::RepeatedToolFailures { .. })
+        ));
+    }
+
+    #[test]
+    fn after_turn_resets_tool_error_streak_on_success() {
+        let mut guards = TurnGuards::new(Some(100), 3);
+        assert!(guards.after_turn(None, true).is_none());
+        // A non-error turn resets the streak.
+        assert!(guards.after_turn(None, false).is_none());
+        assert_eq!(guards.consecutive_tool_error_turns, 0);
+        // So a single subsequent error turn must not trip the breaker.
+        assert!(guards.after_turn(None, true).is_none());
     }
 }
