@@ -83,7 +83,7 @@ aionrs --profile dev "Create a GitHub issue"
 - Supports multi-level inheritance chains
 - Auto-detects circular inheritance
 - Child profile settings override parent
-- `max_malformed_tool_call_turns` can be set per profile. It defaults to `3`; `0` disables this malformed tool-call loop breaker and leaves stopping to `max_turns`.
+- `max_malformed_tool_call_turns` can be set per profile. It defaults to `3`; `0` disables this malformed tool-call round breaker and leaves stopping to `max_turns`.
 - Override it for one run with `--max-malformed-tool-call-turns <n>`.
 
 ---

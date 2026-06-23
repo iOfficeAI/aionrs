@@ -874,8 +874,8 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r#"# aionrs configuration
 provider = "anthropic"            # built-in provider or custom alias from [providers.<name>]
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
-# max_turns = 20                  # defaults to 20; set 0 to disable
-# max_malformed_tool_call_turns = 3  # 0 disables the malformed tool-call loop breaker
+# max_turns = 20                  # max model turns per run; set 0 to disable
+# max_malformed_tool_call_turns = 3  # 0 disables the malformed tool-call round breaker
 # system_prompt = "..."          # optional custom system prompt
 
 # Shell execution settings

@@ -562,8 +562,8 @@ Agent  → stdout: {"type":"stream_end","msg_id":"m2","usage":{...}}
 
 ### 3.4 Multi-Tool Parallel Execution
 
-When the LLM requests multiple tools in one agent step within the current
-message turn, the agent emits multiple `tool_request` events. Client can
+When the LLM requests multiple tools in one turn within the current run, the
+agent emits multiple `tool_request` events. Client can
 approve/deny them independently.
 
 ```

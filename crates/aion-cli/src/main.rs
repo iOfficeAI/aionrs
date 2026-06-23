@@ -46,11 +46,11 @@ struct Cli {
     #[arg(long)]
     max_tokens: Option<u32>,
 
-    /// Max agent loop turns. Defaults to 20; 0 disables.
+    /// Max model turns per run. Defaults to 20; 0 disables.
     #[arg(long)]
     max_turns: Option<usize>,
 
-    /// Max consecutive same malformed-only tool-call turns before stopping. 0 disables.
+    /// Max consecutive same malformed-only tool-call rounds before stopping. 0 disables.
     #[arg(long)]
     max_malformed_tool_call_turns: Option<usize>,
 

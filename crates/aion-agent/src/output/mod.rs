@@ -110,7 +110,7 @@ impl OutputFormatter {
         // Silent in no-color mode (thinking is optional display)
     }
 
-    /// Print turn summary stats
+    /// Print model-turn summary stats.
     pub fn turn_stats(
         &self,
         turns: usize,
@@ -251,7 +251,7 @@ mod tests {
     #[test]
     fn test_turn_stats_no_panic() {
         let formatter = OutputFormatter::new(true);
-        // Verify turn_stats does not panic with various inputs
+        // Verify turn_stats does not panic with various inputs.
         formatter.turn_stats(1, 100, 50, 0, 0);
         formatter.turn_stats(5, 1000, 500, 200, 300);
         formatter.turn_stats(0, 0, 0, 0, 0);

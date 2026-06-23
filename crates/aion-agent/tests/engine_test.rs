@@ -120,6 +120,57 @@ impl LlmProvider for RecordingRequestProvider {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RecordedRequest {
+    messages: Vec<Message>,
+    tool_count: usize,
+}
+
+struct FullRecordingRequestProvider {
+    requests: Arc<Mutex<Vec<RecordedRequest>>>,
+    responses: Mutex<Vec<Vec<LlmEvent>>>,
+}
+
+impl FullRecordingRequestProvider {
+    fn new(responses: Vec<Vec<LlmEvent>>) -> Self {
+        Self {
+            requests: Arc::new(Mutex::new(Vec::new())),
+            responses: Mutex::new(responses),
+        }
+    }
+
+    fn requests(&self) -> Arc<Mutex<Vec<RecordedRequest>>> {
+        Arc::clone(&self.requests)
+    }
+}
+
+#[async_trait]
+impl LlmProvider for FullRecordingRequestProvider {
+    async fn stream(
+        &self,
+        request: &LlmRequest,
+    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        self.requests.lock().unwrap().push(RecordedRequest {
+            messages: request.messages.clone(),
+            tool_count: request.tools.len(),
+        });
+        let events = self.responses.lock().unwrap().remove(0);
+        let (tx, rx) = mpsc::channel(64);
+        tokio::spawn(async move {
+            for event in events {
+                let _ = tx.send(event).await;
+            }
+        });
+        Ok(rx)
+    }
+}
+
+fn contains_empty_assistant_message(messages: &[Message]) -> bool {
+    messages
+        .iter()
+        .any(|message| message.role == Role::Assistant && message.content.is_empty())
+}
+
 // ---------------------------------------------------------------------------
 // test_engine_text_response_ends_turn
 //
@@ -343,26 +394,204 @@ async fn duplicate_tool_names_emit_distinct_tool_use_ids() {
 // ---------------------------------------------------------------------------
 // test_engine_max_tokens_handling
 //
-// Verifies that a MaxTokens stop reason is surfaced correctly when the LLM
-// hits its token limit mid-response.
+// Verifies that a MaxTokens stop reason triggers one tool-disabled
+// continuation request and accumulates usage from both model calls.
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn test_engine_max_tokens_handling() {
-    let events = vec![
-        LlmEvent::TextDelta("partial".to_string()),
-        LlmEvent::Done {
-            stop_reason: StopReason::MaxTokens,
-            usage: TokenUsage {
-                input_tokens: 200,
-                output_tokens: 100,
-                cache_creation_tokens: 0,
-                cache_read_tokens: 0,
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
+        vec![
+            LlmEvent::TextDelta("partial ".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::MaxTokens,
+                usage: TokenUsage {
+                    input_tokens: 200,
+                    output_tokens: 100,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: 0,
+                },
             },
-        },
-    ];
+        ],
+        vec![
+            LlmEvent::TextDelta("finished".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage {
+                    input_tokens: 20,
+                    output_tokens: 10,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: 0,
+                },
+            },
+        ],
+    ]));
+    let requests = provider.requests();
 
-    let provider = Arc::new(MockLlmProvider::with_events(events));
     let config = test_config();
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
+    let output = silent_output();
+
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let result = engine
+        .run("Give me a long answer", "")
+        .await
+        .expect("engine should succeed");
+
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.text, "partial finished");
+    assert_eq!(result.turns, 1);
+    assert_eq!(result.usage.input_tokens, 220);
+    assert_eq!(result.usage.output_tokens, 110);
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+    assert_eq!(recorded[1].tool_count, 0);
+    let last_message = recorded[1]
+        .messages
+        .last()
+        .expect("finalization request should include control prompt");
+    assert_eq!(last_message.role, Role::User);
+    assert!(
+        matches!(
+            &last_message.content[..],
+            [ContentBlock::Text { text }] if text.contains("previous response was cut off")
+        ),
+        "finalization prompt should explain the max tokens continuation"
+    );
+}
+
+#[tokio::test]
+async fn empty_final_gets_one_visible_answer_nudge() {
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
+        vec![LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage::default(),
+        }],
+        vec![
+            LlmEvent::TextDelta("Visible answer".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let requests = provider.requests();
+
+    let config = test_config();
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
+    let output = silent_output();
+
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let result = engine
+        .run("Answer visibly", "")
+        .await
+        .expect("engine should succeed");
+
+    assert_eq!(result.text, "Visible answer");
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.turns, 1);
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+    assert_eq!(recorded[1].tool_count, 0);
+    assert!(
+        !contains_empty_assistant_message(&recorded[1].messages),
+        "empty finalization request must not include empty assistant content"
+    );
+    let last_message = recorded[1]
+        .messages
+        .last()
+        .expect("finalization request should include control prompt");
+    assert_eq!(last_message.role, Role::User);
+    assert!(
+        matches!(
+            &last_message.content[..],
+            [ContentBlock::Text { text }] if text.contains("visible answer text")
+        ),
+        "empty finalization prompt should ask for visible answer text"
+    );
+}
+
+#[tokio::test]
+async fn empty_final_falls_back_after_one_empty_retry() {
+    let dir = tempdir().expect("tempdir should be created");
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
+        vec![LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage::default(),
+        }],
+        vec![LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage::default(),
+        }],
+    ]));
+
+    let mut config = test_config();
+    config.session.enabled = true;
+    config.session.directory = dir.path().to_string_lossy().into_owned();
+    let registry = ToolRegistry::new();
+    let output = silent_output();
+
+    let mut engine =
+        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    engine
+        .init_session("test-provider", "/tmp", None)
+        .expect("init_session should succeed");
+    let result = engine
+        .run("Answer visibly", "")
+        .await
+        .expect("engine should fall back successfully");
+
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.turns, 1);
+    assert!(result.text.contains("finished without visible answer text"));
+
+    let session = SessionManager::new(dir.path().to_path_buf(), 10)
+        .load("latest")
+        .expect("session should be loadable");
+    assert!(
+        !contains_empty_assistant_message(&session.messages),
+        "empty finalization fallback must not persist empty assistant content"
+    );
+
+    let last_message = session
+        .messages
+        .last()
+        .expect("fallback assistant message should be persisted");
+    assert_eq!(last_message.role, Role::Assistant);
+    assert!(
+        matches!(
+            &last_message.content[..],
+            [ContentBlock::Text { text }] if text == &result.text
+        ),
+        "fallback assistant message should be text-only"
+    );
+}
+
+#[tokio::test]
+async fn max_tokens_continuation_does_not_increment_reported_turns() {
+    let provider = Arc::new(MockLlmProvider::with_turns(vec![
+        vec![
+            LlmEvent::TextDelta("partial ".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::MaxTokens,
+                usage: TokenUsage::default(),
+            },
+        ],
+        vec![
+            LlmEvent::TextDelta("finished".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let mut config = test_config();
+    config.max_turns = Some(1);
     let registry = ToolRegistry::new();
     let output = silent_output();
 
@@ -373,8 +602,112 @@ async fn test_engine_max_tokens_handling() {
         .await
         .expect("engine should succeed");
 
+    assert_eq!(result.text, "partial finished");
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.turns, 1);
+}
+
+#[tokio::test]
+async fn max_tokens_finalization_tool_call_falls_back_without_persisting_tool_use() {
+    let dir = tempdir().expect("tempdir should be created");
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
+        vec![
+            LlmEvent::TextDelta("partial ".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::MaxTokens,
+                usage: TokenUsage::default(),
+            },
+        ],
+        vec![
+            LlmEvent::ToolUse {
+                id: "bad-tool".to_string(),
+                name: "mock_tool".to_string(),
+                input: json!({}),
+                extra: None,
+            },
+            LlmEvent::Done {
+                stop_reason: StopReason::ToolUse,
+                usage: TokenUsage::default(),
+            },
+        ],
+    ]));
+    let requests = provider.requests();
+
+    let mut config = test_config();
+    config.session.enabled = true;
+    config.session.directory = dir.path().to_string_lossy().into_owned();
+
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        config,
+        registry,
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    engine
+        .init_session("test-provider", "/tmp", None)
+        .expect("init_session should succeed");
+
+    let result = engine
+        .run("Give me a long answer", "")
+        .await
+        .expect("engine should fall back successfully");
+
     assert_eq!(result.stop_reason, StopReason::MaxTokens);
-    assert_eq!(result.text, "partial");
+    assert_eq!(result.turns, 1);
+    assert!(
+        !result.text.trim().is_empty(),
+        "fallback result text should be non-empty"
+    );
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+    assert!(
+        recorded[0].tool_count > 0,
+        "normal request should include registered tools"
+    );
+    assert_eq!(recorded[1].tool_count, 0);
+    drop(recorded);
+
+    let session = SessionManager::new(dir.path().to_path_buf(), 10)
+        .load("latest")
+        .expect("session should be loadable");
+    assert!(
+        !session.messages.iter().any(|message| {
+            message.role == Role::Assistant
+                && message.content.iter().any(
+                    |block| matches!(block, ContentBlock::ToolUse { id, .. } if id == "bad-tool"),
+                )
+        }),
+        "invalid finalization tool call must not be persisted"
+    );
+    assert!(
+        !session
+            .messages
+            .iter()
+            .flat_map(|message| &message.content)
+            .any(|block| matches!(
+                block,
+                ContentBlock::Text { text } if text.contains("previous response was cut off")
+            )),
+        "temporary finalization control prompt must not be persisted"
+    );
+
+    let last_message = session
+        .messages
+        .last()
+        .expect("fallback assistant message should be persisted");
+    assert_eq!(last_message.role, Role::Assistant);
+    assert!(
+        matches!(
+            &last_message.content[..],
+            [ContentBlock::Text { text }] if text == &result.text
+        ),
+        "fallback assistant message should be text-only"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -527,17 +860,14 @@ async fn test_engine_token_usage_tracking() {
 }
 
 // ---------------------------------------------------------------------------
-// test_engine_max_turns_returns_ok
+// test_engine_max_turns_runs_one_grace_finalization
 //
-// Verifies that the engine returns Ok with StopReason::MaxTurns when the
-// LLM keeps requesting tools beyond the configured max_turns limit.
-//
-// With max_turns=1 the engine executes one turn.  If that turn has tool
-// calls it processes them, then loops back and hits the limit.
+// Verifies that exhausting max_turns after a tool round gets one tool-disabled
+// finalization request before falling back to StopReason::MaxTurns.
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn test_engine_max_turns_returns_ok() {
-    let tool_use_turn = || {
+async fn test_engine_max_turns_runs_one_grace_finalization() {
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
         vec![
             LlmEvent::ToolUse {
                 id: "tool-1".to_string(),
@@ -554,13 +884,21 @@ async fn test_engine_max_turns_returns_ok() {
                     cache_read_tokens: 0,
                 },
             },
-        ]
-    };
-
-    let provider = Arc::new(MockLlmProvider::with_turns(vec![
-        tool_use_turn(),
-        tool_use_turn(),
+        ],
+        vec![
+            LlmEvent::TextDelta("Final from existing tool result".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage {
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    cache_creation_tokens: 0,
+                    cache_read_tokens: 0,
+                },
+            },
+        ],
     ]));
+    let requests = provider.requests();
 
     let mut config = test_config();
     config.max_turns = Some(1);
@@ -574,10 +912,61 @@ async fn test_engine_max_turns_returns_ok() {
     let result = engine
         .run("Keep calling tools", "")
         .await
-        .expect("should return Ok, not Err");
+        .expect("engine should succeed with grace finalization");
 
-    assert_eq!(result.stop_reason, StopReason::MaxTurns);
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.text, "Final from existing tool result");
     assert_eq!(result.turns, 1);
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+    assert!(
+        recorded[0].tool_count > 0,
+        "normal request should include registered tools"
+    );
+    assert_eq!(recorded[1].tool_count, 0);
+    let last_message = recorded[1]
+        .messages
+        .last()
+        .expect("grace finalization request should include control prompt");
+    assert_eq!(last_message.role, Role::User);
+    assert!(
+        matches!(
+            &last_message.content[..],
+            [ContentBlock::Text { text }] if text.contains("Do not call any more tools")
+        ),
+        "grace finalization prompt should forbid more tool calls"
+    );
+}
+
+#[tokio::test]
+async fn finalization_requests_can_be_asserted_without_tools() {
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![vec![
+        LlmEvent::TextDelta("done".to_string()),
+        LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage::default(),
+        },
+    ]]));
+    let requests = provider.requests();
+
+    let mut engine = AgentEngine::new_with_provider(
+        provider,
+        test_config(),
+        ToolRegistry::new(),
+        silent_output(),
+        std::env::temp_dir(),
+    );
+    let result = engine
+        .run("Say done", "")
+        .await
+        .expect("engine should return the final text");
+
+    assert_eq!(result.text, "done");
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].tool_count, 0);
+    assert_eq!(recorded[0].messages.len(), 1);
 }
 
 #[tokio::test]
@@ -760,11 +1149,17 @@ async fn repeated_malformed_tool_call_threshold_one_stops_immediately() {
 }
 
 #[tokio::test]
-async fn repeated_malformed_tool_call_disabled_falls_back_to_max_turns() {
-    let provider = Arc::new(RecordingRequestProvider::new(vec![
+async fn repeated_malformed_tool_call_disabled_runs_grace_finalization() {
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
         malformed_tool_turn("bad", "", json!({})),
         malformed_tool_turn("bad", "", json!({})),
-        malformed_tool_turn("bad", "", json!({})),
+        vec![
+            LlmEvent::TextDelta("Final after malformed attempts".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
     ]));
     let requests = provider.requests();
 
@@ -772,10 +1167,13 @@ async fn repeated_malformed_tool_call_disabled_falls_back_to_max_turns() {
     config.max_malformed_tool_call_turns = Some(0);
     config.max_turns = Some(2);
 
+    let mut registry = ToolRegistry::new();
+    registry.register(Box::new(MockTool::new("mock_tool", "unused", false)));
+
     let mut engine = AgentEngine::new_with_provider(
         provider,
         config,
-        ToolRegistry::new(),
+        registry,
         silent_output(),
         std::env::temp_dir(),
     );
@@ -784,9 +1182,29 @@ async fn repeated_malformed_tool_call_disabled_falls_back_to_max_turns() {
         .await
         .expect("engine should stop cleanly");
 
-    assert_eq!(result.stop_reason, StopReason::MaxTurns);
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.text, "Final after malformed attempts");
     assert_eq!(result.turns, 2);
-    assert_eq!(requests.lock().unwrap().len(), 2);
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 3);
+    assert!(
+        recorded[0].tool_count > 0,
+        "normal requests should include registered tools"
+    );
+    assert_eq!(recorded[2].tool_count, 0);
+    let last_message = recorded[2]
+        .messages
+        .last()
+        .expect("grace finalization request should include control prompt");
+    assert_eq!(last_message.role, Role::User);
+    assert!(
+        matches!(
+            &last_message.content[..],
+            [ContentBlock::Text { text }] if text.contains("Do not call any more tools")
+        ),
+        "grace finalization prompt should forbid more tool calls"
+    );
 }
 
 #[tokio::test]

@@ -15,7 +15,7 @@ The LLM can use the Spawn tool to create independent sub-agents that run tasks i
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Max parallel sub-agents | 5 | Prevents resource exhaustion |
-| Sub-agent max turns | 10 | Per sub-agent conversation turn limit |
+| Sub-agent max turns | 10 | Per sub-agent run turn limit |
 | Sub-agent max tokens | 4096 | Per sub-agent response token limit |
 
 ### Behavior

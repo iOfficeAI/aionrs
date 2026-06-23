@@ -46,15 +46,15 @@ aionrs --help
 
 ## Runtime Limits
 
-`max_turns` is the broad agent-step limit per user turn; it defaults to `20`.
+`max_turns` is the broad model-turn limit per run; it defaults to `20`.
 Set it to `0` to disable the broad limit. A separate consecutive tool-failure
-fuse stops zero-text agent steps where every executable tool result failed
-after 3 steps. `max_malformed_tool_call_turns` stops repeated same
-malformed-only tool-call steps earlier; it defaults to `3`. Set it to `0` to
+fuse stops zero-text turns where every executable tool result failed after 3
+turns. `max_malformed_tool_call_turns` stops repeated same malformed-only
+tool-call rounds earlier; it defaults to `3`. Set it to `0` to
 disable this breaker and rely on `max_turns`.
 
-See [Core Concepts](docs/core-concepts.md) for the distinction between user
-turns, agent steps, tool rounds, and tool calls.
+See [Core Concepts](docs/core-concepts.md) for the distinction between runs,
+turns, tool rounds, and tool calls.
 
 ```toml
 [default]

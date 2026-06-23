@@ -775,7 +775,7 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
     // After 3 failures the circuit breaker trips and autocompact stops.
     //
     // We use a provider that always fails the compact summary call with
-    // a generic API error, but succeeds for regular conversation turns.
+    // a generic API error, but succeeds for regular model turns.
 
     struct CircuitBreakerProvider {
         call_index: Mutex<usize>,
@@ -805,7 +805,7 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
                 });
             }
 
-            // Regular conversation turns: tool use on odd calls, text on even
+            // Regular model turns: tool use on odd calls, text on even
             let events = if idx % 2 == 0 {
                 // Tool use turn → keeps the loop going
                 vec![
