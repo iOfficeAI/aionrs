@@ -1,6 +1,7 @@
 use aion_types::message::ContentBlock;
 
 pub(crate) const DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS: usize = 3;
+pub(crate) const DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MalformedToolCallReason {
@@ -45,12 +46,12 @@ struct MalformedToolCallFingerprintPart {
 }
 
 #[derive(Debug, Default)]
-pub(crate) struct RepeatedMalformedToolCallTracker {
+pub(crate) struct MalformedToolCallTracker {
     last: Option<MalformedToolCallFingerprint>,
     count: usize,
 }
 
-impl RepeatedMalformedToolCallTracker {
+impl MalformedToolCallTracker {
     pub(crate) fn observe(&mut self, current: Option<MalformedToolCallFingerprint>) -> usize {
         let Some(current) = current else {
             self.last = None;
@@ -65,6 +66,28 @@ impl RepeatedMalformedToolCallTracker {
             self.count = 1;
         }
 
+        self.count
+    }
+}
+
+#[derive(Debug, Default)]
+pub(crate) struct ToolFailureTracker {
+    count: usize,
+}
+
+impl ToolFailureTracker {
+    pub(crate) fn observe(&mut self, failed_round: bool) -> usize {
+        if failed_round {
+            self.count += 1;
+        } else {
+            self.count = 0;
+        }
+
+        self.count
+    }
+
+    #[cfg(test)]
+    pub(crate) fn count(&self) -> usize {
         self.count
     }
 }
@@ -159,10 +182,21 @@ mod tests {
             &[call],
             &[Some(MalformedToolCallReason::EmptyFunctionName)],
         );
-        let mut tracker = RepeatedMalformedToolCallTracker::default();
+        let mut tracker = MalformedToolCallTracker::default();
 
         assert_eq!(tracker.observe(fingerprint.clone()), 1);
         assert_eq!(tracker.observe(fingerprint), 2);
         assert_eq!(tracker.observe(None), 0);
+    }
+
+    #[test]
+    fn tool_failure_tracker_counts_consecutive_failed_rounds() {
+        let mut tracker = ToolFailureTracker::default();
+
+        assert_eq!(tracker.observe(true), 1);
+        assert_eq!(tracker.observe(true), 2);
+        assert_eq!(tracker.observe(false), 0);
+        assert_eq!(tracker.observe(true), 1);
+        assert_eq!(tracker.count(), 1);
     }
 }

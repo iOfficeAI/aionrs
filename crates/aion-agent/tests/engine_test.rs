@@ -1072,7 +1072,7 @@ async fn repeated_malformed_tool_call_stops_on_default_third_turn() {
 
     assert!(matches!(
         err,
-        AgentError::RepeatedMalformedToolCall { count: 3, limit: 3 }
+        AgentError::MalformedToolCall { count: 3, limit: 3 }
     ));
     assert_eq!(
         requests.lock().unwrap().len(),
@@ -1143,7 +1143,7 @@ async fn repeated_malformed_tool_call_threshold_one_stops_immediately() {
 
     assert!(matches!(
         err,
-        AgentError::RepeatedMalformedToolCall { count: 1, limit: 1 }
+        AgentError::MalformedToolCall { count: 1, limit: 1 }
     ));
     assert_eq!(requests.lock().unwrap().len(), 1);
 }

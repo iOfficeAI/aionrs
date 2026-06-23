@@ -15,9 +15,10 @@ use crate::plan::prompt as plan_prompt;
 use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
 use crate::tool_call::{
-    DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS, MalformedToolCallFingerprint, MalformedToolCallReason,
-    RepeatedMalformedToolCallTracker, malformed_only_fingerprint,
-    reason as malformed_tool_call_reason, synthetic_result as synthetic_malformed_tool_result,
+    DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS, DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS,
+    MalformedToolCallFingerprint, MalformedToolCallReason, MalformedToolCallTracker,
+    ToolFailureTracker, malformed_only_fingerprint, reason as malformed_tool_call_reason,
+    synthetic_result as synthetic_malformed_tool_result,
 };
 use aion_config::compact::CompactConfig;
 use aion_config::config::Config;
@@ -29,8 +30,6 @@ use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 use tracing::Instrument;
-
-const DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_ROUNDS: usize = 3;
 
 #[derive(Debug)]
 pub struct AgentResult {
@@ -1312,8 +1311,8 @@ struct TurnGuards {
     counted_turns: usize,
     max_turns_per_run: Option<usize>,
     max_malformed_tool_call_rounds: usize,
-    repeated_malformed_tool_calls: RepeatedMalformedToolCallTracker,
-    consecutive_tool_error_rounds: usize,
+    malformed_tool_calls: MalformedToolCallTracker,
+    tool_failures: ToolFailureTracker,
 }
 
 enum TurnGuardAction {
@@ -1328,8 +1327,8 @@ impl TurnGuards {
             counted_turns: 0,
             max_turns_per_run,
             max_malformed_tool_call_rounds,
-            repeated_malformed_tool_calls: RepeatedMalformedToolCallTracker::default(),
-            consecutive_tool_error_rounds: 0,
+            malformed_tool_calls: MalformedToolCallTracker::default(),
+            tool_failures: ToolFailureTracker::default(),
         }
     }
 
@@ -1350,39 +1349,35 @@ impl TurnGuards {
         malformed_only_fingerprint: Option<MalformedToolCallFingerprint>,
         executable_tool_error_round: bool,
     ) -> TurnGuardAction {
-        let repeated_malformed_count = self
-            .repeated_malformed_tool_calls
+        let malformed_count = self
+            .malformed_tool_calls
             .observe(malformed_only_fingerprint);
         if self.max_malformed_tool_call_rounds > 0
-            && repeated_malformed_count >= self.max_malformed_tool_call_rounds
+            && malformed_count >= self.max_malformed_tool_call_rounds
         {
             tracing::warn!(
                 target: "aion_agent",
-                count = repeated_malformed_count,
+                count = malformed_count,
                 limit = self.max_malformed_tool_call_rounds,
                 "stopping repeated malformed tool call loop"
             );
-            return TurnGuardAction::Stop(AgentError::RepeatedMalformedToolCall {
-                count: repeated_malformed_count,
+            return TurnGuardAction::Stop(AgentError::MalformedToolCall {
+                count: malformed_count,
                 limit: self.max_malformed_tool_call_rounds,
             });
         }
 
-        if executable_tool_error_round {
-            self.consecutive_tool_error_rounds += 1;
-        } else {
-            self.consecutive_tool_error_rounds = 0;
-        }
-        if self.consecutive_tool_error_rounds >= DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_ROUNDS {
+        let tool_failure_count = self.tool_failures.observe(executable_tool_error_round);
+        if tool_failure_count >= DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS {
             tracing::warn!(
                 target: "aion_agent",
-                count = self.consecutive_tool_error_rounds,
-                limit = DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_ROUNDS,
+                count = tool_failure_count,
+                limit = DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS,
                 "stopping repeated tool failure loop"
             );
-            return TurnGuardAction::Stop(AgentError::RepeatedToolFailures {
-                count: self.consecutive_tool_error_rounds,
-                limit: DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_ROUNDS,
+            return TurnGuardAction::Stop(AgentError::ToolFailures {
+                count: tool_failure_count,
+                limit: DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS,
             });
         }
 
@@ -2767,10 +2762,10 @@ mod tests_loop_helpers {
     use serde_json::json;
 
     use super::{
-        AgentError, DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_ROUNDS, FinalizationReason,
-        MalformedToolCallReason, StreamOutcome, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome,
-        malformed_only_fingerprint, merge_tool_results,
+        AgentError, FinalizationReason, MalformedToolCallReason, StreamOutcome, TurnGuardAction,
+        TurnGuards, TurnKind, TurnOutcome, malformed_only_fingerprint, merge_tool_results,
     };
+    use crate::tool_call::DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS;
 
     fn tool_use(id: &str, name: &str) -> ContentBlock {
         ContentBlock::ToolUse {
@@ -2859,7 +2854,7 @@ mod tests_loop_helpers {
     fn after_tool_round_trips_consecutive_tool_error_breaker() {
         let mut guards = TurnGuards::new(Some(100), 3);
         // First N-1 tool-error rounds: no stop yet.
-        for _ in 0..DEFAULT_MAX_CONSECUTIVE_TOOL_ERROR_ROUNDS - 1 {
+        for _ in 0..DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS - 1 {
             assert!(matches!(
                 guards.after_tool_round(None, true),
                 TurnGuardAction::Continue
@@ -2868,7 +2863,7 @@ mod tests_loop_helpers {
         // The Nth consecutive tool-error round trips the breaker.
         assert!(matches!(
             guards.after_tool_round(None, true),
-            TurnGuardAction::Stop(AgentError::RepeatedToolFailures { .. })
+            TurnGuardAction::Stop(AgentError::ToolFailures { .. })
         ));
     }
 
@@ -2884,7 +2879,7 @@ mod tests_loop_helpers {
             guards.after_tool_round(None, false),
             TurnGuardAction::Continue
         ));
-        assert_eq!(guards.consecutive_tool_error_rounds, 0);
+        assert_eq!(guards.tool_failures.count(), 0);
         // So a single subsequent tool-error round must not trip the breaker.
         assert!(matches!(
             guards.after_tool_round(None, true),
@@ -2913,7 +2908,7 @@ mod tests_loop_helpers {
 
         assert!(matches!(
             guards.after_tool_round(fingerprint, false),
-            TurnGuardAction::Stop(AgentError::RepeatedMalformedToolCall { count: 1, limit: 1 })
+            TurnGuardAction::Stop(AgentError::MalformedToolCall { count: 1, limit: 1 })
         ));
     }
 
