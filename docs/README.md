@@ -3,6 +3,7 @@
 ## Table of Contents
 
 - **[Getting Started](getting-started.md)** — Installation, CLI parameters, configuration files, usage examples, session management, REPL mode
+- **[Core Concepts](core-concepts.md)** — Runtime terminology: user turns, agent steps, tool rounds, tool calls, and current naming compatibility
 - **[Built-in Tools](tools.md)** — Read, Write, Edit, ExecCommand, Grep, Glob, Spawn — detailed reference and concurrency notes
 - **[MCP Integration](mcp.md)** — Model Context Protocol client: stdio, SSE, and streamable-http transports
 - **[Providers & Auth](providers.md)** — Multi-provider configuration, profile inheritance, AWS Bedrock, Google Vertex AI, OAuth login

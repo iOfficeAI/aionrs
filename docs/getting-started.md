@@ -30,8 +30,8 @@ aionrs [OPTIONS] [PROMPT]...
 | `--profile <name>` | Named profile from config file |
 | `--compaction <level>` | Output compaction: `off`, `safe` (default), `full` |
 | `--toon` | Enable TOON tabular encoding (with `full` compaction) |
-| `--max-turns <n>` | Broad agent-loop limit; defaults to `20`, `0` disables |
-| `--max-malformed-tool-call-turns <n>` | Stop after repeated same malformed-only tool-call turns; `0` disables |
+| `--max-turns <n>` | Broad agent-step limit per user turn; defaults to `20`, `0` disables |
+| `--max-malformed-tool-call-turns <n>` | Stop after repeated same malformed-only tool-call steps; `0` disables |
 | `--auto-approve` | Skip all tool confirmations |
 | `--json-stream` | JSON Lines mode for host integration |
 | `--resume <id>` | Resume a previous session |
@@ -68,7 +68,7 @@ aionrs --init-config
 provider = "anthropic"
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
-max_turns = 20  # default; set 0 to disable the broad limit
+max_turns = 20  # max agent steps per user turn; set 0 to disable
 max_malformed_tool_call_turns = 3  # default; set 0 to disable this breaker
 
 [providers.anthropic]
@@ -135,15 +135,20 @@ plan_directory = ".aionrs/plans"
 # dir = "/path/to/logs"       # log directory (default: platform-specific)
 ```
 
-### Malformed Tool-Call Loop Breaker
+### Runtime Limits
 
-`max_turns` is the broad agent-loop limit. It defaults to `20`; set it to `0`
-to disable the broad limit.
+`max_turns` is the broad agent-step limit per user turn. It defaults to `20`;
+set it to `0` to disable the broad limit. The name is retained for
+compatibility; see [Core Concepts](core-concepts.md) for the distinction
+between user turns, agent steps, tool rounds, and tool calls.
 
-The agent also stops zero-text turns where every executable tool result failed
-after 3 consecutive turns, so repeated tool failures do not loop indefinitely.
+The agent also stops zero-text agent steps where every executable tool result
+failed after 3 consecutive steps, so repeated tool failures do not loop
+indefinitely.
 
-`max_malformed_tool_call_turns` limits consecutive same malformed-only tool-call turns from a provider. The default is `3`; `0` disables this breaker and leaves stopping to `max_turns`.
+`max_malformed_tool_call_turns` limits consecutive same malformed-only
+tool-call steps from a provider. The default is `3`; `0` disables this breaker
+and leaves stopping to `max_turns`.
 
 Precedence is `CLI > profile > project config > global config > built-in default 3`. Use `--max-malformed-tool-call-turns <n>` for a one-off CLI override.
 

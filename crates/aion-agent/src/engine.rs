@@ -25,7 +25,7 @@ use aion_config::hooks::HookEngine;
 use aion_protocol::events::ToolCategory;
 use aion_providers::provider::{LlmProvider, create_provider};
 use aion_tools::registry::ToolRegistry;
-use aion_types::llm::{LlmEvent, LlmRequest};
+use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 use tracing::Instrument;
@@ -50,7 +50,7 @@ pub struct AgentEngine {
     max_turns: Option<usize>,
     max_malformed_tool_call_turns: usize,
     total_usage: TokenUsage,
-    thinking: Option<aion_types::llm::ThinkingConfig>,
+    thinking: Option<ThinkingConfig>,
     /// Resolved provider compat settings (for capability validation)
     compat: aion_config::compat::ProviderCompat,
     confirmer: Arc<Mutex<ToolConfirmer>>,
@@ -245,21 +245,6 @@ impl AgentEngine {
         &mut self.tools
     }
 
-    /// Initialize a new session for this engine run
-    pub fn init_session(
-        &mut self,
-        provider_name: &str,
-        cwd: &str,
-        session_id: Option<&str>,
-    ) -> anyhow::Result<()> {
-        if let Some(mgr) = &self.session_manager {
-            let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
-            tracing::info!(target: "aion_agent", session_id = %session.id, provider = %provider_name, model = %self.model, "session started");
-            self.current_session = Some(session);
-        }
-        Ok(())
-    }
-
     /// Get the current session ID (if sessions are enabled and initialized)
     pub fn current_session_id(&self) -> Option<String> {
         self.current_session.as_ref().map(|s| s.id.clone())
@@ -291,134 +276,9 @@ impl AgentEngine {
     pub fn set_plan_active_flag(&mut self, flag: Arc<AtomicBool>) {
         self.plan_active_flag = Some(flag);
     }
+}
 
-    /// Default thinking budget when "enabled" is requested without a specific budget.
-    const DEFAULT_THINKING_BUDGET: u32 = 10_000;
-
-    /// Apply a runtime config update received from the protocol layer.
-    ///
-    /// Returns a list of human-readable change descriptions for the Info event.
-    /// Empty list means no fields were changed.
-    pub fn apply_config_update(
-        &mut self,
-        model: Option<String>,
-        thinking: Option<String>,
-        thinking_budget: Option<u32>,
-        effort: Option<String>,
-        compaction: Option<String>,
-    ) -> Vec<String> {
-        let mut changes = Vec::new();
-
-        if let Some(new_model) = model {
-            let old = std::mem::replace(&mut self.model, new_model.clone());
-            changes.push(format!("model: {old} → {new_model}"));
-        }
-
-        if let Some(thinking_str) = thinking {
-            if !self.compat.supports_thinking() {
-                changes.push("thinking: not supported by current provider".to_string());
-            } else {
-                match thinking_str.as_str() {
-                    "enabled" => {
-                        let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
-                        self.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
-                            budget_tokens: budget,
-                        });
-                        changes.push(format!("thinking: enabled (budget: {budget})"));
-                    }
-                    "disabled" => {
-                        self.thinking = Some(aion_types::llm::ThinkingConfig::Disabled);
-                        changes.push("thinking: disabled".to_string());
-                    }
-                    other => {
-                        changes.push(format!("thinking: ignored invalid value \"{other}\""));
-                    }
-                }
-            }
-        } else if let Some(new_budget) = thinking_budget
-            && let Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) =
-                &mut self.thinking
-        {
-            *budget_tokens = new_budget;
-            changes.push(format!("thinking budget: {new_budget}"));
-        }
-
-        if let Some(new_effort) = effort {
-            if new_effort.is_empty() {
-                self.current_reasoning_effort = None;
-                changes.push("effort: cleared".to_string());
-            } else if !self.compat.supports_effort() {
-                changes.push("effort: not supported by current provider".to_string());
-            } else {
-                let levels = self.compat.effort_levels();
-                if !levels.is_empty() && !levels.iter().any(|l| l == &new_effort) {
-                    changes.push(format!(
-                        "effort: invalid level \"{}\" (valid: {})",
-                        new_effort,
-                        levels.join(", ")
-                    ));
-                } else {
-                    let old = self
-                        .current_reasoning_effort
-                        .replace(new_effort.clone())
-                        .unwrap_or_else(|| "none".to_string());
-                    changes.push(format!("effort: {old} → {new_effort}"));
-                }
-            }
-        }
-
-        if let Some(ref level_str) = compaction {
-            match level_str.parse::<aion_compact::CompactionLevel>() {
-                Ok(new_level) => {
-                    let old = self.compaction_level.to_string();
-                    self.compaction_level = new_level;
-                    changes.push(format!("compaction: {old} → {new_level}"));
-                }
-                Err(e) => {
-                    changes.push(format!("compaction: invalid ({e})"));
-                }
-            }
-        }
-
-        changes
-    }
-
-    /// Handle a slash command. Returns `None` if input is not a recognized command.
-    pub async fn handle_command(
-        &mut self,
-        input: &str,
-    ) -> Option<Result<crate::commands::CommandResult, anyhow::Error>> {
-        let input = input.trim();
-        let without_slash = input.strip_prefix('/')?;
-        let (name, args) = match without_slash.split_once(char::is_whitespace) {
-            Some((n, rest)) => (n, rest.trim()),
-            None => (without_slash, ""),
-        };
-
-        let cmd = self.commands.find(name)?;
-
-        // We need to borrow self mutably for CommandContext while also
-        // borrowing self.commands immutably (already done above via find()).
-        // Use a raw pointer to break the borrow conflict — safe because
-        // the command is not modified during execution.
-        let cmd_ptr = cmd as *const dyn crate::commands::SlashCommand;
-
-        let mut ctx = crate::commands::CommandContext {
-            messages: &mut self.messages,
-            compact_state: &mut self.compact_state,
-            compact_config: &self.compact_config,
-            provider: Arc::clone(&self.provider),
-            model: &self.model,
-            output: self.output.as_ref(),
-            registry: &self.commands,
-        };
-
-        // SAFETY: cmd_ptr points to a command inside self.commands which is only
-        // borrowed immutably and not mutated during execute().
-        let result = unsafe { &*cmd_ptr }.execute(&mut ctx, args).await;
-        Some(result)
-    }
-
+impl AgentEngine {
     /// Run the agent loop with user input
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
         let session_id = self
@@ -435,15 +295,6 @@ impl AgentEngine {
         self.run_inner(user_input, msg_id).instrument(span).await
     }
 
-    /// Return metadata for all registered slash commands.
-    pub fn slash_command_list(&self) -> Vec<(String, String)> {
-        self.commands
-            .all()
-            .iter()
-            .map(|cmd| (cmd.name().to_string(), cmd.description().to_string()))
-            .collect()
-    }
-
     async fn run_inner(
         &mut self,
         user_input: &str,
@@ -453,10 +304,6 @@ impl AgentEngine {
         if let Some(result) = self.handle_command(user_input).await {
             let cmd_name = user_input.split_whitespace().next().unwrap_or(user_input);
             return match result {
-                Ok(crate::commands::CommandResult::Exit) => {
-                    tracing::info!(command = cmd_name, "Slash command executed: exit");
-                    Err(AgentError::UserAborted)
-                }
                 Ok(crate::commands::CommandResult::Continue) => {
                     tracing::info!(command = cmd_name, "Slash command executed");
                     Ok(AgentResult {
@@ -465,6 +312,10 @@ impl AgentEngine {
                         usage: TokenUsage::default(),
                         turns: 0,
                     })
+                }
+                Ok(crate::commands::CommandResult::Exit) => {
+                    tracing::info!(command = cmd_name, "Slash command executed: exit");
+                    Err(AgentError::UserAborted)
                 }
                 Err(e) => {
                     tracing::error!(command = cmd_name, error = %e, "Slash command failed");
@@ -486,9 +337,7 @@ impl AgentEngine {
         let mut repeated_malformed_tool_calls = RepeatedMalformedToolCallTracker::default();
         let mut consecutive_tool_error_turns: usize = 0;
         loop {
-            if let Some(limit) = self.max_turns
-                && turn >= limit
-            {
+            if let Some(limit) = self.max_turns && turn >= limit {
                 self.save_session();
                 let message = format!(
                     "Stopped after reaching max_turns ({limit}); the task did not converge. Try adjusting the request or retrying."
@@ -694,8 +543,7 @@ impl AgentEngine {
                     malformed_tool_call_reason(id, name)
                 })
                 .collect();
-            let malformed_only_fingerprint =
-                malformed_only_fingerprint(&tool_calls, &malformed_reasons);
+            let malformed_only_fingerprint = malformed_only_fingerprint(&tool_calls, &malformed_reasons);
             let executable_tool_calls: Vec<_> = tool_calls
                 .iter()
                 .zip(&malformed_reasons)
@@ -989,15 +837,157 @@ impl AgentEngine {
 
         Ok(())
     }
+}
 
-    /// Run stop hooks when the agent session ends
-    pub async fn run_stop_hooks(&self) {
-        if let Some(hook_engine) = &self.hooks {
-            let messages = hook_engine.run_stop().await;
-            for msg in messages {
-                tracing::info!(target: "aion_agent", hook_message = %msg, "stop hook output");
+impl AgentEngine {
+    /// Initialize a new session for this engine run
+    pub fn init_session(
+        &mut self,
+        provider_name: &str,
+        cwd: &str,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        if let Some(mgr) = &self.session_manager {
+            let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
+            tracing::info!(target: "aion_agent", session_id = %session.id, provider = %provider_name, model = %self.model, "session started");
+            self.current_session = Some(session);
+        }
+        Ok(())
+    }
+
+    /// Default thinking budget when "enabled" is requested without a specific budget.
+    const DEFAULT_THINKING_BUDGET: u32 = 10_000;
+
+    /// Apply a runtime config update received from the protocol layer.
+    ///
+    /// Returns a list of human-readable change descriptions for the Info event.
+    /// Empty list means no fields were changed.
+    pub fn apply_config_update(
+        &mut self,
+        model: Option<String>,
+        thinking: Option<String>,
+        thinking_budget: Option<u32>,
+        effort: Option<String>,
+        compaction: Option<String>,
+    ) -> Vec<String> {
+        let mut changes = Vec::new();
+
+        if let Some(new_model) = model {
+            let old = std::mem::replace(&mut self.model, new_model.clone());
+            changes.push(format!("model: {old} → {new_model}"));
+        }
+
+        if let Some(thinking_str) = thinking {
+            if !self.compat.supports_thinking() {
+                changes.push("thinking: not supported by current provider".to_string());
+            } else {
+                match thinking_str.as_str() {
+                    "enabled" => {
+                        let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
+                        self.thinking = Some(ThinkingConfig::Enabled {
+                            budget_tokens: budget,
+                        });
+                        changes.push(format!("thinking: enabled (budget: {budget})"));
+                    }
+                    "disabled" => {
+                        self.thinking = Some(ThinkingConfig::Disabled);
+                        changes.push("thinking: disabled".to_string());
+                    }
+                    other => {
+                        changes.push(format!("thinking: ignored invalid value \"{other}\""));
+                    }
+                }
+            }
+        } else if let Some(new_budget) = thinking_budget
+            && let Some(ThinkingConfig::Enabled { budget_tokens }) = &mut self.thinking
+        {
+            *budget_tokens = new_budget;
+            changes.push(format!("thinking budget: {new_budget}"));
+        }
+
+        if let Some(new_effort) = effort {
+            if new_effort.is_empty() {
+                self.current_reasoning_effort = None;
+                changes.push("effort: cleared".to_string());
+            } else if !self.compat.supports_effort() {
+                changes.push("effort: not supported by current provider".to_string());
+            } else {
+                let levels = self.compat.effort_levels();
+                if !levels.is_empty() && !levels.iter().any(|l| l == &new_effort) {
+                    changes.push(format!(
+                        "effort: invalid level \"{}\" (valid: {})",
+                        new_effort,
+                        levels.join(", ")
+                    ));
+                } else {
+                    let old = self
+                        .current_reasoning_effort
+                        .replace(new_effort.clone())
+                        .unwrap_or_else(|| "none".to_string());
+                    changes.push(format!("effort: {old} → {new_effort}"));
+                }
             }
         }
+
+        if let Some(ref level_str) = compaction {
+            match level_str.parse::<aion_compact::CompactionLevel>() {
+                Ok(new_level) => {
+                    let old = self.compaction_level.to_string();
+                    self.compaction_level = new_level;
+                    changes.push(format!("compaction: {old} → {new_level}"));
+                }
+                Err(e) => {
+                    changes.push(format!("compaction: invalid ({e})"));
+                }
+            }
+        }
+
+        changes
+    }
+
+    /// Handle a slash command. Returns `None` if input is not a recognized command.
+    pub async fn handle_command(
+        &mut self,
+        input: &str,
+    ) -> Option<Result<crate::commands::CommandResult, anyhow::Error>> {
+        let input = input.trim();
+        let without_slash = input.strip_prefix('/')?;
+        let (name, args) = match without_slash.split_once(char::is_whitespace) {
+            Some((n, rest)) => (n, rest.trim()),
+            None => (without_slash, ""),
+        };
+
+        let cmd = self.commands.find(name)?;
+
+        // We need to borrow self mutably for CommandContext while also
+        // borrowing self.commands immutably (already done above via find()).
+        // Use a raw pointer to break the borrow conflict — safe because
+        // the command is not modified during execution.
+        let cmd_ptr = cmd as *const dyn crate::commands::SlashCommand;
+
+        let mut ctx = crate::commands::CommandContext {
+            messages: &mut self.messages,
+            compact_state: &mut self.compact_state,
+            compact_config: &self.compact_config,
+            provider: Arc::clone(&self.provider),
+            model: &self.model,
+            output: self.output.as_ref(),
+            registry: &self.commands,
+        };
+
+        // SAFETY: cmd_ptr points to a command inside self.commands which is only
+        // borrowed immutably and not mutated during execute().
+        let result = unsafe { &*cmd_ptr }.execute(&mut ctx, args).await;
+        Some(result)
+    }
+
+    /// Return metadata for all registered slash commands.
+    pub fn slash_command_list(&self) -> Vec<(String, String)> {
+        self.commands
+            .all()
+            .iter()
+            .map(|cmd| (cmd.name().to_string(), cmd.description().to_string()))
+            .collect()
     }
 
     /// Apply context modifiers collected from skill tool executions.
@@ -1105,6 +1095,16 @@ impl AgentEngine {
 
         self.messages.push(Message::now(Role::User, result_blocks));
         self.save_session();
+    }
+
+    /// Run stop hooks when the agent session ends
+    pub async fn run_stop_hooks(&self) {
+        if let Some(hook_engine) = &self.hooks {
+            let messages = hook_engine.run_stop().await;
+            for msg in messages {
+                tracing::info!(target: "aion_agent", hook_message = %msg, "stop hook output");
+            }
+        }
     }
 }
 

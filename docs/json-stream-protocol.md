@@ -5,10 +5,10 @@
 ## Overview
 
 ```
-┌──────────────┐   stdin (JSON Lines)    ┌──────────────────┐
+┌──────────────┐   stdin (JSON Lines)     ┌──────────────────┐
 │              │ ◄─────────────────────── │                  │
-│ aionrs│                          │   Host Client    │
-│  (Rust CLI)  │ ──────────────────────► │   (AionUi etc.)  │
+│    aionrs    │                          │   Host Client    │
+│  (Rust CLI)  │ ──────────────────────►  │   (AionUi etc.)  │
 │              │   stdout (JSON Lines)    │                  │
 └──────────────┘                          └──────────────────┘
      stderr → diagnostic logs (not part of protocol)
@@ -562,7 +562,9 @@ Agent  → stdout: {"type":"stream_end","msg_id":"m2","usage":{...}}
 
 ### 3.4 Multi-Tool Parallel Execution
 
-When the LLM requests multiple tools in one turn, agent emits multiple `tool_request` events. Client can approve/deny them independently.
+When the LLM requests multiple tools in one agent step within the current
+message turn, the agent emits multiple `tool_request` events. Client can
+approve/deny them independently.
 
 ```
 Agent  → stdout: {"type":"tool_request","call_id":"t1","tool":{"name":"Read","category":"info",...}}
