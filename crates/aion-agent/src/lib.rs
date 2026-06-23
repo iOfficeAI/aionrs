@@ -16,7 +16,9 @@ pub mod session;
 pub mod skill_tool;
 pub mod spawn_tool;
 pub mod spawner;
+mod stream;
 mod tool_call;
+mod turn;
 pub mod vcr;
 
 // Re-export the skills crate so existing callers (aion-cli, tests) can use

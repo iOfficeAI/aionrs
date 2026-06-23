@@ -14,12 +14,13 @@ use crate::output::OutputSink;
 use crate::plan::prompt as plan_prompt;
 use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
+use crate::stream::StreamOutcome;
 use crate::tool_call::{
     DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS, DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS,
-    MalformedToolCallFingerprint, MalformedToolCallReason, MalformedToolCallTracker,
-    ToolFailureTracker, malformed_only_fingerprint, reason as malformed_tool_call_reason,
-    synthetic_result as synthetic_malformed_tool_result,
+    MalformedToolCallFingerprint, malformed_only_fingerprint, malformed_tool_call_reason,
+    merge_tool_results,
 };
+use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 use aion_config::compact::CompactConfig;
 use aion_config::config::Config;
 use aion_config::hooks::HookEngine;
@@ -48,7 +49,7 @@ pub struct AgentEngine {
     model: String,
     max_tokens: u32,
     max_turns_per_run: Option<usize>,
-    max_malformed_tool_call_rounds: usize,
+    max_malformed_tool_calls: usize,
     total_usage: TokenUsage,
     thinking: Option<ThinkingConfig>,
     /// Resolved provider compat settings (for capability validation)
@@ -124,7 +125,7 @@ impl AgentEngine {
             model: config.model,
             max_tokens: config.max_tokens,
             max_turns_per_run: config.max_turns,
-            max_malformed_tool_call_rounds: config
+            max_malformed_tool_calls: config
                 .max_malformed_tool_call_turns
                 .unwrap_or(DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS),
             total_usage: TokenUsage::default(),
@@ -196,7 +197,7 @@ impl AgentEngine {
             model: config.model.clone(),
             max_tokens: config.max_tokens,
             max_turns_per_run: config.max_turns,
-            max_malformed_tool_call_rounds: config
+            max_malformed_tool_calls: config
                 .max_malformed_tool_call_turns
                 .unwrap_or(DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS),
             total_usage: session.total_usage.clone(),
@@ -333,8 +334,11 @@ impl AgentEngine {
             }],
         ));
 
-        let mut guards =
-            TurnGuards::new(self.max_turns_per_run, self.max_malformed_tool_call_rounds);
+        let mut guards = TurnGuards::new(
+            self.max_turns_per_run,
+            self.max_malformed_tool_calls,
+            DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS,
+        );
         loop {
             if let Some(limit) = guards.turn_budget_reached() {
                 self.save_session();
@@ -347,7 +351,7 @@ impl AgentEngine {
                     text: String::new(),
                     stop_reason: StopReason::MaxTurns,
                     usage: self.total_usage.clone(),
-                    turns: guards.counted_turns,
+                    turns: guards.counted_turns(),
                 });
             }
             let outcome = self.run_turn(TurnKind::Normal).await?;
@@ -369,7 +373,7 @@ impl AgentEngine {
                         text: outcome.assistant_text,
                         stop_reason: outcome.stop_reason,
                         usage: self.total_usage.clone(),
-                        turns: guards.counted_turns,
+                        turns: guards.counted_turns(),
                     });
                 }
                 TurnOutcome::Truncated(outcome) => {
@@ -380,7 +384,7 @@ impl AgentEngine {
                         .finalize_once(
                             FinalizationReason::MaxTokens,
                             outcome.assistant_text,
-                            guards.counted_turns,
+                            guards.counted_turns(),
                             StopReason::MaxTokens,
                         )
                         .await;
@@ -390,7 +394,7 @@ impl AgentEngine {
                         .finalize_once(
                             FinalizationReason::EmptyFinal,
                             outcome.assistant_text,
-                            guards.counted_turns,
+                            guards.counted_turns(),
                             StopReason::EndTurn,
                         )
                         .await;
@@ -423,7 +427,7 @@ impl AgentEngine {
                         .finalize_once(
                             FinalizationReason::TurnBudget,
                             String::new(),
-                            guards.counted_turns,
+                            guards.counted_turns(),
                             StopReason::MaxTurns,
                         )
                         .await;
@@ -1217,76 +1221,6 @@ impl AgentEngine {
     }
 }
 
-/// Everything a single provider stream produces in one model turn.
-///
-/// Collected by [`AgentEngine::consume_stream`] so the main loop deals with a
-/// single named value instead of six mutable locals.
-struct StreamOutcome {
-    assistant_text: String,
-    thinking_text: String,
-    thinking_signature: Option<String>,
-    tool_calls: Vec<ContentBlock>,
-    stop_reason: StopReason,
-    usage: TokenUsage,
-}
-
-enum TurnOutcome {
-    ToolRound(StreamOutcome),
-    Final(StreamOutcome),
-    Truncated(StreamOutcome),
-    EmptyFinal(StreamOutcome),
-}
-
-impl TurnOutcome {
-    fn from_stream(outcome: StreamOutcome) -> Self {
-        if !outcome.tool_calls.is_empty() {
-            return Self::ToolRound(outcome);
-        }
-
-        match outcome.stop_reason {
-            StopReason::EndTurn if !outcome.assistant_text.trim().is_empty() => {
-                Self::Final(outcome)
-            }
-            StopReason::MaxTokens => Self::Truncated(outcome),
-            _ => Self::EmptyFinal(outcome),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FinalizationReason {
-    TurnBudget,
-    MaxTokens,
-    EmptyFinal,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TurnKind {
-    Normal,
-    Finalization(FinalizationReason),
-}
-
-impl TurnKind {
-    fn disable_tools(self) -> bool {
-        matches!(self, Self::Finalization(_))
-    }
-
-    fn control_prompt(self) -> Option<&'static str> {
-        match self {
-            Self::Normal => None,
-            Self::Finalization(FinalizationReason::TurnBudget) => Some(
-                "Do not call any more tools. Use the tool results already provided and give the final answer now.",
-            ),
-            Self::Finalization(FinalizationReason::MaxTokens) => Some(
-                "The previous response was cut off by the token limit. Finish the answer now. Do not call any tools.",
-            ),
-            Self::Finalization(FinalizationReason::EmptyFinal) => Some(
-                "The previous assistant response finished without visible answer text. Provide a concise visible answer now. Do not send reasoning only. Do not call any tools.",
-            ),
-        }
-    }
-}
-
 /// Result of running one model turn's tool calls: the per-call results and
 /// skill modifiers (aligned 1:1 with the originating `tool_calls`), plus the
 /// loop-guard signals derived from this round.
@@ -1300,142 +1234,6 @@ struct ToolRoundOutput {
     /// that all errored and the model emitted no visible text; feeds the
     /// consecutive-tool-failure breaker.
     executable_tool_error_round: bool,
-}
-
-/// Per-`run` loop-termination bookkeeping: the turn counter and the two
-/// consecutive-failure breakers (repeated malformed calls, repeated tool
-/// errors). Keeps the counters and their thresholds out of the loop body so
-/// the main loop has a single stop decision: [`TurnGuards::after_tool_round`].
-struct TurnGuards {
-    /// Number of counted normal model turns so far.
-    counted_turns: usize,
-    max_turns_per_run: Option<usize>,
-    max_malformed_tool_call_rounds: usize,
-    malformed_tool_calls: MalformedToolCallTracker,
-    tool_failures: ToolFailureTracker,
-}
-
-enum TurnGuardAction {
-    Continue,
-    Finalize,
-    Stop(AgentError),
-}
-
-impl TurnGuards {
-    fn new(max_turns_per_run: Option<usize>, max_malformed_tool_call_rounds: usize) -> Self {
-        Self {
-            counted_turns: 0,
-            max_turns_per_run,
-            max_malformed_tool_call_rounds,
-            malformed_tool_calls: MalformedToolCallTracker::default(),
-            tool_failures: ToolFailureTracker::default(),
-        }
-    }
-
-    /// Returns the configured limit when the turn budget is exhausted, else `None`.
-    fn turn_budget_reached(&self) -> Option<usize> {
-        self.max_turns_per_run
-            .filter(|&limit| self.counted_turns >= limit)
-    }
-
-    fn record_counted_turn(&mut self) {
-        self.counted_turns += 1;
-    }
-
-    /// Fold one tool round into the breakers and return the loop action. Must
-    /// be called once per tool round, after the results are recorded.
-    fn after_tool_round(
-        &mut self,
-        malformed_only_fingerprint: Option<MalformedToolCallFingerprint>,
-        executable_tool_error_round: bool,
-    ) -> TurnGuardAction {
-        let malformed_count = self
-            .malformed_tool_calls
-            .observe(malformed_only_fingerprint);
-        if self.max_malformed_tool_call_rounds > 0
-            && malformed_count >= self.max_malformed_tool_call_rounds
-        {
-            tracing::warn!(
-                target: "aion_agent",
-                count = malformed_count,
-                limit = self.max_malformed_tool_call_rounds,
-                "stopping repeated malformed tool call loop"
-            );
-            return TurnGuardAction::Stop(AgentError::MalformedToolCall {
-                count: malformed_count,
-                limit: self.max_malformed_tool_call_rounds,
-            });
-        }
-
-        let tool_failure_count = self.tool_failures.observe(executable_tool_error_round);
-        if tool_failure_count >= DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS {
-            tracing::warn!(
-                target: "aion_agent",
-                count = tool_failure_count,
-                limit = DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS,
-                "stopping repeated tool failure loop"
-            );
-            return TurnGuardAction::Stop(AgentError::ToolFailures {
-                count: tool_failure_count,
-                limit: DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS,
-            });
-        }
-
-        if self.turn_budget_reached().is_some() {
-            TurnGuardAction::Finalize
-        } else {
-            TurnGuardAction::Continue
-        }
-    }
-}
-
-/// Interleave synthetic malformed-call results with executed-tool results back
-/// into the original `tool_calls` order.
-///
-/// `malformed_reasons[i]` is `Some` when call `i` was malformed (and gets a
-/// synthetic error result), otherwise the next executed result/modifier is
-/// pulled from the `executable_*` iterators. Kept as a free function so the
-/// interleaving invariant can be unit-tested in isolation.
-fn merge_tool_results(
-    tool_calls: &[ContentBlock],
-    malformed_reasons: &[Option<MalformedToolCallReason>],
-    executable_results: Vec<ContentBlock>,
-    executable_modifiers: Vec<Option<ContextModifier>>,
-) -> (Vec<ContentBlock>, Vec<Option<ContextModifier>>) {
-    let mut executable_results = executable_results.into_iter();
-    let mut executable_modifiers = executable_modifiers.into_iter();
-    let mut tool_results = Vec::with_capacity(tool_calls.len());
-    let mut tool_modifiers = Vec::with_capacity(tool_calls.len());
-
-    for (call, reason) in tool_calls.iter().zip(malformed_reasons) {
-        if let Some(reason) = reason {
-            let ContentBlock::ToolUse { id, name, .. } = call else {
-                continue;
-            };
-            tracing::warn!(
-                target: "aion_agent",
-                tool_call_id = %id,
-                tool = %name,
-                reason = reason.log_reason(),
-                "generated synthetic error result for malformed tool call"
-            );
-            tool_results.push(synthetic_malformed_tool_result(id.clone(), *reason));
-            tool_modifiers.push(None);
-        } else {
-            tool_results.push(
-                executable_results
-                    .next()
-                    .expect("tool execution result missing for executable tool call"),
-            );
-            tool_modifiers.push(
-                executable_modifiers
-                    .next()
-                    .expect("tool execution modifier missing for executable tool call"),
-            );
-        }
-    }
-
-    (tool_results, tool_modifiers)
 }
 
 /// Assemble the assistant message content blocks (thinking, text, tool calls)
@@ -1506,7 +1304,7 @@ mod tests_set_config {
             model: model.to_string(),
             max_tokens: 4096,
             max_turns_per_run: Some(10),
-            max_malformed_tool_call_rounds: 3,
+            max_malformed_tool_calls: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -1836,7 +1634,7 @@ mod tests_phase6 {
             model: model.to_string(),
             max_tokens: 4096,
             max_turns_per_run: Some(10),
-            max_malformed_tool_call_rounds: 3,
+            max_malformed_tool_calls: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2078,7 +1876,7 @@ mod tests_compact {
             model: "test-model".to_string(),
             max_tokens: 4096,
             max_turns_per_run: Some(10),
-            max_malformed_tool_call_rounds: 3,
+            max_malformed_tool_calls: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2421,7 +2219,7 @@ mod tests_plan_mode {
             model: "test-model".to_string(),
             max_tokens: 4096,
             max_turns_per_run: Some(10),
-            max_malformed_tool_call_rounds: 3,
+            max_malformed_tool_calls: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2635,7 +2433,7 @@ mod tests_handle_command {
             model: "test-model".to_string(),
             max_tokens: 4096,
             max_turns_per_run: Some(10),
-            max_malformed_tool_call_rounds: 3,
+            max_malformed_tool_calls: 3,
             total_usage: Default::default(),
             thinking: None,
             compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
@@ -2761,11 +2559,10 @@ mod tests_loop_helpers {
     use aion_types::message::{ContentBlock, StopReason, TokenUsage};
     use serde_json::json;
 
-    use super::{
-        AgentError, FinalizationReason, MalformedToolCallReason, StreamOutcome, TurnGuardAction,
-        TurnGuards, TurnKind, TurnOutcome, malformed_only_fingerprint, merge_tool_results,
-    };
-    use crate::tool_call::DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS;
+    use super::{AgentError, malformed_only_fingerprint, merge_tool_results};
+    use crate::stream::StreamOutcome;
+    use crate::tool_call::{DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS, MalformedToolCallReason};
+    use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 
     fn tool_use(id: &str, name: &str) -> ContentBlock {
         ContentBlock::ToolUse {
@@ -2839,20 +2636,23 @@ mod tests_loop_helpers {
 
     #[test]
     fn turn_budget_reached_respects_limit_and_none() {
-        let mut guards = TurnGuards::new(Some(2), 3);
+        let mut guards = TurnGuards::new(Some(2), 3, DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS);
         assert_eq!(guards.turn_budget_reached(), None);
-        guards.counted_turns = 2;
+        guards.record_counted_turn();
+        guards.record_counted_turn();
         assert_eq!(guards.turn_budget_reached(), Some(2));
 
         // No limit configured → never reached.
-        let mut unlimited = TurnGuards::new(None, 3);
-        unlimited.counted_turns = 1_000;
+        let mut unlimited = TurnGuards::new(None, 3, DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS);
+        for _ in 0..1_000 {
+            unlimited.record_counted_turn();
+        }
         assert_eq!(unlimited.turn_budget_reached(), None);
     }
 
     #[test]
     fn after_tool_round_trips_consecutive_tool_error_breaker() {
-        let mut guards = TurnGuards::new(Some(100), 3);
+        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS);
         // First N-1 tool-error rounds: no stop yet.
         for _ in 0..DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS - 1 {
             assert!(matches!(
@@ -2869,7 +2669,7 @@ mod tests_loop_helpers {
 
     #[test]
     fn after_tool_round_resets_tool_error_streak_on_success() {
-        let mut guards = TurnGuards::new(Some(100), 3);
+        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS);
         assert!(matches!(
             guards.after_tool_round(None, true),
             TurnGuardAction::Continue
@@ -2879,7 +2679,7 @@ mod tests_loop_helpers {
             guards.after_tool_round(None, false),
             TurnGuardAction::Continue
         ));
-        assert_eq!(guards.tool_failures.count(), 0);
+        assert_eq!(guards.tool_failure_count(), 0);
         // So a single subsequent tool-error round must not trip the breaker.
         assert!(matches!(
             guards.after_tool_round(None, true),
@@ -2889,7 +2689,7 @@ mod tests_loop_helpers {
 
     #[test]
     fn after_tool_round_requests_finalize_when_budget_is_exhausted() {
-        let mut guards = TurnGuards::new(Some(1), 3);
+        let mut guards = TurnGuards::new(Some(1), 3, DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS);
         guards.record_counted_turn();
         assert!(matches!(
             guards.after_tool_round(None, false),
@@ -2899,7 +2699,7 @@ mod tests_loop_helpers {
 
     #[test]
     fn after_tool_round_stop_breaker_takes_priority_over_finalize() {
-        let mut guards = TurnGuards::new(Some(1), 1);
+        let mut guards = TurnGuards::new(Some(1), 1, DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS);
         guards.record_counted_turn();
 
         let calls = vec![tool_use("bad", "")];
