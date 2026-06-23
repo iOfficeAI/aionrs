@@ -27,7 +27,7 @@ fn anthropic_config(api_key: &str) -> Config {
         model: "claude-haiku-4-20250514".to_string(), // cheapest for e2e
         max_tokens: 256,
         max_turns: Some(3),
-        max_malformed_tool_call_turns: Some(3),
+        max_tool_call_malformed_turns: Some(3),
         system_prompt: Some("You are a helpful assistant. Be concise.".to_string()),
         thinking: None,
         prompt_caching: false,

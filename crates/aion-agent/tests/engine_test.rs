@@ -25,7 +25,7 @@ fn silent_output() -> Arc<dyn OutputSink> {
     Arc::new(TerminalSink::new(true))
 }
 
-fn malformed_tool_turn(id: &str, name: &str, input: Value) -> Vec<LlmEvent> {
+fn tool_call_malformed_turn(id: &str, name: &str, input: Value) -> Vec<LlmEvent> {
     vec![
         LlmEvent::ToolUse {
             id: id.to_string(),
@@ -970,8 +970,8 @@ async fn finalization_requests_can_be_asserted_without_tools() {
 }
 
 #[tokio::test]
-async fn repeated_tool_error_turns_stop_before_another_provider_request() {
-    let tool_error_turn = |id: &str| {
+async fn repeated_tool_call_failure_turns_stop_before_another_provider_request() {
+    let tool_call_failure_turn = |id: &str| {
         vec![
             LlmEvent::ToolUse {
                 id: id.to_string(),
@@ -986,9 +986,9 @@ async fn repeated_tool_error_turns_stop_before_another_provider_request() {
         ]
     };
     let provider = Arc::new(RecordingRequestProvider::new(vec![
-        tool_error_turn("tool-1"),
-        tool_error_turn("tool-2"),
-        tool_error_turn("tool-3"),
+        tool_call_failure_turn("tool-1"),
+        tool_call_failure_turn("tool-2"),
+        tool_call_failure_turn("tool-3"),
         vec![
             LlmEvent::TextDelta("should not be requested".to_string()),
             LlmEvent::Done {
@@ -1019,10 +1019,10 @@ async fn repeated_tool_error_turns_stop_before_another_provider_request() {
     let err = engine
         .run("keep retrying a failing tool", "")
         .await
-        .expect_err("engine should stop repeated tool-error loops");
+        .expect_err("engine should stop repeated tool-call-failure loops");
 
     assert!(
-        err.to_string().contains("consecutive tool failures"),
+        err.to_string().contains("consecutive tool-call failures"),
         "unexpected error: {err}"
     );
     assert_eq!(
@@ -1033,12 +1033,12 @@ async fn repeated_tool_error_turns_stop_before_another_provider_request() {
 }
 
 #[tokio::test]
-async fn repeated_malformed_tool_call_stops_on_default_third_turn() {
+async fn repeated_tool_call_malformed_stops_on_default_third_turn() {
     let dir = tempdir().expect("tempdir should be created");
     let provider = Arc::new(RecordingRequestProvider::new(vec![
-        malformed_tool_turn("bad", "", json!({})),
-        malformed_tool_turn("bad", "", json!({})),
-        malformed_tool_turn("bad", "", json!({})),
+        tool_call_malformed_turn("bad", "", json!({})),
+        tool_call_malformed_turn("bad", "", json!({})),
+        tool_call_malformed_turn("bad", "", json!({})),
         vec![
             LlmEvent::TextDelta("should not be requested".to_string()),
             LlmEvent::Done {
@@ -1050,7 +1050,7 @@ async fn repeated_malformed_tool_call_stops_on_default_third_turn() {
     let requests = provider.requests();
 
     let mut config = test_config();
-    config.max_malformed_tool_call_turns = None;
+    config.max_tool_call_malformed_turns = None;
     config.session.enabled = true;
     config.session.directory = dir.path().to_string_lossy().into_owned();
 
@@ -1068,11 +1068,11 @@ async fn repeated_malformed_tool_call_stops_on_default_third_turn() {
     let err = engine
         .run("repeat malformed", "")
         .await
-        .expect_err("engine should surface repeated malformed tool-call loop");
+        .expect_err("engine should surface repeated tool-call-malformed loop");
 
     assert!(matches!(
         err,
-        AgentError::MalformedToolCall { count: 3, limit: 3 }
+        AgentError::ToolCallMalformed { count: 3, limit: 3 }
     ));
     assert_eq!(
         requests.lock().unwrap().len(),
@@ -1114,20 +1114,20 @@ async fn repeated_malformed_tool_call_stops_on_default_third_turn() {
                 && **is_error
                 && content.contains("Malformed tool call: empty function name")
         }),
-        "malformed tool uses should have paired synthetic error results"
+        "tool-call malformed uses should have paired synthetic error results"
     );
 }
 
 #[tokio::test]
-async fn repeated_malformed_tool_call_threshold_one_stops_immediately() {
+async fn repeated_tool_call_malformed_threshold_one_stops_immediately() {
     let provider = Arc::new(RecordingRequestProvider::new(vec![
-        malformed_tool_turn("bad", "", json!({})),
-        malformed_tool_turn("bad", "", json!({})),
+        tool_call_malformed_turn("bad", "", json!({})),
+        tool_call_malformed_turn("bad", "", json!({})),
     ]));
     let requests = provider.requests();
 
     let mut config = test_config();
-    config.max_malformed_tool_call_turns = Some(1);
+    config.max_tool_call_malformed_turns = Some(1);
 
     let mut engine = AgentEngine::new_with_provider(
         provider,
@@ -1139,20 +1139,20 @@ async fn repeated_malformed_tool_call_threshold_one_stops_immediately() {
     let err = engine
         .run("repeat malformed", "")
         .await
-        .expect_err("engine should surface repeated malformed tool-call loop");
+        .expect_err("engine should surface repeated tool-call-malformed loop");
 
     assert!(matches!(
         err,
-        AgentError::MalformedToolCall { count: 1, limit: 1 }
+        AgentError::ToolCallMalformed { count: 1, limit: 1 }
     ));
     assert_eq!(requests.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
-async fn repeated_malformed_tool_call_disabled_runs_grace_finalization() {
+async fn repeated_tool_call_malformed_disabled_runs_grace_finalization() {
     let provider = Arc::new(FullRecordingRequestProvider::new(vec![
-        malformed_tool_turn("bad", "", json!({})),
-        malformed_tool_turn("bad", "", json!({})),
+        tool_call_malformed_turn("bad", "", json!({})),
+        tool_call_malformed_turn("bad", "", json!({})),
         vec![
             LlmEvent::TextDelta("Final after malformed attempts".to_string()),
             LlmEvent::Done {
@@ -1164,7 +1164,7 @@ async fn repeated_malformed_tool_call_disabled_runs_grace_finalization() {
     let requests = provider.requests();
 
     let mut config = test_config();
-    config.max_malformed_tool_call_turns = Some(0);
+    config.max_tool_call_malformed_turns = Some(0);
     config.max_turns = Some(2);
 
     let mut registry = ToolRegistry::new();
@@ -1208,7 +1208,7 @@ async fn repeated_malformed_tool_call_disabled_runs_grace_finalization() {
 }
 
 #[tokio::test]
-async fn mixed_valid_and_malformed_tool_calls_do_not_trip_breaker() {
+async fn mixed_valid_and_tool_call_malformed_calls_do_not_trip_breaker() {
     let mixed_turn = || {
         vec![
             LlmEvent::ToolUse {
@@ -1243,7 +1243,7 @@ async fn mixed_valid_and_malformed_tool_calls_do_not_trip_breaker() {
     let requests = provider.requests();
 
     let mut config = test_config();
-    config.max_malformed_tool_call_turns = Some(1);
+    config.max_tool_call_malformed_turns = Some(1);
     let output = Arc::new(RecordingOutputSink::default());
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));

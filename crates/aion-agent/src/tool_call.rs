@@ -1,15 +1,15 @@
 use aion_types::{message::ContentBlock, skill_types::ContextModifier};
 
-pub(crate) const DEFAULT_MAX_MALFORMED_TOOL_CALL_TURNS: usize = 3;
-pub(crate) const DEFAULT_MAX_CONSECUTIVE_TOOL_FAILURE_ROUNDS: usize = 3;
+pub(crate) const DEFAULT_MAX_TOOL_CALL_MALFORMED_TURNS: usize = 3;
+pub(crate) const DEFAULT_MAX_CONSECUTIVE_TOOL_CALL_FAILURE_ROUNDS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MalformedToolCallReason {
+pub(crate) enum ToolCallMalformedReason {
     EmptyFunctionName,
     EmptyToolCallId,
 }
 
-impl MalformedToolCallReason {
+impl ToolCallMalformedReason {
     fn description(self) -> &'static str {
         match self {
             Self::EmptyFunctionName => "empty function name",
@@ -33,26 +33,26 @@ impl MalformedToolCallReason {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct MalformedToolCallFingerprint {
-    calls: Vec<MalformedToolCallFingerprintPart>,
+pub(crate) struct ToolCallMalformedFingerprint {
+    calls: Vec<ToolCallMalformedFingerprintPart>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct MalformedToolCallFingerprintPart {
-    reason: MalformedToolCallReason,
+struct ToolCallMalformedFingerprintPart {
+    reason: ToolCallMalformedReason,
     id: String,
     name: String,
     input: String,
 }
 
 #[derive(Debug)]
-pub(crate) struct MalformedToolCallTracker {
-    last: Option<MalformedToolCallFingerprint>,
+pub(crate) struct ToolCallMalformedTracker {
+    last: Option<ToolCallMalformedFingerprint>,
     count: usize,
     limit: usize,
 }
 
-impl MalformedToolCallTracker {
+impl ToolCallMalformedTracker {
     pub(crate) fn new(limit: usize) -> Self {
         Self {
             last: None,
@@ -68,7 +68,7 @@ impl MalformedToolCallTracker {
         self.limit > 0 && self.count >= self.limit
     }
 
-    pub(crate) fn observe(&mut self, current: Option<MalformedToolCallFingerprint>) -> usize {
+    pub(crate) fn observe(&mut self, current: Option<ToolCallMalformedFingerprint>) -> usize {
         let Some(current) = current else {
             self.last = None;
             self.count = 0;
@@ -86,27 +86,31 @@ impl MalformedToolCallTracker {
     }
 }
 
-pub(crate) fn malformed_tool_call_reason(id: &str, name: &str) -> Option<MalformedToolCallReason> {
+pub(crate) fn tool_call_malformed_reason(id: &str, name: &str) -> Option<ToolCallMalformedReason> {
     if name.trim().is_empty() {
-        Some(MalformedToolCallReason::EmptyFunctionName)
+        Some(ToolCallMalformedReason::EmptyFunctionName)
     } else if id.trim().is_empty() {
-        Some(MalformedToolCallReason::EmptyToolCallId)
+        Some(ToolCallMalformedReason::EmptyToolCallId)
     } else {
         None
     }
 }
 
-pub(crate) fn malformed_only_fingerprint(
+pub(crate) fn tool_call_malformed_fingerprint(
     tool_calls: &[ContentBlock],
-    malformed_reasons: &[Option<MalformedToolCallReason>],
-) -> Option<MalformedToolCallFingerprint> {
-    if tool_calls.is_empty() || malformed_reasons.iter().any(|reason| reason.is_none()) {
+    tool_call_malformed_reasons: &[Option<ToolCallMalformedReason>],
+) -> Option<ToolCallMalformedFingerprint> {
+    if tool_calls.is_empty()
+        || tool_call_malformed_reasons
+            .iter()
+            .any(|reason| reason.is_none())
+    {
         return None;
     }
 
     let calls = tool_calls
         .iter()
-        .zip(malformed_reasons)
+        .zip(tool_call_malformed_reasons)
         .filter_map(|(block, reason)| {
             let ContentBlock::ToolUse {
                 id, name, input, ..
@@ -114,7 +118,7 @@ pub(crate) fn malformed_only_fingerprint(
             else {
                 return None;
             };
-            Some(MalformedToolCallFingerprintPart {
+            Some(ToolCallMalformedFingerprintPart {
                 reason: (*reason)?,
                 id: id.trim().to_string(),
                 name: name.trim().to_string(),
@@ -123,19 +127,19 @@ pub(crate) fn malformed_only_fingerprint(
         })
         .collect();
 
-    Some(MalformedToolCallFingerprint { calls })
+    Some(ToolCallMalformedFingerprint { calls })
 }
 
 /// Interleave synthetic malformed-call results with executed-tool results back
 /// into the original `tool_calls` order.
 ///
-/// `malformed_reasons[i]` is `Some` when call `i` was malformed (and gets a
+/// `tool_call_malformed_reasons[i]` is `Some` when call `i` was malformed (and gets a
 /// synthetic error result), otherwise the next executed result/modifier is
 /// pulled from the `executable_*` iterators. Kept as a free function so the
 /// interleaving invariant can be unit-tested in isolation.
 pub(crate) fn merge_tool_results(
     tool_calls: &[ContentBlock],
-    malformed_reasons: &[Option<MalformedToolCallReason>],
+    tool_call_malformed_reasons: &[Option<ToolCallMalformedReason>],
     executable_results: Vec<ContentBlock>,
     executable_modifiers: Vec<Option<ContextModifier>>,
 ) -> (Vec<ContentBlock>, Vec<Option<ContextModifier>>) {
@@ -144,7 +148,7 @@ pub(crate) fn merge_tool_results(
     let mut tool_results = Vec::with_capacity(tool_calls.len());
     let mut tool_modifiers = Vec::with_capacity(tool_calls.len());
 
-    for (call, reason) in tool_calls.iter().zip(malformed_reasons) {
+    for (call, reason) in tool_calls.iter().zip(tool_call_malformed_reasons) {
         if let Some(reason) = reason {
             let ContentBlock::ToolUse { id, name, .. } = call else {
                 continue;
@@ -184,12 +188,12 @@ pub(crate) fn merge_tool_results(
     (tool_results, tool_modifiers)
 }
 
-pub(crate) struct ToolFailureTracker {
+pub(crate) struct ToolCallFailureTracker {
     count: usize,
     limit: usize,
 }
 
-impl ToolFailureTracker {
+impl ToolCallFailureTracker {
     pub(crate) fn new(limit: usize) -> Self {
         Self { count: 0, limit }
     }
@@ -227,20 +231,20 @@ mod tests {
     #[test]
     fn reason_detects_blank_name_before_blank_id() {
         assert_eq!(
-            malformed_tool_call_reason("", ""),
-            Some(MalformedToolCallReason::EmptyFunctionName)
+            tool_call_malformed_reason("", ""),
+            Some(ToolCallMalformedReason::EmptyFunctionName)
         );
         assert_eq!(
-            malformed_tool_call_reason("call_1", "   "),
-            Some(MalformedToolCallReason::EmptyFunctionName)
+            tool_call_malformed_reason("call_1", "   "),
+            Some(ToolCallMalformedReason::EmptyFunctionName)
         );
     }
 
     #[test]
     fn reason_detects_blank_id() {
         assert_eq!(
-            malformed_tool_call_reason(" ", "Read"),
-            Some(MalformedToolCallReason::EmptyToolCallId)
+            tool_call_malformed_reason(" ", "Read"),
+            Some(ToolCallMalformedReason::EmptyToolCallId)
         );
     }
 
@@ -252,11 +256,11 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let fingerprint = malformed_only_fingerprint(
+        let fingerprint = tool_call_malformed_fingerprint(
             &[call],
-            &[Some(MalformedToolCallReason::EmptyFunctionName)],
+            &[Some(ToolCallMalformedReason::EmptyFunctionName)],
         );
-        let mut tracker = MalformedToolCallTracker::new(3);
+        let mut tracker = ToolCallMalformedTracker::new(3);
 
         assert_eq!(tracker.observe(fingerprint.clone()), 1);
         assert_eq!(tracker.observe(fingerprint), 2);
@@ -264,18 +268,18 @@ mod tests {
     }
 
     #[test]
-    fn malformed_tracker_limit_zero_disables_breaker() {
+    fn tool_call_malformed_tracker_limit_zero_disables_breaker() {
         let call = ContentBlock::ToolUse {
             id: "bad".into(),
             name: "".into(),
             input: json!({}),
             extra: None,
         };
-        let fingerprint = malformed_only_fingerprint(
+        let fingerprint = tool_call_malformed_fingerprint(
             &[call],
-            &[Some(MalformedToolCallReason::EmptyFunctionName)],
+            &[Some(ToolCallMalformedReason::EmptyFunctionName)],
         );
-        let mut tracker = MalformedToolCallTracker::new(0);
+        let mut tracker = ToolCallMalformedTracker::new(0);
 
         assert_eq!(tracker.observe(fingerprint.clone()), 1);
         assert!(!tracker.is_limit_exceeded());
@@ -284,8 +288,8 @@ mod tests {
     }
 
     #[test]
-    fn tool_failure_tracker_counts_consecutive_failed_rounds() {
-        let mut tracker = ToolFailureTracker::new(3);
+    fn tool_call_failure_tracker_counts_consecutive_failed_rounds() {
+        let mut tracker = ToolCallFailureTracker::new(3);
 
         assert_eq!(tracker.observe(true), 1);
         assert_eq!(tracker.observe(true), 2);
@@ -300,8 +304,8 @@ mod tests {
     }
 
     #[test]
-    fn tool_failure_tracker_limit_zero_disables_breaker() {
-        let mut tracker = ToolFailureTracker::new(0);
+    fn tool_call_failure_tracker_limit_zero_disables_breaker() {
+        let mut tracker = ToolCallFailureTracker::new(0);
 
         assert_eq!(tracker.observe(true), 1);
         assert!(!tracker.is_limit_exceeded());

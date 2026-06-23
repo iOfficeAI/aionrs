@@ -1,7 +1,7 @@
 use crate::error::AgentError;
 use crate::stream::StreamOutcome;
 use crate::tool_call::{
-    MalformedToolCallFingerprint, MalformedToolCallTracker, ToolFailureTracker,
+    ToolCallFailureTracker, ToolCallMalformedFingerprint, ToolCallMalformedTracker,
 };
 use aion_types::message::StopReason;
 
@@ -87,15 +87,15 @@ impl TurnTracker {
     }
 }
 
-/// Per-`run` loop-termination bookkeeping: the turn counter and the two
-/// consecutive-failure breakers (malformed calls, tool errors). Keeps the
-/// counters and their thresholds out of the loop body so the main loop has a
-/// single stop decision: [`TurnGuards::after_tool_round`].
+/// Per-`run` loop-termination bookkeeping: the turn counter plus the
+/// tool-call-malformed and tool-call-failure breakers. Keeps the counters and
+/// their thresholds out of the loop body so the main loop has a single stop
+/// decision: [`TurnGuards::after_tool_round`].
 pub(crate) struct TurnGuards {
     /// Number of counted normal model turns so far.
     turns: TurnTracker,
-    malformed_tool_calls: MalformedToolCallTracker,
-    tool_failures: ToolFailureTracker,
+    tool_call_malformed: ToolCallMalformedTracker,
+    tool_call_failures: ToolCallFailureTracker,
 }
 
 pub(crate) enum TurnGuardAction {
@@ -107,13 +107,13 @@ pub(crate) enum TurnGuardAction {
 impl TurnGuards {
     pub(crate) fn new(
         max_turns_per_run: Option<usize>,
-        max_malformed_tool_calls: usize,
-        max_tool_failure_rounds: usize,
+        max_tool_call_malformed_turns: usize,
+        max_tool_call_failure_rounds: usize,
     ) -> Self {
         Self {
             turns: TurnTracker::new(max_turns_per_run),
-            malformed_tool_calls: MalformedToolCallTracker::new(max_malformed_tool_calls),
-            tool_failures: ToolFailureTracker::new(max_tool_failure_rounds),
+            tool_call_malformed: ToolCallMalformedTracker::new(max_tool_call_malformed_turns),
+            tool_call_failures: ToolCallFailureTracker::new(max_tool_call_failure_rounds),
         }
     }
 
@@ -134,36 +134,36 @@ impl TurnGuards {
     /// be called once per tool round, after the results are recorded.
     pub(crate) fn after_tool_round(
         &mut self,
-        malformed_only_fingerprint: Option<MalformedToolCallFingerprint>,
-        executable_tool_error_round: bool,
+        tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,
+        tool_call_failure_round: bool,
     ) -> TurnGuardAction {
         let malformed_count = self
-            .malformed_tool_calls
-            .observe(malformed_only_fingerprint);
-        if self.malformed_tool_calls.is_limit_exceeded() {
+            .tool_call_malformed
+            .observe(tool_call_malformed_fingerprint);
+        if self.tool_call_malformed.is_limit_exceeded() {
             tracing::warn!(
                 target: "aion_agent",
                 count = malformed_count,
-                limit = self.malformed_tool_calls.limit(),
-                "stopping malformed tool call loop"
+                limit = self.tool_call_malformed.limit(),
+                "stopping tool-call malformed loop"
             );
-            return TurnGuardAction::Stop(AgentError::MalformedToolCall {
+            return TurnGuardAction::Stop(AgentError::ToolCallMalformed {
                 count: malformed_count,
-                limit: self.malformed_tool_calls.limit(),
+                limit: self.tool_call_malformed.limit(),
             });
         }
 
-        let tool_failure_count = self.tool_failures.observe(executable_tool_error_round);
-        if self.tool_failures.is_limit_exceeded() {
+        let tool_call_failure_count = self.tool_call_failures.observe(tool_call_failure_round);
+        if self.tool_call_failures.is_limit_exceeded() {
             tracing::warn!(
                 target: "aion_agent",
-                count = tool_failure_count,
-                limit = self.tool_failures.limit(),
-                "stopping tool failure loop"
+                count = tool_call_failure_count,
+                limit = self.tool_call_failures.limit(),
+                "stopping tool-call failure loop"
             );
-            return TurnGuardAction::Stop(AgentError::ToolFailures {
-                count: tool_failure_count,
-                limit: self.tool_failures.limit(),
+            return TurnGuardAction::Stop(AgentError::ToolCallFailures {
+                count: tool_call_failure_count,
+                limit: self.tool_call_failures.limit(),
             });
         }
 
@@ -175,7 +175,7 @@ impl TurnGuards {
     }
 
     #[cfg(test)]
-    pub(crate) fn tool_failure_count(&self) -> usize {
-        self.tool_failures.count()
+    pub(crate) fn tool_call_failure_count(&self) -> usize {
+        self.tool_call_failures.count()
     }
 }

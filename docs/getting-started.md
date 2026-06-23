@@ -31,7 +31,7 @@ aionrs [OPTIONS] [PROMPT]...
 | `--compaction <level>` | Output compaction: `off`, `safe` (default), `full` |
 | `--toon` | Enable TOON tabular encoding (with `full` compaction) |
 | `--max-turns <n>` | Broad model-turn limit per run; defaults to `20`, `0` disables |
-| `--max-malformed-tool-call-turns <n>` | Stop after repeated same malformed-only tool-call rounds; `0` disables |
+| `--max-tool-call-malformed-turns <n>` | Stop after repeated same tool-call-malformed rounds; `0` disables |
 | `--auto-approve` | Skip all tool confirmations |
 | `--json-stream` | JSON Lines mode for host integration |
 | `--resume <id>` | Resume a previous session |
@@ -69,7 +69,7 @@ provider = "anthropic"
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
 max_turns = 20  # max model turns per run; set 0 to disable
-max_malformed_tool_call_turns = 3  # default; set 0 to disable this breaker
+max_tool_call_malformed_turns = 3  # default; set 0 to disable this breaker
 
 [providers.anthropic]
 # api_key = "sk-ant-xxx"       # or env var ANTHROPIC_API_KEY
@@ -105,7 +105,7 @@ provider = "my-service"
 # Profile names are user-defined; this is not a built-in profile.
 [profiles.my-weak-provider]
 provider = "openai"
-max_malformed_tool_call_turns = 2
+max_tool_call_malformed_turns = 2
 
 [tools]
 auto_approve = false
@@ -142,13 +142,13 @@ to `0` to disable the broad limit. See [Core Concepts](core-concepts.md) for
 the distinction between runs, turns, tool rounds, and tool calls.
 
 The agent also stops zero-text turns where every executable tool result failed
-after 3 consecutive turns, so repeated tool failures do not loop indefinitely.
+after 3 consecutive turns, so repeated tool-call failures do not loop indefinitely.
 
-`max_malformed_tool_call_turns` limits consecutive same malformed-only
-tool-call rounds from a provider. The default is `3`; `0` disables this breaker
+`max_tool_call_malformed_turns` limits consecutive same tool-call-malformed
+rounds from a provider. The default is `3`; `0` disables this breaker
 and leaves stopping to `max_turns`.
 
-Precedence is `CLI > profile > project config > global config > built-in default 3`. Use `--max-malformed-tool-call-turns <n>` for a one-off CLI override.
+Precedence is `CLI > profile > project config > global config > built-in default 3`. Use `--max-tool-call-malformed-turns <n>` for a one-off CLI override.
 
 ### API Key Resolution Order
 
