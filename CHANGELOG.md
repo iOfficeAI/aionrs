@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.33](https://github.com/iOfficeAI/aionrs/compare/v0.1.32...v0.1.33) (2026-06-24)
+
+
+### Bug Fixes
+
+* **aion-agent:** guard non-final turns (AIO-24/AIO-62) ([#141](https://github.com/iOfficeAI/aionrs/issues/141)) ([e49d298](https://github.com/iOfficeAI/aionrs/commit/e49d298fa699db1c98f10b2f3a95eb98bade4891))
+
 ## [0.1.32](https://github.com/iOfficeAI/aionrs/compare/v0.1.31...v0.1.32) (2026-06-22)
 
 
