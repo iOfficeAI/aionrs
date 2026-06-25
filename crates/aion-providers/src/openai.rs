@@ -360,11 +360,7 @@ impl OpenAIProvider {
     }
 
     fn build_request_body(&self, request: &LlmRequest) -> Value {
-        let max_tokens_field = self
-            .compat
-            .max_tokens_field
-            .as_deref()
-            .unwrap_or("max_tokens");
+        let max_tokens_field = self.compat.max_tokens_field();
 
         let mut body = json!({
             "model": request.model,
@@ -399,7 +395,7 @@ fn generate_call_id() -> String {
 
 /// Strip configured patterns from text content
 fn strip_patterns_from_text(text: &str, compat: &ProviderCompat) -> String {
-    match &compat.strip_patterns {
+    match &compat.messages.strip_patterns {
         Some(patterns) if !patterns.is_empty() => {
             let mut result = text.to_string();
             for pattern in patterns {
@@ -893,6 +889,7 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aion_config::compat::TransportCompat;
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -924,7 +921,10 @@ mod tests {
     #[test]
     fn test_max_tokens_field_custom() {
         let compat = ProviderCompat {
-            max_tokens_field: Some("max_completion_tokens".into()),
+            transport: TransportCompat {
+                max_tokens_field: Some("max_completion_tokens".into()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let provider = OpenAIProvider::new("key", "http://localhost", compat);
@@ -1080,7 +1080,7 @@ mod tests {
     #[test]
     fn test_reverse_orphan_tool_result_kept_when_disabled() {
         let mut compat = openai_compat();
-        compat.clean_orphan_tool_results = Some(false);
+        compat.messages.clean_orphan_tool_results = Some(false);
         let messages = vec![Message::new(
             Role::Tool,
             vec![ContentBlock::ToolResult {
@@ -1178,7 +1178,7 @@ mod tests {
     #[test]
     fn test_empty_id_toolcall_downgraded_when_auto_id_disabled() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(false);
+        compat.tools.auto_tool_id = Some(false);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1212,8 +1212,8 @@ mod tests {
     #[test]
     fn test_empty_id_toolcall_generates_id_when_auto_id_enabled() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(true);
-        compat.clean_orphan_tool_calls = Some(false);
+        compat.tools.auto_tool_id = Some(true);
+        compat.tools.clean_orphan_tool_calls = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -1234,7 +1234,7 @@ mod tests {
     #[test]
     fn test_empty_id_toolcall_rewrites_paired_result_when_auto_id_enabled() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1294,7 +1294,7 @@ mod tests {
     #[test]
     fn test_dropped_empty_id_does_not_consume_later_generated_empty_id_result() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1546,7 +1546,7 @@ mod tests {
     #[test]
     fn test_sanitize_disabled_keeps_empty_name() {
         let mut compat = openai_compat();
-        compat.sanitize_malformed_tool_calls = Some(false);
+        compat.tools.sanitize_malformed_tool_calls = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -2059,7 +2059,7 @@ mod tests {
     #[test]
     fn golden_openai_custom_max_tokens_field() {
         let mut compat = ProviderCompat::openai_defaults();
-        compat.max_tokens_field = Some("max_completion_tokens".to_string());
+        compat.transport.max_tokens_field = Some("max_completion_tokens".to_string());
         let provider = golden_provider(compat);
         let request = golden_req(
             vec![Message::new(

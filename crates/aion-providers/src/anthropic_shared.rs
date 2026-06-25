@@ -37,7 +37,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
             match block {
                 ContentBlock::Text { text } => {
                     let mut text = text.clone();
-                    if let Some(patterns) = &compat.strip_patterns {
+                    if let Some(patterns) = &compat.messages.strip_patterns {
                         for pattern in patterns {
                             text = text.replace(pattern, "");
                         }
@@ -507,13 +507,17 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
 mod tests {
     use super::*;
 
+    use aion_config::compat::{MessageCompat, ToolCompat};
     use aion_types::tool::ToolDef;
     use serde_json::json;
 
     /// Compat with merge but no alternation — matches pre-compat behavior
     fn default_compat() -> ProviderCompat {
         ProviderCompat {
-            merge_same_role: Some(true),
+            messages: MessageCompat {
+                merge_same_role: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -626,8 +630,11 @@ mod tests {
             vec![ContentBlock::Text { text: "hi".into() }],
         )];
         let compat = ProviderCompat {
-            ensure_alternation: Some(true),
-            merge_same_role: Some(true),
+            messages: MessageCompat {
+                ensure_alternation: Some(true),
+                merge_same_role: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -643,7 +650,10 @@ mod tests {
             vec![ContentBlock::Text { text: "hi".into() }],
         )];
         let compat = ProviderCompat {
-            ensure_alternation: Some(false),
+            messages: MessageCompat {
+                ensure_alternation: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -658,7 +668,10 @@ mod tests {
             Message::new(Role::User, vec![ContentBlock::Text { text: "b".into() }]),
         ];
         let compat = ProviderCompat {
-            merge_same_role: Some(true),
+            messages: MessageCompat {
+                merge_same_role: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -674,7 +687,10 @@ mod tests {
             Message::new(Role::User, vec![ContentBlock::Text { text: "b".into() }]),
         ];
         let compat = ProviderCompat {
-            merge_same_role: Some(false),
+            messages: MessageCompat {
+                merge_same_role: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -693,7 +709,10 @@ mod tests {
             }],
         )];
         let compat = ProviderCompat {
-            auto_tool_id: Some(true),
+            tools: ToolCompat {
+                auto_tool_id: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -714,7 +733,10 @@ mod tests {
             }],
         )];
         let compat = ProviderCompat {
-            auto_tool_id: Some(true),
+            tools: ToolCompat {
+                auto_tool_id: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -807,7 +829,7 @@ mod tests {
     #[test]
     fn test_anthropic_downgrade_text_not_stripped() {
         let mut compat = anthropic_compat();
-        compat.strip_patterns = Some(vec![
+        compat.messages.strip_patterns = Some(vec![
             "REMOVE_ME".into(),
             "[tool call skipped:".into(),
             "arguments={}".into(),
@@ -847,7 +869,7 @@ mod tests {
     #[test]
     fn test_anthropic_sanitize_disabled_keeps_empty_name() {
         let mut compat = anthropic_compat();
-        compat.sanitize_malformed_tool_calls = Some(false);
+        compat.tools.sanitize_malformed_tool_calls = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -928,7 +950,7 @@ mod tests {
     #[test]
     fn test_anthropic_empty_id_toolcall_downgraded_when_auto_id_disabled() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(false);
+        compat.tools.auto_tool_id = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -962,7 +984,7 @@ mod tests {
     #[test]
     fn test_anthropic_empty_id_toolcall_generates_id_when_auto_id_enabled() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -997,7 +1019,7 @@ mod tests {
     #[test]
     fn test_anthropic_empty_id_rewrites_paired_result_when_auto_id_enabled() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1068,7 +1090,7 @@ mod tests {
     #[test]
     fn test_anthropic_dropped_empty_id_does_not_consume_later_generated_empty_id_result() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
