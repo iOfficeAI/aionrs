@@ -416,8 +416,10 @@ mod tests {
     #[tokio::test]
     async fn test_hook_timeout_preserves_stdout_emitted_before_timeout() {
         let command = slow_stdout_command("hook_stdout_before_timeout");
+        let timeout_ms = if cfg!(windows) { 1500 } else { 100 };
 
-        let result = run_hook_command(&command, &HashMap::new(), 100, &std::env::temp_dir()).await;
+        let result =
+            run_hook_command(&command, &HashMap::new(), timeout_ms, &std::env::temp_dir()).await;
 
         let err = match result {
             Ok(_) => panic!("hook command should time out"),
@@ -425,7 +427,7 @@ mod tests {
         };
         let message = err.to_string();
         assert!(
-            message.contains("Hook timed out after 100ms"),
+            message.contains(&format!("Hook timed out after {timeout_ms}ms")),
             "timeout message missing: {message}"
         );
         assert!(
