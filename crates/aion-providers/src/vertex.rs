@@ -5,17 +5,20 @@ use async_trait::async_trait;
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
-use std::sync::Mutex;
+use serde_json::Value;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
-use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
+use aion_types::llm::{LlmEvent, LlmRequest};
 
 use super::anthropic_shared;
+use crate::projector::{AnthropicWireProjector, WireParams};
+use crate::stream_runner::{RetryPolicy, run_stream};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
 
+#[derive(Clone)]
 pub struct VertexProvider {
     client: reqwest::Client,
     project_id: String,
@@ -24,7 +27,7 @@ pub struct VertexProvider {
     cache_enabled: bool,
     compat: ProviderCompat,
     /// Cached access token
-    cached_token: Mutex<Option<CachedToken>>,
+    cached_token: Arc<Mutex<Option<CachedToken>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -54,7 +57,7 @@ impl VertexProvider {
             auth,
             cache_enabled,
             compat,
-            cached_token: Mutex::new(None),
+            cached_token: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -66,40 +69,17 @@ impl VertexProvider {
     }
 
     fn build_request_body(&self, request: &LlmRequest) -> Value {
-        let system = if self.cache_enabled {
-            json!([{
-                "type": "text",
-                "text": &request.system,
-                "cache_control": { "type": "ephemeral" }
-            }])
-        } else {
-            json!(&request.system)
-        };
-
-        let mut body = json!({
-            "anthropic_version": "vertex-2023-10-16",
-            "max_tokens": request.max_tokens,
-            "system": system,
-            "messages": anthropic_shared::build_messages(&request.messages, &self.compat),
-            "stream": true
-        });
-
-        if !request.tools.is_empty() {
-            let mut tools = anthropic_shared::build_tools(&request.tools);
-            if let Some(last) = tools.last_mut().filter(|_| self.cache_enabled) {
-                last["cache_control"] = json!({ "type": "ephemeral" });
-            }
-            body["tools"] = json!(tools);
-        }
-
-        if let Some(ThinkingConfig::Enabled { budget_tokens }) = &request.thinking {
-            body["thinking"] = json!({
-                "type": "enabled",
-                "budget_tokens": budget_tokens
-            });
-        }
-
-        body
+        AnthropicWireProjector::project(
+            request,
+            &self.compat,
+            WireParams {
+                anthropic_version: Some("vertex-2023-10-16"),
+                include_model_in_body: false,
+                include_stream: true,
+                cache_enabled: self.cache_enabled,
+                sanitize_schema: false,
+            },
+        )
     }
 
     async fn get_access_token(&self) -> Result<String, ProviderError> {
@@ -248,19 +228,12 @@ impl VertexProvider {
 
         Ok((token_resp.access_token, token_resp.expires_in))
     }
-}
 
-#[async_trait]
-impl LlmProvider for VertexProvider {
-    async fn stream(
+    async fn send_stream_request(
         &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
-        let url = self.build_url(&request.model);
-        let body = self.build_request_body(request);
-
-        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
-
+        url: &str,
+        body: &Value,
+    ) -> Result<reqwest::Response, ProviderError> {
         let access_token = self.get_access_token().await?;
 
         let mut headers = HeaderMap::new();
@@ -273,9 +246,9 @@ impl LlmProvider for VertexProvider {
 
         let response = self
             .client
-            .post(&url)
+            .post(url)
             .headers(headers)
-            .json(&body)
+            .json(body)
             .send()
             .await?;
 
@@ -293,74 +266,43 @@ impl LlmProvider for VertexProvider {
             });
         }
 
-        let (tx, rx) = mpsc::channel(64);
-        let client = self.client.clone();
-        let url_clone = url.clone();
-        let headers_clone = {
-            let mut h = HeaderMap::new();
-            h.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-            h.insert(
-                AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", access_token))
-                    .map_err(|e| ProviderError::Connection(format!("Header error: {}", e)))?,
-            );
-            h
+        Ok(response)
+    }
+}
+
+#[async_trait]
+impl LlmProvider for VertexProvider {
+    async fn stream(
+        &self,
+        request: &LlmRequest,
+    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        let url = self.build_url(&request.model);
+        let body = self.build_request_body(request);
+
+        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
+
+        let provider = self.clone();
+        let send = {
+            let provider = provider.clone();
+            let url = url.clone();
+            let body = body.clone();
+            move || {
+                let provider = provider.clone();
+                let url = url.clone();
+                let body = body.clone();
+                async move { provider.send_stream_request(&url, &body).await }
+            }
+        };
+        let process = move |response, tx| async move {
+            anthropic_shared::process_sse_stream(response, &tx).await
         };
 
-        // Vertex uses standard SSE (same as Anthropic)
-        tokio::spawn(async move {
-            match anthropic_shared::process_sse_stream(response, &tx).await {
-                anthropic_shared::StreamOutcome::Ok => {}
-                anthropic_shared::StreamOutcome::FailedPartial(e) => {
-                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
-                }
-                anthropic_shared::StreamOutcome::FailedEmpty(e) => {
-                    if e.is_retryable() {
-                        let mut backoff = std::time::Duration::from_secs(1);
-                        let mut final_err = Some(e);
-                        for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
-                            backoff = crate::retry::backoff_sleep(attempt, backoff).await;
-                            match crate::retry::send_and_check(
-                                &client,
-                                &url_clone,
-                                &headers_clone,
-                                &body,
-                            )
-                            .await
-                            {
-                                Ok(resp) => {
-                                    let outcome =
-                                        anthropic_shared::process_sse_stream(resp, &tx).await;
-                                    match crate::retry::evaluate_outcome(outcome, attempt) {
-                                        Ok(None) => {
-                                            final_err = None;
-                                            break;
-                                        }
-                                        Ok(Some(e)) => {
-                                            final_err = Some(e);
-                                            break;
-                                        }
-                                        Err(_) => continue,
-                                    }
-                                }
-                                Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
-                                    final_err = Some(e);
-                                    break;
-                                }
-                                Err(_) => continue,
-                            }
-                        }
-                        if let Some(err) = final_err {
-                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
-                        }
-                    } else {
-                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
-                    }
-                }
-            }
-        });
-
-        Ok(rx)
+        run_stream(
+            send,
+            process,
+            RetryPolicy::new(crate::retry::MAX_STREAM_RETRIES, false, true),
+        )
+        .await
     }
 }
 

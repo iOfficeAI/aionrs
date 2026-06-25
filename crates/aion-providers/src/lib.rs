@@ -2,9 +2,13 @@ pub mod anthropic;
 pub mod anthropic_shared;
 pub mod bedrock;
 pub mod error;
+pub(crate) mod framing;
 pub mod openai;
+pub(crate) mod parser;
+pub(crate) mod projector;
 pub mod provider;
 pub mod retry;
+pub(crate) mod stream_runner;
 mod tool_call_sanitize;
 pub mod vertex;
 

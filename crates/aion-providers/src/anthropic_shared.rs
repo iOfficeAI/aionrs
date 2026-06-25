@@ -10,6 +10,9 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use crate::error::ProviderError;
+use crate::framing::SseBlockFramer;
+use crate::parser::{AnthropicParser, ResponseParser};
+pub(crate) use crate::stream_runner::StreamOutcome;
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use aion_config::compat::ProviderCompat;
 
@@ -311,24 +314,16 @@ impl StreamState {
     }
 }
 
-/// Outcome of SSE stream processing — distinguishes "failed before any content
-/// was emitted" (safe to retry) from "failed after partial content" (not safe).
-pub enum StreamOutcome {
-    Ok,
-    FailedEmpty(ProviderError),
-    FailedPartial(ProviderError),
-}
-
 /// Process the SSE stream from an Anthropic-compatible API
-pub async fn process_sse_stream(
+pub(crate) async fn process_sse_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
 ) -> StreamOutcome {
     use futures::StreamExt;
 
-    let mut state = StreamState::new();
-    let mut buffer = String::new();
-    let mut current_event_type = String::new();
+    let parser = AnthropicParser;
+    let mut state = parser.new_state();
+    let mut framer = SseBlockFramer::default();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
 
@@ -345,35 +340,29 @@ pub async fn process_sse_stream(
             }
         };
         let text = String::from_utf8_lossy(&chunk);
-        buffer.push_str(&text);
-
-        // Process complete SSE events (separated by double newlines)
-        while let Some(event_end) = buffer.find("\n\n") {
-            let event_block = buffer[..event_end].to_string();
-            buffer = buffer[event_end + 2..].to_string();
-
-            for line in event_block.lines() {
-                if let Some(event_type) = line.strip_prefix("event: ") {
-                    current_event_type = event_type.to_string();
-                } else if let Some(data) = line.strip_prefix("data: ") {
-                    tracing::debug!(target: "aion_providers", chunk = %data, "sse chunk received");
-                    let events = parse_sse_data(&current_event_type, data, &mut state);
-                    for event in events {
-                        if matches!(
-                            event,
-                            LlmEvent::TextDelta(_)
-                                | LlmEvent::ThinkingDelta(_)
-                                | LlmEvent::ThinkingSignature(_)
-                                | LlmEvent::ToolUse { .. }
-                        ) {
-                            emitted_content = true;
-                        }
-                        if tx.send(event).await.is_err() {
-                            return StreamOutcome::Ok; // receiver dropped
-                        }
-                    }
+        for frame in framer.push_text(&text) {
+            tracing::debug!(target: "aion_providers", chunk = %frame.data, "sse chunk received");
+            let events = parser.parse_frame(&frame, &mut state);
+            for event in events {
+                if matches!(
+                    event,
+                    LlmEvent::TextDelta(_)
+                        | LlmEvent::ThinkingDelta(_)
+                        | LlmEvent::ThinkingSignature(_)
+                        | LlmEvent::ToolUse { .. }
+                ) {
+                    emitted_content = true;
+                }
+                if tx.send(event).await.is_err() {
+                    return StreamOutcome::Ok; // receiver dropped
                 }
             }
+        }
+    }
+
+    for event in parser.finish(&mut state) {
+        if tx.send(event).await.is_err() {
+            return StreamOutcome::Ok;
         }
     }
 
