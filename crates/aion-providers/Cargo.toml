@@ -36,3 +36,4 @@ workspace-hack.workspace = true
 [dev-dependencies]
 wiremock.workspace   = true
 tokio-test.workspace = true
+insta.workspace      = true

@@ -1,0 +1,36 @@
+---
+source: crates/aion-providers/src/openai.rs
+expression: "provider.build_request_body(&golden_req(messages, vec![]))"
+---
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": "You are a test assistant.",
+      "role": "system"
+    },
+    {
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"path\":\"a.txt\"}",
+            "name": "read"
+          },
+          "id": "call_1",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "file contents",
+      "role": "tool",
+      "tool_call_id": "call_1"
+    }
+  ],
+  "model": "test-model",
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  }
+}

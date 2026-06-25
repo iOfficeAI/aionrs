@@ -1907,4 +1907,172 @@ mod tests {
             );
         }
     }
+
+    // --- Golden body snapshots (baseline for compat-split / seam-extraction refactors) ---
+
+    fn golden_provider(compat: ProviderCompat) -> OpenAIProvider {
+        OpenAIProvider::new("test-key", "https://example.test/v1", compat)
+    }
+
+    fn golden_req(messages: Vec<Message>, tools: Vec<ToolDef>) -> LlmRequest {
+        LlmRequest {
+            model: "test-model".to_string(),
+            system: "You are a test assistant.".to_string(),
+            messages,
+            tools,
+            max_tokens: 8192,
+            thinking: None,
+            reasoning_effort: None,
+        }
+    }
+
+    #[test]
+    fn golden_openai_basic() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "Hello".to_string(),
+                }],
+            )],
+            vec![],
+        );
+        let body = provider.build_request_body(&request);
+        insta::assert_json_snapshot!("openai_basic", body);
+    }
+
+    fn sample_tools() -> Vec<ToolDef> {
+        vec![
+            ToolDef {
+                name: "read".to_string(),
+                description: "Read a file".to_string(),
+                input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "list".to_string(),
+                description: "List dir".to_string(),
+                input_schema: json!({"type": "object", "properties": {}}),
+                deferred: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn golden_openai_with_tools() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "go".to_string(),
+                }],
+            )],
+            sample_tools(),
+        );
+        insta::assert_json_snapshot!("openai_with_tools", provider.build_request_body(&request));
+    }
+
+    #[test]
+    fn golden_openai_with_tool_result() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "call_1".to_string(),
+                    name: "read".to_string(),
+                    input: json!({"path": "a.txt"}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::User,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "call_1".to_string(),
+                    content: "file contents".to_string(),
+                    is_error: false,
+                }],
+            ),
+        ];
+        insta::assert_json_snapshot!(
+            "openai_with_tool_result",
+            provider.build_request_body(&golden_req(messages, vec![]))
+        );
+    }
+
+    #[test]
+    fn golden_openai_with_thinking() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let messages = vec![
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "q1".to_string(),
+                }],
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    ContentBlock::Thinking {
+                        thinking: "let me think".to_string(),
+                        signature: None,
+                    },
+                    ContentBlock::Text {
+                        text: "answer".to_string(),
+                    },
+                ],
+            ),
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "q2".to_string(),
+                }],
+            ),
+        ];
+        insta::assert_json_snapshot!(
+            "openai_with_thinking",
+            provider.build_request_body(&golden_req(messages, vec![]))
+        );
+    }
+
+    #[test]
+    fn golden_openai_with_reasoning_effort() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let mut request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "hi".to_string(),
+                }],
+            )],
+            vec![],
+        );
+        request.reasoning_effort = Some("medium".to_string());
+        insta::assert_json_snapshot!(
+            "openai_with_reasoning_effort",
+            provider.build_request_body(&request)
+        );
+    }
+
+    #[test]
+    fn golden_openai_custom_max_tokens_field() {
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.max_tokens_field = Some("max_completion_tokens".to_string());
+        let provider = golden_provider(compat);
+        let request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "hi".to_string(),
+                }],
+            )],
+            vec![],
+        );
+        insta::assert_json_snapshot!(
+            "openai_custom_max_tokens_field",
+            provider.build_request_body(&request)
+        );
+    }
 }

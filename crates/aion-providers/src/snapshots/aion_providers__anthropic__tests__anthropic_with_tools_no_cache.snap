@@ -1,0 +1,46 @@
+---
+source: crates/aion-providers/src/anthropic.rs
+expression: p.build_request_body(&r)
+---
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "go",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "test-model",
+  "stream": true,
+  "system": "You are a test assistant.",
+  "tools": [
+    {
+      "description": "Read",
+      "input_schema": {
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "type": "object"
+      },
+      "name": "read"
+    },
+    {
+      "description": "List",
+      "input_schema": {
+        "properties": {},
+        "type": "object"
+      },
+      "name": "list"
+    }
+  ]
+}

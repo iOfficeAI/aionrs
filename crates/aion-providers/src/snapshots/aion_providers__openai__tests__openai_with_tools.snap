@@ -1,0 +1,53 @@
+---
+source: crates/aion-providers/src/openai.rs
+expression: provider.build_request_body(&request)
+---
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": "You are a test assistant.",
+      "role": "system"
+    },
+    {
+      "content": "go",
+      "role": "user"
+    }
+  ],
+  "model": "test-model",
+  "stream": true,
+  "stream_options": {
+    "include_usage": true
+  },
+  "tools": [
+    {
+      "function": {
+        "description": "Read a file",
+        "name": "read",
+        "parameters": {
+          "properties": {
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    },
+    {
+      "function": {
+        "description": "List dir",
+        "name": "list",
+        "parameters": {
+          "properties": {},
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}

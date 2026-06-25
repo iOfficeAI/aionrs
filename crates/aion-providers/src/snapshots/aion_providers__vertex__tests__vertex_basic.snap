@@ -1,0 +1,21 @@
+---
+source: crates/aion-providers/src/vertex.rs
+expression: p.build_request_body(&r)
+---
+{
+  "anthropic_version": "vertex-2023-10-16",
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "stream": true,
+  "system": "You are a test assistant."
+}
