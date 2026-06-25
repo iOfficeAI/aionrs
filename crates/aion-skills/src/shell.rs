@@ -2,6 +2,8 @@ use futures::future::join_all;
 use regex::Regex;
 use std::sync::OnceLock;
 
+use aion_process::{CommandRunner, DEFAULT_TIMEOUT};
+
 use crate::types::LoadedFrom;
 
 // ---------------------------------------------------------------------------
@@ -190,30 +192,44 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
 /// Execute a single shell command and return its combined stdout/stderr output.
 async fn execute_command(command: &str, cwd: &str) -> Result<String, ShellExecutionError> {
     let shell = aion_config::shell::default_shell();
-    // TODO(aio-168): migrate embedded skill shell execution to aion-process so
-    // future timeout handling can preserve partial stdout/stderr. Keep behavior
-    // unchanged in this patch because skill shell output formatting differs
-    // from ExecCommand tool output.
-    let output = aion_config::shell::shell_command_builder(&shell, command, false)
-        .current_dir(cwd)
-        .output()
+    let mut command_builder = aion_config::shell::shell_command_builder(&shell, command, false);
+    command_builder.current_dir(cwd);
+
+    let result = CommandRunner::new(command_builder)
+        .run()
         .await
         .map_err(|e| ShellExecutionError::CommandFailed {
             pattern: command.to_owned(),
             output: e.to_string(),
         })?;
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&result.stdout);
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    let formatted = format_output(stdout.trim_end(), stderr.trim_end());
 
-    if !output.status.success() && stdout.is_empty() && stderr.is_empty() {
+    if result.timed_out {
+        let output = if formatted.is_empty() {
+            format!("timed out after {}ms", DEFAULT_TIMEOUT.as_millis())
+        } else {
+            format!(
+                "timed out after {}ms\n{formatted}",
+                DEFAULT_TIMEOUT.as_millis()
+            )
+        };
         return Err(ShellExecutionError::CommandFailed {
             pattern: command.to_owned(),
-            output: format!("exit code {}", output.status.code().unwrap_or(-1)),
+            output,
         });
     }
 
-    Ok(format_output(stdout.trim_end(), stderr.trim_end()))
+    if result.exit_code != Some(0) && stdout.is_empty() && stderr.is_empty() {
+        return Err(ShellExecutionError::CommandFailed {
+            pattern: command.to_owned(),
+            output: format!("exit code {}", result.exit_code.unwrap_or(-1)),
+        });
+    }
+
+    Ok(formatted)
 }
 
 /// Format stdout and stderr into a single string.
