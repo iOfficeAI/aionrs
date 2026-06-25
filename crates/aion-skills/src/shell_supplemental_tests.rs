@@ -281,6 +281,21 @@ async fn tc_4_7_nonexistent_command_returns_err() {
     }
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn tc_4_8_returns_before_background_process_closes_inherited_pipe() {
+    let content = "!`printf 'skill_background_parent_done\\n'; sleep 5 &`";
+    let result = tokio::time::timeout(std::time::Duration::from_millis(700), run(content)).await;
+
+    let output = result
+        .expect("skill shell command should not wait for the background child")
+        .expect("skill shell command should succeed");
+    assert!(
+        output.contains("skill_background_parent_done"),
+        "stdout emitted by shell parent should be preserved, got: {output}"
+    );
+}
+
 // -----------------------------------------------------------------------
 // TC-5: format_output
 // -----------------------------------------------------------------------

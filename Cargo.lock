@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "aion-agent"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-compact",
  "aion-config",
@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "aion-cli"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-agent",
  "aion-compact",
@@ -69,7 +69,7 @@ dependencies = [
 
 [[package]]
 name = "aion-compact"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "regex",
  "serde",
@@ -79,9 +79,10 @@ dependencies = [
 
 [[package]]
 name = "aion-config"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-compact",
+ "aion-process",
  "aion-types",
  "anyhow",
  "chrono",
@@ -105,7 +106,7 @@ dependencies = [
 
 [[package]]
 name = "aion-mcp"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-config",
  "aion-protocol",
@@ -125,7 +126,7 @@ dependencies = [
 
 [[package]]
 name = "aion-memory"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-config",
  "chrono",
@@ -141,7 +142,7 @@ dependencies = [
 
 [[package]]
 name = "aion-process"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "libc",
  "tokio",
@@ -151,7 +152,7 @@ dependencies = [
 
 [[package]]
 name = "aion-protocol"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-types",
  "rstest",
@@ -164,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "aion-providers"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-config",
  "aion-types",
@@ -193,10 +194,11 @@ dependencies = [
 
 [[package]]
 name = "aion-skills"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-config",
  "aion-mcp",
+ "aion-process",
  "aion-types",
  "anyhow",
  "async-trait",
@@ -221,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "aion-tools"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "aion-config",
  "aion-process",
@@ -242,7 +244,7 @@ dependencies = [
 
 [[package]]
 name = "aion-types"
-version = "0.1.32"
+version = "0.1.33"
 dependencies = [
  "async-trait",
  "chrono",

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use aion_process::CommandRunner;
 use serde::{Deserialize, Serialize};
 
 use crate::shell::{default_shell, shell_command_builder};
@@ -222,6 +223,18 @@ struct HookResult {
     output: String,
 }
 
+fn combine_output(stdout: &[u8], stderr: &[u8]) -> String {
+    let stdout = String::from_utf8_lossy(stdout).to_string();
+    let stderr = String::from_utf8_lossy(stderr).to_string();
+    if stderr.is_empty() {
+        stdout
+    } else if stdout.is_empty() {
+        stderr
+    } else {
+        format!("{}\n{}", stdout, stderr)
+    }
+}
+
 async fn run_hook_command(
     command: &str,
     env_vars: &HashMap<String, String>,
@@ -240,37 +253,26 @@ async fn run_hook_command(
         "hook executing"
     );
 
-    // TODO(aio-168): migrate hook command execution to aion-process so timeout
-    // results can preserve partial stdout/stderr. Keep behavior unchanged in
-    // this patch because hooks have their own blocking semantics.
-    let result = tokio::time::timeout(timeout, async {
-        shell_command_builder(&shell, &interpolated, false)
-            .envs(env_vars)
-            .current_dir(cwd)
-            .output()
-            .await
-    })
-    .await;
+    let mut command_builder = shell_command_builder(&shell, &interpolated, false);
+    command_builder.envs(env_vars).current_dir(cwd);
 
-    match result {
-        Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-            let combined = if stderr.is_empty() {
-                stdout
-            } else if stdout.is_empty() {
-                stderr
-            } else {
-                format!("{}\n{}", stdout, stderr)
-            };
-
+    match CommandRunner::new(command_builder)
+        .timeout(timeout)
+        .run()
+        .await
+    {
+        Ok(result) if result.timed_out => Err(HookError::Timeout {
+            timeout_ms,
+            output: combine_output(&result.stdout, &result.stderr),
+        }),
+        Ok(result) => {
+            let exit_code = result.exit_code.unwrap_or(-1);
             Ok(HookResult {
-                success: output.status.success(),
-                output: combined,
+                success: exit_code == 0,
+                output: combine_output(&result.stdout, &result.stderr),
             })
         }
-        Ok(Err(e)) => Err(HookError::ExecutionFailed(e.to_string())),
-        Err(_) => Err(HookError::Timeout(timeout_ms)),
+        Err(e) => Err(HookError::ExecutionFailed(e.to_string())),
     }
 }
 
@@ -280,13 +282,14 @@ pub enum HookError {
     Blocked { hook_name: String, output: String },
     #[error("Hook execution failed: {0}")]
     ExecutionFailed(String),
-    #[error("Hook timed out after {0}ms")]
-    Timeout(u64),
+    #[error("Hook timed out after {timeout_ms}ms\n{output}")]
+    Timeout { timeout_ms: u64, output: String },
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shell::{ShellKind, default_shell};
     use serde_json::json;
 
     fn make_hook(name: &str, tool_match: Vec<&str>, command: &str) -> HookDef {
@@ -296,6 +299,18 @@ mod tests {
             file_match: vec![],
             command: command.to_string(),
             timeout_ms: 30_000,
+        }
+    }
+
+    fn slow_stdout_command(message: &str) -> String {
+        match default_shell().kind {
+            ShellKind::PowerShell => {
+                format!("Write-Output {message}; Start-Sleep -Seconds 5")
+            }
+            ShellKind::Cmd => format!("echo {message} & ping -n 6 127.0.0.1 > nul"),
+            ShellKind::Bash | ShellKind::Zsh | ShellKind::Sh => {
+                format!("printf '{message}\\n'; sleep 5")
+            }
         }
     }
 
@@ -395,7 +410,28 @@ mod tests {
         let engine = HookEngine::new(config, std::env::temp_dir());
         let result = engine.run_pre_tool_use("Read", &json!({})).await;
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), HookError::Timeout(_)));
+        assert!(matches!(result.unwrap_err(), HookError::Timeout { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_hook_timeout_preserves_stdout_emitted_before_timeout() {
+        let command = slow_stdout_command("hook_stdout_before_timeout");
+
+        let result = run_hook_command(&command, &HashMap::new(), 100, &std::env::temp_dir()).await;
+
+        let err = match result {
+            Ok(_) => panic!("hook command should time out"),
+            Err(err) => err,
+        };
+        let message = err.to_string();
+        assert!(
+            message.contains("Hook timed out after 100ms"),
+            "timeout message missing: {message}"
+        );
+        assert!(
+            message.contains("hook_stdout_before_timeout"),
+            "stdout emitted before timeout should be preserved, got: {message}"
+        );
     }
 }
 
