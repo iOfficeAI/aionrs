@@ -30,6 +30,7 @@ expression: p.build_request_body(&r)
     {
       "description": "Read",
       "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
           "path": {
             "type": "string"
@@ -48,6 +49,7 @@ expression: p.build_request_body(&r)
       },
       "description": "List",
       "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {},
         "type": "object"
       },

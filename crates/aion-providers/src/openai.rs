@@ -1694,6 +1694,48 @@ mod tests {
     }
 
     #[test]
+    fn test_build_tools_legalizes_null_and_empty_parameters() {
+        let tools = vec![
+            ToolDef {
+                name: "NullSchema".into(),
+                description: "Null schema".into(),
+                input_schema: Value::Null,
+                deferred: false,
+            },
+            ToolDef {
+                name: "EmptySchema".into(),
+                description: "Empty schema".into(),
+                input_schema: json!({}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "StringSchema".into(),
+                description: "String schema".into(),
+                input_schema: json!("raw"),
+                deferred: false,
+            },
+            ToolDef {
+                name: "StringRootType".into(),
+                description: "String root type".into(),
+                input_schema: json!({"type": "string"}),
+                deferred: false,
+            },
+        ];
+        let result = project_tools(&tools, ResolvedToolWireShape::OpenAiFunction);
+
+        for tool in result {
+            assert_eq!(
+                tool["function"]["parameters"],
+                json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "type": "object",
+                    "properties": {}
+                })
+            );
+        }
+    }
+
+    #[test]
     fn usage_includes_prompt_cache_hit_tokens() {
         // DeepSeek reports prompt_cache_hit_tokens separately;
         // input_tokens should be the sum of prompt_tokens + prompt_cache_hit_tokens

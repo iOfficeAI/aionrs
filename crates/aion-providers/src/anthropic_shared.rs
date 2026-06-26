@@ -475,6 +475,7 @@ mod tests {
     use super::*;
 
     use aion_config::compat::{MessageCompat, ToolCompat};
+    use aion_config::schema::legalize_json_schema;
     use aion_types::tool::ToolDef;
     use serde_json::json;
 
@@ -1199,7 +1200,7 @@ mod tests {
         assert_eq!(result.len(), 1);
         assert_eq!(result[0]["name"], "bash");
         assert_eq!(result[0]["description"], "Run a shell command");
-        assert_eq!(result[0]["input_schema"], schema);
+        assert_eq!(result[0]["input_schema"], legalize_json_schema(&schema));
     }
 
     #[test]
@@ -1246,6 +1247,66 @@ mod tests {
         );
         let desc = result[1]["description"].as_str().unwrap();
         assert!(desc.contains("ToolSearch"));
+    }
+
+    #[test]
+    fn test_build_tools_legalizes_null_and_missing_type_schema() {
+        let tools = vec![
+            ToolDef {
+                name: "NullSchema".into(),
+                description: "Null schema".into(),
+                input_schema: Value::Null,
+                deferred: false,
+            },
+            ToolDef {
+                name: "MissingType".into(),
+                description: "Missing root type".into(),
+                input_schema: json!({
+                    "properties": {
+                        "path": { "type": "string" }
+                    }
+                }),
+                deferred: false,
+            },
+            ToolDef {
+                name: "ArraySchema".into(),
+                description: "Array schema".into(),
+                input_schema: json!(["not", "object"]),
+                deferred: false,
+            },
+            ToolDef {
+                name: "StringRootType".into(),
+                description: "String root type".into(),
+                input_schema: json!({"type": "string"}),
+                deferred: false,
+            },
+        ];
+        let result = build_tools(&tools);
+
+        assert_eq!(
+            result[0]["input_schema"],
+            json!({
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {}
+            })
+        );
+        assert_eq!(result[1]["input_schema"]["type"], "object");
+        assert_eq!(
+            result[1]["input_schema"]["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+        assert!(result[1]["input_schema"]["properties"]["path"].is_object());
+        for tool in result.iter().skip(2) {
+            assert_eq!(
+                tool["input_schema"],
+                json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "type": "object",
+                    "properties": {}
+                })
+            );
+        }
     }
 
     // --- parse_sse_data tests ---

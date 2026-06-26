@@ -25,6 +25,7 @@ expression: provider.build_request_body(&request)
         "description": "Read a file",
         "name": "read",
         "parameters": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
           "properties": {
             "path": {
               "type": "string"
@@ -43,6 +44,7 @@ expression: provider.build_request_body(&request)
         "description": "List dir",
         "name": "list",
         "parameters": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
           "properties": {},
           "type": "object"
         }

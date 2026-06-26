@@ -1,4 +1,5 @@
 use aion_config::compat::{self, ProviderCompat, ToolWireShape};
+use aion_config::schema::legalize_json_schema;
 use aion_types::llm::{LlmRequest, ThinkingConfig};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 use serde_json::{Value, json};
@@ -265,13 +266,16 @@ fn tool_description_and_schema(tool: &ToolDef) -> (String, Value) {
         let short_desc = truncate_deferred_description(&tool.description);
         (
             format!("(Deferred) {short_desc} — Use ToolSearch to load full schema before calling."),
-            json!({
+            legalize_json_schema(&json!({
                 "type": "object",
                 "properties": {}
-            }),
+            })),
         )
     } else {
-        (tool.description.clone(), tool.input_schema.clone())
+        (
+            tool.description.clone(),
+            legalize_json_schema(&tool.input_schema),
+        )
     }
 }
 
@@ -351,6 +355,7 @@ fn preflight_projected_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aion_config::schema::legalize_json_schema;
     use aion_types::message::{ContentBlock, Message, Role};
     use aion_types::tool::ToolDef;
 
@@ -441,12 +446,21 @@ mod tests {
                     {
                         "name": "read",
                         "description": "Read",
-                        "input_schema": {"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}
+                        "input_schema": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "type":"object",
+                            "properties":{"path":{"type":"string"}},
+                            "required":["path"]
+                        }
                     },
                     {
                         "name": "list",
                         "description": "List",
-                        "input_schema": {"type":"object","properties":{}},
+                        "input_schema": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "type":"object",
+                            "properties":{}
+                        },
                         "cache_control": { "type": "ephemeral" }
                     }
                 ],
@@ -490,12 +504,21 @@ mod tests {
                     {
                         "name": "read",
                         "description": "Read",
-                        "input_schema": {"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}
+                        "input_schema": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "type":"object",
+                            "properties":{"path":{"type":"string"}},
+                            "required":["path"]
+                        }
                     },
                     {
                         "name": "list",
                         "description": "List",
-                        "input_schema": {"type":"object","properties":{}}
+                        "input_schema": {
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "type":"object",
+                            "properties":{}
+                        }
                     }
                 ]
             })
@@ -564,7 +587,11 @@ mod tests {
             .expect("request body projection should succeed");
         assert_eq!(
             unsanitized["tools"][0]["input_schema"],
-            request.tools[0].input_schema
+            legalize_json_schema(&request.tools[0].input_schema)
+        );
+        assert_eq!(
+            unsanitized["tools"][0]["input_schema"]["additionalProperties"],
+            false
         );
 
         let sanitized = AnthropicWireProjector::project(
@@ -578,9 +605,47 @@ mod tests {
         .expect("request body projection should succeed");
         assert_eq!(
             sanitized["tools"][0]["input_schema"],
-            compat::sanitize_json_schema(&request.tools[0].input_schema)
+            compat::sanitize_json_schema(&legalize_json_schema(&request.tools[0].input_schema))
         );
         assert!(sanitized["tools"][0]["input_schema"]["additionalProperties"].is_null());
+    }
+
+    #[test]
+    fn test_bedrock_strict_sanitize_runs_after_universal_legalize() {
+        let request = test_request(
+            vec![ToolDef {
+                name: "empty".to_string(),
+                description: "Empty".to_string(),
+                input_schema: json!({
+                    "additionalProperties": false
+                }),
+                deferred: false,
+            }],
+            None,
+        );
+
+        let body = AnthropicWireProjector::project(
+            &request,
+            &ProviderCompat::bedrock_defaults(),
+            WireParams {
+                provider: WireProvider::Bedrock,
+                anthropic_version: Some("bedrock-2023-05-31"),
+                include_model_in_body: false,
+                include_stream: false,
+                cache_enabled: false,
+                sanitize_schema: true,
+            },
+        )
+        .expect("request body projection should succeed");
+
+        let schema = &body["tools"][0]["input_schema"];
+        assert_eq!(schema["type"], "object");
+        assert_eq!(
+            schema["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
+        assert!(schema["properties"].as_object().unwrap().is_empty());
+        assert!(schema.get("additionalProperties").is_none());
     }
 
     #[test]
