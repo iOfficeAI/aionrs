@@ -1,0 +1,34 @@
+---
+source: crates/aion-providers/src/bedrock.rs
+expression: p.build_request_body(&r)
+---
+{
+  "anthropic_version": "bedrock-2023-05-31",
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "go",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "system": "You are a test assistant.",
+  "tools": [
+    {
+      "description": "Read",
+      "input_schema": {
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "read"
+    }
+  ]
+}

@@ -4,7 +4,6 @@ use std::time::Duration;
 use reqwest::header::HeaderMap;
 use serde_json::Value;
 
-use super::anthropic_shared::StreamOutcome;
 use crate::error::ProviderError;
 
 /// Retry a fallible async operation with exponential backoff
@@ -107,27 +106,6 @@ pub async fn backoff_sleep(attempt: u32, current_backoff: Duration) -> Duration 
     );
     tokio::time::sleep(current_backoff).await;
     (current_backoff * 2).min(MAX_BACKOFF)
-}
-
-/// Evaluate a `StreamOutcome` within a retry loop. Returns:
-/// - `Ok(None)` — stream succeeded, stop retrying
-/// - `Ok(Some(err))` — non-retryable failure, caller should emit error
-/// - `Err(err)` — retryable failure, caller should continue loop
-pub fn evaluate_outcome(
-    outcome: StreamOutcome,
-    attempt: u32,
-) -> Result<Option<ProviderError>, ProviderError> {
-    match outcome {
-        StreamOutcome::Ok => Ok(None),
-        StreamOutcome::FailedPartial(e) => Ok(Some(e)),
-        StreamOutcome::FailedEmpty(e) => {
-            if attempt == MAX_STREAM_RETRIES {
-                Ok(Some(e))
-            } else {
-                Err(e)
-            }
-        }
-    }
 }
 
 #[cfg(test)]
@@ -243,53 +221,6 @@ mod tests {
             }
         ));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
-    }
-
-    // --- evaluate_outcome tests ---
-
-    #[test]
-    fn test_evaluate_outcome_ok_stops_retry() {
-        let result = evaluate_outcome(StreamOutcome::Ok, 1);
-        assert!(matches!(result, Ok(None)));
-    }
-
-    #[test]
-    fn test_evaluate_outcome_failed_partial_always_stops() {
-        let err = ProviderError::Connection("disconnect".into());
-        let result = evaluate_outcome(StreamOutcome::FailedPartial(err), 1);
-        // FailedPartial means content was already emitted — cannot retry regardless of attempt
-        let Ok(Some(e)) = result else {
-            panic!("expected Ok(Some(err))")
-        };
-        assert!(matches!(e, ProviderError::Connection(_)));
-    }
-
-    #[test]
-    fn test_evaluate_outcome_failed_partial_on_last_attempt() {
-        let err = ProviderError::Connection("disconnect".into());
-        let result = evaluate_outcome(StreamOutcome::FailedPartial(err), MAX_STREAM_RETRIES);
-        let Ok(Some(_)) = result else {
-            panic!("expected Ok(Some(err))")
-        };
-    }
-
-    #[test]
-    fn test_evaluate_outcome_failed_empty_retries_when_not_exhausted() {
-        let err = ProviderError::Connection("disconnect".into());
-        // attempt 1 < MAX_STREAM_RETRIES(2), should signal "continue retrying"
-        let result = evaluate_outcome(StreamOutcome::FailedEmpty(err), 1);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_evaluate_outcome_failed_empty_stops_on_last_attempt() {
-        let err = ProviderError::Connection("disconnect".into());
-        // attempt == MAX_STREAM_RETRIES, should stop and return error
-        let result = evaluate_outcome(StreamOutcome::FailedEmpty(err), MAX_STREAM_RETRIES);
-        let Ok(Some(e)) = result else {
-            panic!("expected Ok(Some(err))")
-        };
-        assert!(matches!(e, ProviderError::Connection(_)));
     }
 
     // --- backoff_sleep tests ---

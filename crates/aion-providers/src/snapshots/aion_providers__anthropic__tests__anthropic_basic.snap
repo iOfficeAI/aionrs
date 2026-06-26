@@ -1,0 +1,21 @@
+---
+source: crates/aion-providers/src/anthropic.rs
+expression: p.build_request_body(&r)
+---
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": [
+        {
+          "text": "Hello",
+          "type": "text"
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "test-model",
+  "stream": true,
+  "system": "You are a test assistant."
+}

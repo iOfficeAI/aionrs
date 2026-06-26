@@ -1478,9 +1478,11 @@ mod tests_set_config {
     #[test]
     fn set_config_all_fields_at_once() {
         let compat = aion_config::compat::ProviderCompat {
-            supports_thinking: Some(true),
-            supports_effort: Some(true),
-            effort_levels: Some(vec!["low".into()]),
+            reasoning: aion_config::compat::ReasoningCompat {
+                supports_thinking: Some(true),
+                supports_effort: Some(true),
+                effort_levels: Some(vec!["low".into()]),
+            },
             ..Default::default()
         };
         let mut engine = make_engine_with_compat("old-model", compat);
@@ -1535,13 +1537,16 @@ mod tests_set_config {
     #[test]
     fn set_config_effort_valid_values() {
         let compat = aion_config::compat::ProviderCompat {
-            supports_effort: Some(true),
-            effort_levels: Some(vec![
-                "low".into(),
-                "medium".into(),
-                "high".into(),
-                "max".into(),
-            ]),
+            reasoning: aion_config::compat::ReasoningCompat {
+                supports_effort: Some(true),
+                effort_levels: Some(vec![
+                    "low".into(),
+                    "medium".into(),
+                    "high".into(),
+                    "max".into(),
+                ]),
+                ..Default::default()
+            },
             ..Default::default()
         };
         for value in ["low", "medium", "high", "max"] {

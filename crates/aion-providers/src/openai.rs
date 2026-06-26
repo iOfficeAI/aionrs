@@ -8,7 +8,9 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
-use crate::anthropic_shared::StreamOutcome;
+use crate::framing::{FrameKind, SseLineFramer};
+use crate::parser::{OpenAiParser, ResponseParser};
+use crate::stream_runner::{RetryPolicy, StreamOutcome, run_stream};
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
@@ -41,7 +43,11 @@ impl OpenAIProvider {
         Ok(headers)
     }
 
-    fn build_messages(messages: &[Message], system: &str, compat: &ProviderCompat) -> Vec<Value> {
+    pub(crate) fn build_messages(
+        messages: &[Message],
+        system: &str,
+        compat: &ProviderCompat,
+    ) -> Vec<Value> {
         let mut result: Vec<Value> = Vec::new();
         let sanitize = compat.sanitize_malformed_tool_calls();
         let auto_tool_id = compat.auto_tool_id();
@@ -326,7 +332,7 @@ impl OpenAIProvider {
         result
     }
 
-    fn build_tools(tools: &[ToolDef]) -> Vec<Value> {
+    pub(crate) fn build_tools(tools: &[ToolDef]) -> Vec<Value> {
         tools
             .iter()
             .map(|t| {
@@ -360,29 +366,7 @@ impl OpenAIProvider {
     }
 
     fn build_request_body(&self, request: &LlmRequest) -> Value {
-        let max_tokens_field = self
-            .compat
-            .max_tokens_field
-            .as_deref()
-            .unwrap_or("max_tokens");
-
-        let mut body = json!({
-            "model": request.model,
-            "messages": Self::build_messages(&request.messages, &request.system, &self.compat),
-            "stream": true,
-            "stream_options": { "include_usage": true }
-        });
-        body[max_tokens_field] = json!(request.max_tokens);
-
-        if !request.tools.is_empty() {
-            body["tools"] = json!(Self::build_tools(&request.tools));
-        }
-
-        if let Some(effort) = &request.reasoning_effort {
-            body["reasoning_effort"] = json!(effort);
-        }
-
-        body
+        crate::projector::OpenAiProjector::project(request, &self.compat)
     }
 }
 
@@ -399,7 +383,7 @@ fn generate_call_id() -> String {
 
 /// Strip configured patterns from text content
 fn strip_patterns_from_text(text: &str, compat: &ProviderCompat) -> String {
-    match &compat.strip_patterns {
+    match &compat.messages.strip_patterns {
         Some(patterns) if !patterns.is_empty() => {
             let mut result = text.to_string();
             for pattern in patterns {
@@ -546,7 +530,7 @@ struct ToolCallAccumulator {
     extra: Option<Value>,
 }
 
-struct StreamState {
+pub(crate) struct StreamState {
     tool_calls: Vec<ToolCallAccumulator>,
     input_tokens: u64,
     output_tokens: u64,
@@ -556,7 +540,7 @@ struct StreamState {
 }
 
 impl StreamState {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             tool_calls: Vec::new(),
             input_tokens: 0,
@@ -570,7 +554,7 @@ impl StreamState {
     /// OpenAI sends usage in a separate trailing chunk (choices:[]) *after* the
     /// chunk that carries `finish_reason`. We defer the Done event until [DONE]
     /// so that token counts are always accurate.
-    fn flush_done(&mut self) -> Option<LlmEvent> {
+    pub(crate) fn flush_done(&mut self) -> Option<LlmEvent> {
         let pending = self.pending_done.take()?;
         Some(match pending {
             LlmEvent::Done { stop_reason, .. } => LlmEvent::Done {
@@ -611,86 +595,53 @@ impl LlmProvider for OpenAIProvider {
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
-        let response = crate::retry::with_initial_connect_retry(|| async {
-            let response = self
-                .client
-                .post(&url)
-                .headers(headers.clone())
-                .json(&body)
-                .send()
-                .await?;
-
-            let status = response.status();
-            if !status.is_success() {
-                let body_text = response.text().await.unwrap_or_default();
-                if status.as_u16() == 429 {
-                    return Err(ProviderError::RateLimited {
-                        retry_after_ms: 5000,
-                    });
-                }
-                return Err(ProviderError::Api {
-                    status: status.as_u16(),
-                    message: body_text,
-                });
-            }
-
-            Ok(response)
-        })
-        .await?;
-
-        let (tx, rx) = mpsc::channel(64);
         let auto_tool_id = self.compat.auto_tool_id();
         let client = self.client.clone();
-        let url_clone = url.clone();
 
-        tokio::spawn(async move {
-            match process_sse_stream(response, &tx, auto_tool_id).await {
-                StreamOutcome::Ok => {}
-                StreamOutcome::FailedPartial(e) => {
-                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
-                }
-                StreamOutcome::FailedEmpty(e) => {
-                    if e.is_retryable() {
-                        let mut backoff = std::time::Duration::from_secs(1);
-                        let mut final_err = Some(e);
-                        for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
-                            backoff = crate::retry::backoff_sleep(attempt, backoff).await;
-                            match crate::retry::send_and_check(&client, &url_clone, &headers, &body)
-                                .await
-                            {
-                                Ok(resp) => {
-                                    let outcome = process_sse_stream(resp, &tx, auto_tool_id).await;
-                                    match crate::retry::evaluate_outcome(outcome, attempt) {
-                                        Ok(None) => {
-                                            final_err = None;
-                                            break;
-                                        }
-                                        Ok(Some(e)) => {
-                                            final_err = Some(e);
-                                            break;
-                                        }
-                                        Err(_) => continue,
-                                    }
-                                }
-                                Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
-                                    final_err = Some(e);
-                                    break;
-                                }
-                                Err(_) => continue,
-                            }
-                        }
-                        if let Some(err) = final_err {
-                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
-                        }
-                    } else {
-                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
-                    }
-                }
-            }
-        });
+        let send = move || {
+            send_openai_stream_request(client.clone(), url.clone(), headers.clone(), body.clone())
+        };
+        let process = move |response, tx| async move {
+            process_sse_stream(response, &tx, auto_tool_id).await
+        };
 
-        Ok(rx)
+        run_stream(
+            send,
+            process,
+            RetryPolicy::new(crate::retry::MAX_STREAM_RETRIES, true, true),
+        )
+        .await
     }
+}
+
+async fn send_openai_stream_request(
+    client: reqwest::Client,
+    url: String,
+    headers: HeaderMap,
+    body: Value,
+) -> Result<reqwest::Response, ProviderError> {
+    let response = client
+        .post(&url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body_text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 429 {
+            return Err(ProviderError::RateLimited {
+                retry_after_ms: 5000,
+            });
+        }
+        return Err(ProviderError::Api {
+            status: status.as_u16(),
+            message: body_text,
+        });
+    }
+
+    Ok(response)
 }
 
 async fn process_sse_stream(
@@ -700,8 +651,9 @@ async fn process_sse_stream(
 ) -> StreamOutcome {
     use futures::StreamExt;
 
-    let mut state = StreamState::new();
-    let mut buffer = String::new();
+    let parser = OpenAiParser { auto_tool_id };
+    let mut state = parser.new_state();
+    let mut framer = SseLineFramer::default();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
 
@@ -718,50 +670,41 @@ async fn process_sse_stream(
             }
         };
         let text = String::from_utf8_lossy(&chunk);
-        buffer.push_str(&text);
-
-        // Process complete lines
-        while let Some(line_end) = buffer.find('\n') {
-            let line = buffer[..line_end].trim().to_string();
-            buffer = buffer[line_end + 1..].to_string();
-
-            if line.is_empty() || line.starts_with(':') {
-                continue;
-            }
-
-            if let Some(data) = line.strip_prefix("data: ") {
-                tracing::debug!(target: "aion_providers", chunk = %data, "sse chunk received");
-                if data == "[DONE]" {
-                    // Flush the deferred Done event now that the final
-                    // usage-only chunk (choices:[]) has updated token counts.
-                    if let Some(done) = state.flush_done() {
-                        let _ = tx.send(done).await;
-                    }
+        for frame in framer.push_text(&text, "[DONE]") {
+            tracing::debug!(target: "aion_providers", chunk = %frame.data, "sse chunk received");
+            let is_done = frame.kind == FrameKind::Done;
+            let events = parser.parse_frame(&frame, &mut state);
+            for event in events {
+                if matches!(
+                    event,
+                    LlmEvent::TextDelta(_) | LlmEvent::ThinkingDelta(_) | LlmEvent::ToolUse { .. }
+                ) {
+                    emitted_content = true;
+                }
+                if tx.send(event).await.is_err() {
                     return StreamOutcome::Ok;
                 }
-
-                let events = parse_sse_chunk(data, &mut state, auto_tool_id);
-                for event in events {
-                    if matches!(
-                        event,
-                        LlmEvent::TextDelta(_)
-                            | LlmEvent::ThinkingDelta(_)
-                            | LlmEvent::ToolUse { .. }
-                    ) {
-                        emitted_content = true;
-                    }
-                    if tx.send(event).await.is_err() {
-                        return StreamOutcome::Ok;
-                    }
-                }
             }
+            if is_done {
+                return StreamOutcome::Ok;
+            }
+        }
+    }
+
+    for event in parser.finish(&mut state) {
+        if tx.send(event).await.is_err() {
+            return StreamOutcome::Ok;
         }
     }
 
     StreamOutcome::Ok
 }
 
-fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
+pub(crate) fn parse_sse_chunk(
+    data: &str,
+    state: &mut StreamState,
+    auto_tool_id: bool,
+) -> Vec<LlmEvent> {
     let mut events = Vec::new();
 
     let json: Value = match serde_json::from_str(data) {
@@ -893,6 +836,7 @@ fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aion_config::compat::TransportCompat;
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -924,7 +868,10 @@ mod tests {
     #[test]
     fn test_max_tokens_field_custom() {
         let compat = ProviderCompat {
-            max_tokens_field: Some("max_completion_tokens".into()),
+            transport: TransportCompat {
+                max_tokens_field: Some("max_completion_tokens".into()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let provider = OpenAIProvider::new("key", "http://localhost", compat);
@@ -1080,7 +1027,7 @@ mod tests {
     #[test]
     fn test_reverse_orphan_tool_result_kept_when_disabled() {
         let mut compat = openai_compat();
-        compat.clean_orphan_tool_results = Some(false);
+        compat.messages.clean_orphan_tool_results = Some(false);
         let messages = vec![Message::new(
             Role::Tool,
             vec![ContentBlock::ToolResult {
@@ -1178,7 +1125,7 @@ mod tests {
     #[test]
     fn test_empty_id_toolcall_downgraded_when_auto_id_disabled() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(false);
+        compat.tools.auto_tool_id = Some(false);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1212,8 +1159,8 @@ mod tests {
     #[test]
     fn test_empty_id_toolcall_generates_id_when_auto_id_enabled() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(true);
-        compat.clean_orphan_tool_calls = Some(false);
+        compat.tools.auto_tool_id = Some(true);
+        compat.tools.clean_orphan_tool_calls = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -1234,7 +1181,7 @@ mod tests {
     #[test]
     fn test_empty_id_toolcall_rewrites_paired_result_when_auto_id_enabled() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1294,7 +1241,7 @@ mod tests {
     #[test]
     fn test_dropped_empty_id_does_not_consume_later_generated_empty_id_result() {
         let mut compat = openai_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1546,7 +1493,7 @@ mod tests {
     #[test]
     fn test_sanitize_disabled_keeps_empty_name() {
         let mut compat = openai_compat();
-        compat.sanitize_malformed_tool_calls = Some(false);
+        compat.tools.sanitize_malformed_tool_calls = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -1906,5 +1853,173 @@ mod tests {
                 "id should remain empty when auto_tool_id is disabled"
             );
         }
+    }
+
+    // --- Golden body snapshots (baseline for compat-split / seam-extraction refactors) ---
+
+    fn golden_provider(compat: ProviderCompat) -> OpenAIProvider {
+        OpenAIProvider::new("test-key", "https://example.test/v1", compat)
+    }
+
+    fn golden_req(messages: Vec<Message>, tools: Vec<ToolDef>) -> LlmRequest {
+        LlmRequest {
+            model: "test-model".to_string(),
+            system: "You are a test assistant.".to_string(),
+            messages,
+            tools,
+            max_tokens: 8192,
+            thinking: None,
+            reasoning_effort: None,
+        }
+    }
+
+    #[test]
+    fn golden_openai_basic() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "Hello".to_string(),
+                }],
+            )],
+            vec![],
+        );
+        let body = provider.build_request_body(&request);
+        insta::assert_json_snapshot!("openai_basic", body);
+    }
+
+    fn sample_tools() -> Vec<ToolDef> {
+        vec![
+            ToolDef {
+                name: "read".to_string(),
+                description: "Read a file".to_string(),
+                input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "list".to_string(),
+                description: "List dir".to_string(),
+                input_schema: json!({"type": "object", "properties": {}}),
+                deferred: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn golden_openai_with_tools() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "go".to_string(),
+                }],
+            )],
+            sample_tools(),
+        );
+        insta::assert_json_snapshot!("openai_with_tools", provider.build_request_body(&request));
+    }
+
+    #[test]
+    fn golden_openai_with_tool_result() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let messages = vec![
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::ToolUse {
+                    id: "call_1".to_string(),
+                    name: "read".to_string(),
+                    input: json!({"path": "a.txt"}),
+                    extra: None,
+                }],
+            ),
+            Message::new(
+                Role::User,
+                vec![ContentBlock::ToolResult {
+                    tool_use_id: "call_1".to_string(),
+                    content: "file contents".to_string(),
+                    is_error: false,
+                }],
+            ),
+        ];
+        insta::assert_json_snapshot!(
+            "openai_with_tool_result",
+            provider.build_request_body(&golden_req(messages, vec![]))
+        );
+    }
+
+    #[test]
+    fn golden_openai_with_thinking() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let messages = vec![
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "q1".to_string(),
+                }],
+            ),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    ContentBlock::Thinking {
+                        thinking: "let me think".to_string(),
+                        signature: None,
+                    },
+                    ContentBlock::Text {
+                        text: "answer".to_string(),
+                    },
+                ],
+            ),
+            Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "q2".to_string(),
+                }],
+            ),
+        ];
+        insta::assert_json_snapshot!(
+            "openai_with_thinking",
+            provider.build_request_body(&golden_req(messages, vec![]))
+        );
+    }
+
+    #[test]
+    fn golden_openai_with_reasoning_effort() {
+        let provider = golden_provider(ProviderCompat::openai_defaults());
+        let mut request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "hi".to_string(),
+                }],
+            )],
+            vec![],
+        );
+        request.reasoning_effort = Some("medium".to_string());
+        insta::assert_json_snapshot!(
+            "openai_with_reasoning_effort",
+            provider.build_request_body(&request)
+        );
+    }
+
+    #[test]
+    fn golden_openai_custom_max_tokens_field() {
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.max_tokens_field = Some("max_completion_tokens".to_string());
+        let provider = golden_provider(compat);
+        let request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "hi".to_string(),
+                }],
+            )],
+            vec![],
+        );
+        insta::assert_json_snapshot!(
+            "openai_custom_max_tokens_field",
+            provider.build_request_body(&request)
+        );
     }
 }

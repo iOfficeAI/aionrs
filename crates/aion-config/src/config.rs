@@ -1050,6 +1050,9 @@ max_sessions = 20                # auto-cleanup oldest
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::compat::{
+        MessageCompat, ReasoningCompat, SchemaCompat, ToolCompat, TransportCompat,
+    };
 
     // -------------------------------------------------------------------------
     // parse_builtin_provider tests
@@ -1704,16 +1707,25 @@ base_url = "https://my-service.example.com/api/openai"
     fn test_merge_provider_configs_compat_merges_both() {
         let base = ProviderConfig {
             compat: Some(ProviderCompat {
-                merge_assistant_messages: Some(true),
-                clean_orphan_tool_calls: Some(true),
+                messages: MessageCompat {
+                    merge_assistant_messages: Some(true),
+                    ..Default::default()
+                },
+                tools: ToolCompat {
+                    clean_orphan_tool_calls: Some(true),
+                    ..Default::default()
+                },
                 ..Default::default()
             }),
             ..Default::default()
         };
         let overlay = ProviderConfig {
             compat: Some(ProviderCompat {
-                merge_assistant_messages: Some(false), // override base
-                dedup_tool_results: Some(true),        // new field
+                messages: MessageCompat {
+                    merge_assistant_messages: Some(false), // override base
+                    dedup_tool_results: Some(true),        // new field
+                    ..Default::default()
+                },
                 ..Default::default()
             }),
             ..Default::default()
@@ -1722,11 +1734,77 @@ base_url = "https://my-service.example.com/api/openai"
         let merged = merge_provider_configs(base, overlay);
         let compat = merged.compat.unwrap();
         // overlay wins
-        assert_eq!(compat.merge_assistant_messages, Some(false));
+        assert_eq!(compat.messages.merge_assistant_messages, Some(false));
         // base preserved
-        assert_eq!(compat.clean_orphan_tool_calls, Some(true));
+        assert_eq!(compat.tools.clean_orphan_tool_calls, Some(true));
         // overlay adds new
-        assert_eq!(compat.dedup_tool_results, Some(true));
+        assert_eq!(compat.messages.dedup_tool_results, Some(true));
+    }
+
+    #[test]
+    fn test_merge_provider_configs_compat_merges_across_domains() {
+        let base = ProviderConfig {
+            compat: Some(ProviderCompat {
+                transport: TransportCompat {
+                    max_tokens_field: Some("max_tokens".to_string()),
+                    ..Default::default()
+                },
+                messages: MessageCompat {
+                    merge_assistant_messages: Some(true),
+                    clean_orphan_tool_results: Some(true),
+                    ..Default::default()
+                },
+                tools: ToolCompat {
+                    auto_tool_id: Some(true),
+                    ..Default::default()
+                },
+                reasoning: ReasoningCompat {
+                    supports_effort: Some(true),
+                    effort_levels: Some(vec!["low".to_string(), "high".to_string()]),
+                    ..Default::default()
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let overlay = ProviderConfig {
+            compat: Some(ProviderCompat {
+                transport: TransportCompat {
+                    api_path: Some("/chat/completions".to_string()),
+                    ..Default::default()
+                },
+                messages: MessageCompat {
+                    merge_assistant_messages: Some(false),
+                    ..Default::default()
+                },
+                schema: SchemaCompat {
+                    sanitize_schema: Some(true),
+                },
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let merged = merge_provider_configs(base, overlay);
+        let compat = merged.compat.unwrap();
+
+        assert_eq!(
+            compat.transport.max_tokens_field.as_deref(),
+            Some("max_tokens")
+        );
+        assert_eq!(
+            compat.transport.api_path.as_deref(),
+            Some("/chat/completions")
+        );
+        assert_eq!(compat.messages.merge_assistant_messages, Some(false));
+        assert_eq!(compat.messages.clean_orphan_tool_results, Some(true));
+        assert_eq!(compat.tools.auto_tool_id, Some(true));
+        assert_eq!(compat.schema.sanitize_schema, Some(true));
+        assert_eq!(compat.reasoning.supports_effort, Some(true));
+        assert_eq!(
+            compat.reasoning.effort_levels,
+            Some(vec!["low".to_string(), "high".to_string()])
+        );
     }
 
     #[test]
@@ -2137,6 +2215,71 @@ max_tool_call_failure_turns = 4
         let config = Config::resolve(&cli_args).unwrap();
         assert_eq!(config.max_tool_call_malformed_turns, Some(0));
         assert_eq!(config.max_tool_call_failure_turns, Some(0));
+    }
+
+    #[test]
+    fn test_config_resolve_loads_flat_provider_compat_after_domain_split() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".aionrs.toml"),
+            r#"
+[default]
+provider = "openai"
+model = "test-model"
+
+[providers.openai]
+api_key = "test-key"
+base_url = "https://example.test/v1"
+
+[providers.openai.compat]
+max_tokens_field = "max_completion_tokens"
+api_path = "/chat/completions"
+merge_assistant_messages = false
+clean_orphan_tool_calls = false
+clean_orphan_tool_results = false
+dedup_tool_results = true
+sanitize_malformed_tool_calls = false
+strip_patterns = ["__REASONING__"]
+auto_tool_id = false
+supports_thinking = true
+supports_effort = true
+effort_levels = ["low", "medium"]
+"#,
+        )
+        .unwrap();
+
+        let cli = CliArgs {
+            provider: None,
+            api_key: None,
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert_eq!(config.compat.max_tokens_field(), "max_completion_tokens");
+        assert_eq!(config.compat.api_path(), "/chat/completions");
+        assert!(!config.compat.merge_assistant_messages());
+        assert!(!config.compat.clean_orphan_tool_calls());
+        assert!(!config.compat.clean_orphan_tool_results());
+        assert!(config.compat.dedup_tool_results());
+        assert!(!config.compat.sanitize_malformed_tool_calls());
+        assert!(!config.compat.auto_tool_id());
+        assert!(config.compat.supports_thinking());
+        assert!(config.compat.supports_effort());
+        assert_eq!(config.compat.effort_levels(), &["low", "medium"]);
+        assert_eq!(
+            config.compat.messages.strip_patterns,
+            Some(vec!["__REASONING__".to_string()])
+        );
     }
 
     #[test]

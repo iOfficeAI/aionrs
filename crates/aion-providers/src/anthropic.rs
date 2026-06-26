@@ -1,11 +1,13 @@
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::mpsc;
 
-use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
+use aion_types::llm::{LlmEvent, LlmRequest};
 
 use super::anthropic_shared;
+use crate::projector::{AnthropicWireProjector, WireParams};
+use crate::stream_runner::{RetryPolicy, run_stream};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
 
@@ -50,43 +52,48 @@ impl AnthropicProvider {
     }
 
     fn build_request_body(&self, request: &LlmRequest) -> Value {
-        // Build system prompt with optional cache_control
-        let system = if self.cache_enabled {
-            json!([{
-                "type": "text",
-                "text": &request.system,
-                "cache_control": { "type": "ephemeral" }
-            }])
-        } else {
-            json!(&request.system)
-        };
+        AnthropicWireProjector::project(
+            request,
+            &self.compat,
+            WireParams {
+                anthropic_version: None,
+                include_model_in_body: true,
+                include_stream: true,
+                cache_enabled: self.cache_enabled,
+                sanitize_schema: false,
+            },
+        )
+    }
+}
 
-        let mut body = json!({
-            "model": request.model,
-            "max_tokens": request.max_tokens,
-            "system": system,
-            "messages": anthropic_shared::build_messages(&request.messages, &self.compat),
-            "stream": true
-        });
+async fn send_anthropic_stream_request(
+    client: reqwest::Client,
+    url: String,
+    headers: HeaderMap,
+    body: Value,
+) -> Result<reqwest::Response, ProviderError> {
+    let response = client
+        .post(&url)
+        .headers(headers)
+        .json(&body)
+        .send()
+        .await?;
 
-        if !request.tools.is_empty() {
-            let mut tools = anthropic_shared::build_tools(&request.tools);
-            // Mark last tool with cache_control to cache the entire tools block
-            if let Some(last) = tools.last_mut().filter(|_| self.cache_enabled) {
-                last["cache_control"] = json!({ "type": "ephemeral" });
-            }
-            body["tools"] = json!(tools);
-        }
-
-        if let Some(ThinkingConfig::Enabled { budget_tokens }) = &request.thinking {
-            body["thinking"] = json!({
-                "type": "enabled",
-                "budget_tokens": budget_tokens
+    let status = response.status();
+    if !status.is_success() {
+        let body_text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 429 {
+            return Err(ProviderError::RateLimited {
+                retry_after_ms: 5000,
             });
         }
-
-        body
+        return Err(ProviderError::Api {
+            status: status.as_u16(),
+            message: body_text,
+        });
     }
+
+    Ok(response)
 }
 
 #[async_trait]
@@ -100,80 +107,145 @@ impl LlmProvider for AnthropicProvider {
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
-        let response = self
-            .client
-            .post(&url)
-            .headers(self.build_headers()?)
-            .json(&body)
-            .send()
-            .await?;
-
-        let status = response.status();
-        if !status.is_success() {
-            let body_text = response.text().await.unwrap_or_default();
-            if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 5000,
-                });
-            }
-            return Err(ProviderError::Api {
-                status: status.as_u16(),
-                message: body_text,
-            });
-        }
-
-        let (tx, rx) = mpsc::channel(64);
         let client = self.client.clone();
         let headers = self.build_headers()?;
-        let url_clone = url.clone();
-
-        tokio::spawn(async move {
-            match anthropic_shared::process_sse_stream(response, &tx).await {
-                anthropic_shared::StreamOutcome::Ok => {}
-                anthropic_shared::StreamOutcome::FailedPartial(e) => {
-                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
-                }
-                anthropic_shared::StreamOutcome::FailedEmpty(e) => {
-                    if e.is_retryable() {
-                        let mut backoff = std::time::Duration::from_secs(1);
-                        let mut final_err = Some(e);
-                        for attempt in 1..=crate::retry::MAX_STREAM_RETRIES {
-                            backoff = crate::retry::backoff_sleep(attempt, backoff).await;
-                            match crate::retry::send_and_check(&client, &url_clone, &headers, &body)
-                                .await
-                            {
-                                Ok(resp) => {
-                                    let outcome =
-                                        anthropic_shared::process_sse_stream(resp, &tx).await;
-                                    match crate::retry::evaluate_outcome(outcome, attempt) {
-                                        Ok(None) => {
-                                            final_err = None;
-                                            break;
-                                        }
-                                        Ok(Some(e)) => {
-                                            final_err = Some(e);
-                                            break;
-                                        }
-                                        Err(_) => continue,
-                                    }
-                                }
-                                Err(e) if attempt == crate::retry::MAX_STREAM_RETRIES => {
-                                    final_err = Some(e);
-                                    break;
-                                }
-                                Err(_) => continue,
-                            }
-                        }
-                        if let Some(err) = final_err {
-                            let _ = tx.send(LlmEvent::Error(err.to_string())).await;
-                        }
-                    } else {
-                        let _ = tx.send(LlmEvent::Error(e.to_string())).await;
-                    }
-                }
+        let send = {
+            let url = url.clone();
+            let body = body.clone();
+            move || {
+                let client = client.clone();
+                let url = url.clone();
+                let headers = headers.clone();
+                let body = body.clone();
+                async move { send_anthropic_stream_request(client, url, headers, body).await }
             }
-        });
+        };
+        let process = move |response, tx| async move {
+            anthropic_shared::process_sse_stream(response, &tx).await
+        };
 
-        Ok(rx)
+        run_stream(
+            send,
+            process,
+            RetryPolicy::new(crate::retry::MAX_STREAM_RETRIES, false, true),
+        )
+        .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aion_types::llm::ThinkingConfig;
+    use aion_types::message::{ContentBlock, Message, Role};
+    use aion_types::tool::ToolDef;
+    use serde_json::json;
+
+    fn anthropic_golden(cache: bool) -> AnthropicProvider {
+        AnthropicProvider::new(
+            "test-key",
+            "https://example.test",
+            ProviderCompat::anthropic_defaults(),
+        )
+        .with_cache(cache)
+    }
+
+    fn areq(
+        messages: Vec<Message>,
+        tools: Vec<ToolDef>,
+        thinking: Option<ThinkingConfig>,
+    ) -> LlmRequest {
+        LlmRequest {
+            model: "test-model".to_string(),
+            system: "You are a test assistant.".to_string(),
+            messages,
+            tools,
+            max_tokens: 8192,
+            thinking,
+            reasoning_effort: None,
+        }
+    }
+
+    fn atools() -> Vec<ToolDef> {
+        vec![
+            ToolDef {
+                name: "read".to_string(),
+                description: "Read".to_string(),
+                input_schema: json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "list".to_string(),
+                description: "List".to_string(),
+                input_schema: json!({"type":"object","properties":{}}),
+                deferred: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn golden_anthropic_basic() {
+        let p = anthropic_golden(false);
+        let r = areq(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "Hello".to_string(),
+                }],
+            )],
+            vec![],
+            None,
+        );
+        insta::assert_json_snapshot!("anthropic_basic", p.build_request_body(&r));
+    }
+
+    #[test]
+    fn golden_anthropic_with_tools_no_cache() {
+        let p = anthropic_golden(false);
+        let r = areq(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "go".to_string(),
+                }],
+            )],
+            atools(),
+            None,
+        );
+        insta::assert_json_snapshot!("anthropic_with_tools_no_cache", p.build_request_body(&r));
+    }
+
+    #[test]
+    fn golden_anthropic_with_cache() {
+        let p = anthropic_golden(true);
+        let r = areq(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "go".to_string(),
+                }],
+            )],
+            atools(),
+            None,
+        );
+        insta::assert_json_snapshot!("anthropic_with_cache", p.build_request_body(&r));
+    }
+
+    #[test]
+    fn golden_anthropic_with_thinking() {
+        let p = anthropic_golden(false);
+        let r = areq(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "q".to_string(),
+                }],
+            )],
+            vec![],
+            Some(ThinkingConfig::Enabled {
+                budget_tokens: 4096,
+            }),
+        );
+        insta::assert_json_snapshot!("anthropic_with_thinking", p.build_request_body(&r));
     }
 }

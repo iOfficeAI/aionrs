@@ -198,7 +198,7 @@ async fn test_public_projection_downgrades_empty_id_when_auto_id_disabled() {
         .await;
 
     let mut compat = ProviderCompat::openai_defaults();
-    compat.auto_tool_id = Some(false);
+    compat.tools.auto_tool_id = Some(false);
     let provider = OpenAIProvider::new("test-key", &server.uri(), compat);
     let rx = provider.stream(&request).await.unwrap();
     let _ = collect_events(rx).await;
