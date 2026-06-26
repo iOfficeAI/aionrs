@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.34](https://github.com/iOfficeAI/aionrs/compare/v0.1.33...v0.1.34) (2026-06-26)
+
+
+### Bug Fixes
+
+* **providers:** add OpenAI field policy controls ([bce81bb](https://github.com/iOfficeAI/aionrs/commit/bce81bb2cd578d84a89bba50c5de5ee0523a9b42))
+* **providers:** add projection preflight limits ([270dc4c](https://github.com/iOfficeAI/aionrs/commit/270dc4c43c03a9e2103efa97839b7423a99ffe96))
+* **providers:** add tool wire shape controls ([eeded83](https://github.com/iOfficeAI/aionrs/commit/eeded838183c2e3dff59f761cd3731f6a60e8586))
+* **providers:** legalize tool schemas ([c6d637c](https://github.com/iOfficeAI/aionrs/commit/c6d637ce51d21c3ce0e8019a4a77d5005c8f3e90))
+* **providers:** stop empty reasoning replay ([6e91780](https://github.com/iOfficeAI/aionrs/commit/6e91780bf8372ccce1a63fe7b8a1bb6bec3950cf))
+* **shell:** use runner for hooks and skills ([6c418fd](https://github.com/iOfficeAI/aionrs/commit/6c418fd175528b9f2c6bdf1e71cb1a6f76d90d38))
+
 ## [0.1.33](https://github.com/iOfficeAI/aionrs/compare/v0.1.32...v0.1.33) (2026-06-24)
 
 
