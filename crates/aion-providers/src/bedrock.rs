@@ -283,6 +283,7 @@ async fn process_aws_event_stream(
     let mut buffer = Vec::new();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
+    let mut emitted_done = false;
 
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
@@ -319,6 +320,9 @@ async fn process_aws_event_stream(
                     ) {
                         emitted_content = true;
                     }
+                    if matches!(event, LlmEvent::Done { .. }) {
+                        emitted_done = true;
+                    }
                     if tx.send(event).await.is_err() {
                         return StreamOutcome::Ok;
                     }
@@ -328,7 +332,7 @@ async fn process_aws_event_stream(
     }
 
     // If we haven't sent a Done event, send one now
-    if state.input_tokens > 0 || state.output_tokens > 0 {
+    if !emitted_done && (state.input_tokens > 0 || state.output_tokens > 0) {
         let _ = tx
             .send(LlmEvent::Done {
                 stop_reason: StopReason::EndTurn,
@@ -443,7 +447,10 @@ mod tests {
     use super::*;
     use aion_types::message::{ContentBlock, Message, Role};
     use aion_types::tool::ToolDef;
+    use base64::Engine as _;
     use serde_json::json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // --- Golden body snapshots (baseline for compat-split / seam-extraction refactors) ---
 
@@ -485,6 +492,46 @@ mod tests {
         }]
     }
 
+    fn aws_event_message(payload: &[u8]) -> Vec<u8> {
+        let total_len = 12 + payload.len() + 4;
+        let mut message = Vec::with_capacity(total_len);
+        message.extend_from_slice(&(total_len as u32).to_be_bytes());
+        message.extend_from_slice(&0u32.to_be_bytes());
+        message.extend_from_slice(&0u32.to_be_bytes());
+        message.extend_from_slice(payload);
+        message.extend_from_slice(&0u32.to_be_bytes());
+        message
+    }
+
+    fn bedrock_event_payload(inner: &str) -> Vec<u8> {
+        json!({
+            "bytes": base64::engine::general_purpose::STANDARD.encode(inner)
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    async fn mock_response(body: Vec<u8>) -> reqwest::Response {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/stream"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
+            .mount(&server)
+            .await;
+
+        reqwest::get(format!("{}/stream", server.uri()))
+            .await
+            .expect("mock response should be available")
+    }
+
+    async fn collect_events(mut rx: mpsc::Receiver<LlmEvent>) -> Vec<LlmEvent> {
+        let mut events = Vec::new();
+        while let Some(event) = rx.recv().await {
+            events.push(event);
+        }
+        events
+    }
+
     #[test]
     fn golden_bedrock_basic() {
         let p = bedrock_test_provider();
@@ -513,5 +560,66 @@ mod tests {
             bedrock_tools(),
         );
         insta::assert_json_snapshot!("bedrock_with_tools", p.build_request_body(&r));
+    }
+
+    #[tokio::test]
+    async fn bedrock_event_stream_decodes_payloads_into_llm_events() {
+        let mut body = Vec::new();
+        for inner in [
+            r#"{"type":"message_start","message":{"usage":{"input_tokens":12}}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
+            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}"#,
+        ] {
+            body.extend(aws_event_message(&bedrock_event_payload(inner)));
+        }
+
+        let response = mock_response(body).await;
+        let (tx, rx) = mpsc::channel(8);
+
+        let outcome = process_aws_event_stream(response, &tx).await;
+        drop(tx);
+        let events = collect_events(rx).await;
+
+        assert!(matches!(outcome, StreamOutcome::Ok));
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], LlmEvent::TextDelta(text) if text == "Hello"));
+        match &events[1] {
+            LlmEvent::Done { stop_reason, usage } => {
+                assert_eq!(*stop_reason, StopReason::EndTurn);
+                assert_eq!(usage.input_tokens, 12);
+                assert_eq!(usage.output_tokens, 7);
+            }
+            event => panic!("expected Done event, got {event:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn bedrock_event_stream_synthesizes_done_when_message_delta_is_missing() {
+        let mut body = Vec::new();
+        for inner in [
+            r#"{"type":"message_start","message":{"usage":{"input_tokens":12}}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
+        ] {
+            body.extend(aws_event_message(&bedrock_event_payload(inner)));
+        }
+
+        let response = mock_response(body).await;
+        let (tx, rx) = mpsc::channel(8);
+
+        let outcome = process_aws_event_stream(response, &tx).await;
+        drop(tx);
+        let events = collect_events(rx).await;
+
+        assert!(matches!(outcome, StreamOutcome::Ok));
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[0], LlmEvent::TextDelta(text) if text == "Hello"));
+        match &events[1] {
+            LlmEvent::Done { stop_reason, usage } => {
+                assert_eq!(*stop_reason, StopReason::EndTurn);
+                assert_eq!(usage.input_tokens, 12);
+                assert_eq!(usage.output_tokens, 0);
+            }
+            event => panic!("expected synthesized Done event, got {event:?}"),
+        }
     }
 }
