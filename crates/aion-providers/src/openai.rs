@@ -61,16 +61,6 @@ impl OpenAIProvider {
         let mut available_tool_call_ids: HashSet<String> = HashSet::new();
         let mut generated_tool_call_ids: HashMap<String, VecDeque<String>> = HashMap::new();
 
-        // Check if any assistant message in the conversation has thinking content.
-        // If so, DeepSeek API requires ALL assistant messages to include
-        // reasoning_content (even if empty string).
-        let has_any_thinking = messages.iter().any(|m| {
-            m.role == Role::Assistant
-                && m.content
-                    .iter()
-                    .any(|b| matches!(b, ContentBlock::Thinking { .. }))
-        });
-
         // System message first
         if !system.is_empty() {
             result.push(json!({
@@ -147,10 +137,9 @@ impl OpenAIProvider {
                 Role::Assistant => {
                     let mut msg_json = json!({ "role": "assistant" });
 
-                    // Preserve reasoning_content for models with thinking mode
-                    // (e.g. DeepSeek Reasoner, Kimi K2.5). The API requires
-                    // ALL assistant messages to include reasoning_content once
-                    // any message in the conversation has it.
+                    // Preserve only reasoning content that belongs to this
+                    // assistant message. Provider-specific blanket replay
+                    // policy must remain an explicit compat decision.
                     let thinking: String = msg
                         .content
                         .iter()
@@ -164,7 +153,7 @@ impl OpenAIProvider {
                         .collect::<Vec<_>>()
                         .join("");
 
-                    if has_any_thinking {
+                    if !thinking.is_empty() {
                         msg_json["reasoning_content"] = json!(thinking);
                     }
 
@@ -471,6 +460,8 @@ fn merge_consecutive_assistant(messages: &mut Vec<Value>) {
 
             if !merged_rc.is_empty() {
                 messages[i]["reasoning_content"] = json!(merged_rc);
+            } else if let Some(obj) = messages[i].as_object_mut() {
+                obj.remove("reasoning_content");
             }
 
             // Merge tool_calls
@@ -958,6 +949,66 @@ mod tests {
         let result = OpenAIProvider::build_messages(&messages, "", &no_compat());
         let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
         assert_eq!(assistant_msgs.len(), 2);
+    }
+
+    #[test]
+    fn test_reasoning_content_projects_only_message_thinking() {
+        let messages = vec![
+            Message::new(Role::User, vec![ContentBlock::Text { text: "q1".into() }]),
+            Message::new(
+                Role::Assistant,
+                vec![
+                    ContentBlock::Thinking {
+                        thinking: "private chain".into(),
+                        signature: None,
+                    },
+                    ContentBlock::Text {
+                        text: "first answer".into(),
+                    },
+                ],
+            ),
+            Message::new(Role::User, vec![ContentBlock::Text { text: "q2".into() }]),
+            Message::new(
+                Role::Assistant,
+                vec![ContentBlock::Text {
+                    text: "second answer".into(),
+                }],
+            ),
+        ];
+
+        let result = OpenAIProvider::build_messages(&messages, "", &openai_compat());
+        let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
+
+        assert_eq!(assistant_msgs.len(), 2);
+        assert_eq!(assistant_msgs[0]["reasoning_content"], "private chain");
+        assert!(
+            assistant_msgs[1].get("reasoning_content").is_none(),
+            "assistant messages without Thinking blocks must not receive empty reasoning_content"
+        );
+    }
+
+    #[test]
+    fn test_reasoning_content_merge_drops_empty_replay_values() {
+        let mut messages = vec![
+            json!({
+                "role": "assistant",
+                "content": "first",
+                "reasoning_content": ""
+            }),
+            json!({
+                "role": "assistant",
+                "content": " second"
+            }),
+        ];
+
+        merge_consecutive_assistant(&mut messages);
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["content"], "first second");
+        assert!(
+            messages[0].get("reasoning_content").is_none(),
+            "merged assistant message should not retain an empty reasoning_content field"
+        );
     }
 
     // --- clean_orphan_tool_calls ---
