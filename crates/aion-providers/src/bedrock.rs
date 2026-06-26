@@ -18,7 +18,8 @@ use aion_types::message::{StopReason, TokenUsage};
 use crate::framing::bedrock_payload_to_frame;
 use crate::parser::ResponseParser;
 use crate::projector::{
-    AnthropicWireProjector, WireParams, WireProvider, projection_to_provider_error,
+    AnthropicWireProjector, WireParams, WireProvider, classify_tools_wire_shape_mismatch,
+    projection_to_provider_error,
 };
 use crate::stream_runner::StreamOutcome;
 use crate::{LlmProvider, ProviderError};
@@ -221,6 +222,7 @@ impl LlmProvider for BedrockProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request)?;
+        let tool_wire_shape = AnthropicWireProjector::resolved_tool_wire_shape(&self.compat);
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
@@ -249,6 +251,14 @@ impl LlmProvider for BedrockProvider {
             if status.as_u16() == 429 {
                 return Err(ProviderError::RateLimited {
                     retry_after_ms: 5000,
+                });
+            }
+            if let Some(message) =
+                classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape)
+            {
+                return Err(ProviderError::Api {
+                    status: status.as_u16(),
+                    message,
                 });
             }
             let message = format_bedrock_error(status.as_u16(), &body_text);

@@ -8,6 +8,8 @@ use aion_providers::anthropic::AnthropicProvider;
 use aion_providers::{LlmProvider, ProviderError};
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, Message, Role, StopReason};
+use aion_types::tool::ToolDef;
+use serde_json::{Value, json};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -28,6 +30,23 @@ fn minimal_request() -> LlmRequest {
         thinking: None,
         reasoning_effort: None,
     }
+}
+
+fn minimal_request_with_tool() -> LlmRequest {
+    let mut request = minimal_request();
+    request.tools = vec![ToolDef {
+        name: "read".to_string(),
+        description: "Read a file".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" }
+            },
+            "required": ["path"]
+        }),
+        deferred: false,
+    }];
+    request
 }
 
 /// Build a complete SSE body for a simple text response.
@@ -319,6 +338,46 @@ async fn test_anthropic_auth_error() {
         }
         Err(other) => panic!("expected Api error, got: {other:?}"),
         Ok(_) => panic!("expected an error but stream succeeded"),
+    }
+}
+
+#[tokio::test]
+async fn test_aio_140_anthropic_tools_wire_shape_mismatch_error_is_readable_and_not_retried() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(400).set_body_string(
+            r#"{"error":{"message":"Missing required parameter: body.tools[0].function"}}"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider = AnthropicProvider::new(
+        "test-api-key",
+        &server.uri(),
+        ProviderCompat::anthropic_defaults(),
+    )
+    .with_cache(false);
+    let result = provider.stream(&minimal_request_with_tool()).await;
+
+    server.verify().await;
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1, "mismatch errors must not be retried");
+    let body: Value = received[0].body_json().unwrap();
+    assert!(
+        body["tools"][0].get("input_schema").is_some(),
+        "Anthropic native request should keep input_schema tools"
+    );
+
+    match result.unwrap_err() {
+        ProviderError::Api { status, message } => {
+            assert_eq!(status, 400);
+            assert!(message.contains("tools wire shape mismatch"));
+            assert!(message.contains("anthropic_input_schema"));
+        }
+        other => panic!("expected Api error, got: {other:?}"),
     }
 }
 
