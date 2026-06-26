@@ -17,7 +17,9 @@ use aion_types::message::{StopReason, TokenUsage};
 
 use crate::framing::bedrock_payload_to_frame;
 use crate::parser::ResponseParser;
-use crate::projector::{AnthropicWireProjector, WireParams};
+use crate::projector::{
+    AnthropicWireProjector, WireParams, WireProvider, projection_to_provider_error,
+};
 use crate::stream_runner::StreamOutcome;
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
@@ -57,11 +59,12 @@ impl BedrockProvider {
         }
     }
 
-    fn build_request_body(&self, request: &LlmRequest) -> Value {
+    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
         AnthropicWireProjector::project(
             request,
             &self.compat,
             WireParams {
+                provider: WireProvider::Bedrock,
                 anthropic_version: Some("bedrock-2023-05-31"),
                 include_model_in_body: false,
                 include_stream: false,
@@ -69,6 +72,7 @@ impl BedrockProvider {
                 sanitize_schema: self.compat.sanitize_schema(),
             },
         )
+        .map_err(projection_to_provider_error)
     }
 
     fn build_url(&self, model: &str) -> String {
@@ -216,7 +220,7 @@ impl LlmProvider for BedrockProvider {
         request: &LlmRequest,
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = self.build_url(&request.model);
-        let body = self.build_request_body(request);
+        let body = self.build_request_body(request)?;
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
@@ -544,7 +548,11 @@ mod tests {
             )],
             vec![],
         );
-        insta::assert_json_snapshot!("bedrock_basic", p.build_request_body(&r));
+        insta::assert_json_snapshot!(
+            "bedrock_basic",
+            p.build_request_body(&r)
+                .expect("request body projection should succeed")
+        );
     }
 
     #[test]
@@ -559,7 +567,11 @@ mod tests {
             )],
             bedrock_tools(),
         );
-        insta::assert_json_snapshot!("bedrock_with_tools", p.build_request_body(&r));
+        insta::assert_json_snapshot!(
+            "bedrock_with_tools",
+            p.build_request_body(&r)
+                .expect("request body projection should succeed")
+        );
     }
 
     #[tokio::test]
