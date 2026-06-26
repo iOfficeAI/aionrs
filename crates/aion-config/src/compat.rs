@@ -33,6 +33,10 @@ pub struct TransportCompat {
     /// Maximum serialized provider request body size in bytes.
     /// Default: None (no local preflight limit).
     pub max_request_body_bytes: Option<usize>,
+
+    /// Whether OpenAI-compatible requests include stream_options.
+    /// Default: true for OpenAI-compatible providers.
+    pub include_stream_options: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -79,6 +83,10 @@ pub struct ToolCompat {
     /// Maximum number of tools allowed in the projected provider request.
     /// Default: None (no local preflight limit).
     pub max_tool_count: Option<usize>,
+
+    /// Whether OpenAI-compatible requests include outgoing tools.
+    /// Default: true for OpenAI-compatible providers.
+    pub emit_tools: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -111,6 +119,9 @@ impl TransportCompat {
             max_request_body_bytes: user
                 .max_request_body_bytes
                 .or(defaults.max_request_body_bytes),
+            include_stream_options: user
+                .include_stream_options
+                .or(defaults.include_stream_options),
         }
     }
 }
@@ -143,6 +154,7 @@ impl ToolCompat {
                 .or(defaults.sanitize_malformed_tool_calls),
             auto_tool_id: user.auto_tool_id.or(defaults.auto_tool_id),
             max_tool_count: user.max_tool_count.or(defaults.max_tool_count),
+            emit_tools: user.emit_tools.or(defaults.emit_tools),
         }
     }
 }
@@ -220,6 +232,7 @@ impl ProviderCompat {
         Self {
             transport: TransportCompat {
                 max_tokens_field: Some("max_tokens".into()),
+                include_stream_options: Some(true),
                 ..Default::default()
             },
             messages: MessageCompat {
@@ -232,6 +245,7 @@ impl ProviderCompat {
                 clean_orphan_tool_calls: Some(true),
                 sanitize_malformed_tool_calls: Some(true),
                 auto_tool_id: Some(true),
+                emit_tools: Some(true),
                 ..Default::default()
             },
             reasoning: ReasoningCompat {
@@ -269,6 +283,14 @@ impl ProviderCompat {
 
     pub fn max_tool_count(&self) -> Option<usize> {
         self.tools.max_tool_count
+    }
+
+    pub fn include_stream_options(&self) -> bool {
+        self.transport.include_stream_options.unwrap_or(true)
+    }
+
+    pub fn emit_tools(&self) -> bool {
+        self.tools.emit_tools.unwrap_or(true)
     }
 
     pub fn merge_assistant_messages(&self) -> bool {
@@ -393,12 +415,14 @@ mod tests {
 max_tokens_field = "max_completion_tokens"
 api_path = "/chat/completions"
 max_request_body_bytes = 1048576
+include_stream_options = false
 merge_assistant_messages = true
 clean_orphan_tool_results = false
 dedup_tool_results = true
 clean_orphan_tool_calls = true
 sanitize_malformed_tool_calls = false
 max_tool_count = 512
+emit_tools = false
 ensure_alternation = true
 merge_same_role = true
 sanitize_schema = true
@@ -420,6 +444,8 @@ effort_levels = ["low", "medium"]
             Some("/chat/completions")
         );
         assert_eq!(compat.max_request_body_bytes(), Some(1_048_576));
+        assert_eq!(compat.transport.include_stream_options, Some(false));
+        assert!(!compat.include_stream_options());
         assert_eq!(compat.messages.merge_assistant_messages, Some(true));
         assert_eq!(compat.messages.clean_orphan_tool_results, Some(false));
         assert_eq!(compat.messages.dedup_tool_results, Some(true));
@@ -433,6 +459,8 @@ effort_levels = ["low", "medium"]
         assert_eq!(compat.tools.sanitize_malformed_tool_calls, Some(false));
         assert_eq!(compat.tools.auto_tool_id, Some(true));
         assert_eq!(compat.max_tool_count(), Some(512));
+        assert_eq!(compat.tools.emit_tools, Some(false));
+        assert!(!compat.emit_tools());
         assert_eq!(compat.schema.sanitize_schema, Some(true));
         assert_eq!(compat.reasoning.supports_thinking, Some(true));
         assert_eq!(compat.reasoning.supports_effort, Some(false));
@@ -449,6 +477,7 @@ effort_levels = ["low", "medium"]
                 max_tokens_field: Some("max_completion_tokens".to_string()),
                 api_path: Some("/chat/completions".to_string()),
                 max_request_body_bytes: Some(1_048_576),
+                include_stream_options: Some(false),
             },
             messages: MessageCompat {
                 merge_assistant_messages: Some(true),
@@ -463,6 +492,7 @@ effort_levels = ["low", "medium"]
                 sanitize_malformed_tool_calls: Some(false),
                 auto_tool_id: Some(true),
                 max_tool_count: Some(512),
+                emit_tools: Some(false),
             },
             schema: SchemaCompat {
                 sanitize_schema: Some(true),
@@ -479,12 +509,14 @@ effort_levels = ["low", "medium"]
         assert!(toml.contains("max_tokens_field = \"max_completion_tokens\""));
         assert!(toml.contains("api_path = \"/chat/completions\""));
         assert!(toml.contains("max_request_body_bytes = 1048576"));
+        assert!(toml.contains("include_stream_options = false"));
         assert!(toml.contains("merge_assistant_messages = true"));
         assert!(toml.contains("clean_orphan_tool_results = false"));
         assert!(toml.contains("dedup_tool_results = true"));
         assert!(toml.contains("clean_orphan_tool_calls = true"));
         assert!(toml.contains("sanitize_malformed_tool_calls = false"));
         assert!(toml.contains("max_tool_count = 512"));
+        assert!(toml.contains("emit_tools = false"));
         assert!(toml.contains("ensure_alternation = true"));
         assert!(toml.contains("merge_same_role = true"));
         assert!(toml.contains("sanitize_schema = true"));
@@ -508,6 +540,7 @@ effort_levels = ["low", "medium"]
                 max_tokens_field: Some("max_completion_tokens".to_string()),
                 api_path: Some("/chat/completions".to_string()),
                 max_request_body_bytes: Some(2_048),
+                include_stream_options: None,
             },
             messages: MessageCompat {
                 merge_assistant_messages: Some(false),
@@ -522,6 +555,7 @@ effort_levels = ["low", "medium"]
                 sanitize_malformed_tool_calls: Some(false),
                 auto_tool_id: Some(false),
                 max_tool_count: Some(42),
+                emit_tools: None,
             },
             schema: SchemaCompat {
                 sanitize_schema: Some(true),
@@ -544,12 +578,14 @@ effort_levels = ["low", "medium"]
             Some("/chat/completions")
         );
         assert_eq!(merged.max_request_body_bytes(), Some(2_048));
+        assert!(merged.include_stream_options());
         assert!(!merged.merge_assistant_messages());
         assert!(!merged.clean_orphan_tool_calls());
         assert!(!merged.clean_orphan_tool_results());
         assert!(merged.dedup_tool_results());
         assert!(!merged.sanitize_malformed_tool_calls());
         assert_eq!(merged.max_tool_count(), Some(42));
+        assert!(merged.emit_tools());
         assert!(merged.sanitize_schema());
         assert!(!merged.auto_tool_id());
         assert!(merged.supports_thinking());
@@ -616,6 +652,57 @@ effort_levels = ["low", "medium"]
             Some("max_tokens")
         );
         assert!(!compat.ensure_alternation());
+        assert_eq!(compat.transport.include_stream_options, Some(true));
+        assert_eq!(compat.tools.emit_tools, Some(true));
+        assert!(compat.include_stream_options());
+        assert!(compat.emit_tools());
+    }
+
+    #[test]
+    fn test_openai_field_controls_parse_flattened_compat() {
+        let toml_str = r#"
+include_stream_options = false
+emit_tools = false
+supports_effort = false
+"#;
+
+        let compat: ProviderCompat = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(compat.transport.include_stream_options, Some(false));
+        assert_eq!(compat.tools.emit_tools, Some(false));
+        assert_eq!(compat.reasoning.supports_effort, Some(false));
+        assert!(!compat.include_stream_options());
+        assert!(!compat.emit_tools());
+        assert!(!compat.supports_effort());
+    }
+
+    #[test]
+    fn test_openai_field_controls_merge_user_overrides_defaults() {
+        let defaults = ProviderCompat::openai_defaults();
+        let user = ProviderCompat {
+            transport: TransportCompat {
+                include_stream_options: Some(false),
+                ..Default::default()
+            },
+            tools: ToolCompat {
+                emit_tools: Some(false),
+                ..Default::default()
+            },
+            reasoning: ReasoningCompat {
+                supports_effort: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let merged = ProviderCompat::merge(defaults, user);
+
+        assert_eq!(merged.transport.include_stream_options, Some(false));
+        assert_eq!(merged.tools.emit_tools, Some(false));
+        assert_eq!(merged.reasoning.supports_effort, Some(false));
+        assert!(!merged.include_stream_options());
+        assert!(!merged.emit_tools());
+        assert!(!merged.supports_effort());
     }
 
     #[test]

@@ -2075,4 +2075,30 @@ mod tests {
                 .expect("request body projection should succeed")
         );
     }
+
+    #[test]
+    fn golden_openai_field_controls_disabled() {
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.include_stream_options = Some(false);
+        compat.tools.emit_tools = Some(false);
+        compat.reasoning.supports_effort = Some(false);
+        let provider = golden_provider(compat);
+        let mut request = golden_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "hi".to_string(),
+                }],
+            )],
+            sample_tools(),
+        );
+        request.reasoning_effort = Some("medium".to_string());
+
+        insta::assert_json_snapshot!(
+            "openai_field_controls_disabled",
+            provider
+                .build_request_body(&request)
+                .expect("request body projection should succeed")
+        );
+    }
 }

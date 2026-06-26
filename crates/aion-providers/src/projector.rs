@@ -152,20 +152,35 @@ impl OpenAiProjector {
                 &request.system,
                 compat,
             ),
-            "stream": true,
-            "stream_options": { "include_usage": true }
+            "stream": true
         });
         body[max_tokens_field] = json!(request.max_tokens);
 
+        if compat.include_stream_options() {
+            body["stream_options"] = json!({ "include_usage": true });
+        }
+
         let mut tool_count = 0;
-        if !request.tools.is_empty() {
+        if !request.tools.is_empty() && compat.emit_tools() {
             let tools = OpenAIProvider::build_tools(&request.tools);
             tool_count = tools.len();
             body["tools"] = json!(tools);
+        } else if !request.tools.is_empty() {
+            tracing::warn!(
+                target: "aion_providers",
+                "OpenAI-compatible outgoing tools omitted because compat.emit_tools is disabled"
+            );
         }
 
         if let Some(effort) = &request.reasoning_effort {
-            body["reasoning_effort"] = json!(effort);
+            if compat.supports_effort() {
+                body["reasoning_effort"] = json!(effort);
+            } else {
+                tracing::warn!(
+                    target: "aion_providers",
+                    "OpenAI-compatible reasoning_effort omitted because compat.supports_effort is disabled"
+                );
+            }
         }
 
         preflight_projected_body(WireProvider::OpenAi, &body, tool_count, compat)?;
@@ -465,6 +480,55 @@ mod tests {
             .expect("request body projection should succeed");
 
         assert_eq!(body["model"], "test-model");
+    }
+
+    #[test]
+    fn test_openai_projector_default_includes_stream_options() {
+        let request = test_request(vec![], None);
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert_eq!(body["stream_options"], json!({ "include_usage": true }));
+    }
+
+    #[test]
+    fn test_openai_projector_omits_stream_options_when_disabled() {
+        let request = test_request(vec![], None);
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.include_stream_options = Some(false);
+
+        let body = OpenAiProjector::project(&request, &compat)
+            .expect("request body projection should succeed");
+
+        assert!(body.get("stream_options").is_none());
+    }
+
+    #[test]
+    fn test_openai_projector_omits_tools_when_disabled_without_mutating_request() {
+        let request = test_request(test_tools(), None);
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.tools.emit_tools = Some(false);
+
+        let body = OpenAiProjector::project(&request, &compat)
+            .expect("request body projection should succeed");
+
+        assert!(body.get("tools").is_none());
+        assert_eq!(request.tools.len(), 2);
+        assert_eq!(request.tools[0].name, "read");
+        assert_eq!(request.tools[1].name, "list");
+    }
+
+    #[test]
+    fn test_openai_projector_omits_reasoning_effort_when_effort_disabled() {
+        let mut request = test_request(vec![], None);
+        request.reasoning_effort = Some("medium".to_string());
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.reasoning.supports_effort = Some(false);
+
+        let body = OpenAiProjector::project(&request, &compat)
+            .expect("request body projection should succeed");
+
+        assert!(body.get("reasoning_effort").is_none());
     }
 
     #[test]

@@ -2326,6 +2326,80 @@ max_request_body_bytes = 1048576
     }
 
     #[test]
+    fn test_openai_field_controls_alias_and_profile_override_flattened_compat() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".aionrs.toml"),
+            r#"
+[default]
+provider = "nim"
+model = "alias-model"
+
+[providers.openai]
+api_key = "builtin-key"
+base_url = "https://api.openai.test/v1"
+
+[providers.openai.compat]
+include_stream_options = true
+emit_tools = true
+supports_effort = true
+
+[providers.nim]
+provider = "openai"
+api_key = "alias-key"
+base_url = "https://nim.example.test/v1"
+
+[providers.nim.compat]
+include_stream_options = false
+emit_tools = false
+supports_effort = false
+
+[profiles.restore-openai-fields]
+provider = "nim"
+
+[profiles.restore-openai-fields.compat]
+include_stream_options = true
+emit_tools = true
+supports_effort = true
+"#,
+        )
+        .unwrap();
+
+        let base_cli = CliArgs {
+            provider: None,
+            api_key: None,
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let alias_config = Config::resolve(&base_cli).unwrap();
+        assert_eq!(alias_config.provider, ProviderType::OpenAI);
+        assert_eq!(alias_config.provider_label, "nim");
+        assert!(!alias_config.compat.include_stream_options());
+        assert!(!alias_config.compat.emit_tools());
+        assert!(!alias_config.compat.supports_effort());
+
+        let profile_config = Config::resolve(&CliArgs {
+            profile: Some("restore-openai-fields".to_string()),
+            ..base_cli
+        })
+        .unwrap();
+        assert_eq!(profile_config.provider, ProviderType::OpenAI);
+        assert_eq!(profile_config.provider_label, "nim");
+        assert!(profile_config.compat.include_stream_options());
+        assert!(profile_config.compat.emit_tools());
+        assert!(profile_config.compat.supports_effort());
+    }
+
+    #[test]
     fn test_resolve_zero_max_turns_disables_turn_limit() {
         let tmp = tempfile::tempdir().unwrap();
         let cli_args = CliArgs {

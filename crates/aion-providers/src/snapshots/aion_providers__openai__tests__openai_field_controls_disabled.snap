@@ -1,0 +1,19 @@
+---
+source: crates/aion-providers/src/openai.rs
+expression: provider.build_request_body(&request)
+---
+{
+  "max_tokens": 8192,
+  "messages": [
+    {
+      "content": "You are a test assistant.",
+      "role": "system"
+    },
+    {
+      "content": "hi",
+      "role": "user"
+    }
+  ],
+  "model": "test-model",
+  "stream": true
+}
