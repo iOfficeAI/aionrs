@@ -5,7 +5,8 @@ use aion_providers::LlmProvider;
 use aion_providers::openai::OpenAIProvider;
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason};
-use serde_json::json;
+use aion_types::tool::ToolDef;
+use serde_json::{Value, json};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use wiremock::matchers::{header, method, path};
@@ -31,6 +32,23 @@ fn make_request() -> LlmRequest {
         thinking: None,
         reasoning_effort: None,
     }
+}
+
+fn make_request_with_tool() -> LlmRequest {
+    let mut request = make_request();
+    request.tools = vec![ToolDef {
+        name: "read".to_string(),
+        description: "Read a file".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string" }
+            },
+            "required": ["path"]
+        }),
+        deferred: false,
+    }];
+    request
 }
 
 /// Collect all events from the receiver until the channel closes.
@@ -546,6 +564,42 @@ async fn test_openai_api_error_non_success_status() {
     match result.unwrap_err() {
         aion_providers::ProviderError::Api { status, .. } => {
             assert_eq!(status, 401);
+        }
+        e => panic!("expected Api error, got: {:?}", e),
+    }
+}
+
+#[tokio::test]
+async fn test_aio_140_openai_tools_wire_shape_mismatch_error_is_readable_and_not_retried() {
+    let server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(400).set_body_string(
+            r#"{"error":{"message":"Input tag function does not match expected custom"}}"#,
+        ))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let provider =
+        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let result = provider.stream(&make_request_with_tool()).await;
+
+    server.verify().await;
+    let received = server.received_requests().await.unwrap();
+    assert_eq!(received.len(), 1, "mismatch errors must not be retried");
+    let body: Value = received[0].body_json().unwrap();
+    assert!(
+        body["tools"][0].get("function").is_some(),
+        "OpenAI native request should keep function tools"
+    );
+
+    match result.unwrap_err() {
+        aion_providers::ProviderError::Api { status, message } => {
+            assert_eq!(status, 400);
+            assert!(message.contains("tools wire shape mismatch"));
+            assert!(message.contains("openai_function"));
         }
         e => panic!("expected Api error, got: {:?}", e),
     }

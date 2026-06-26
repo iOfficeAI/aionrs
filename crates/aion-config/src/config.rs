@@ -1051,7 +1051,7 @@ max_sessions = 20                # auto-cleanup oldest
 mod tests {
     use super::*;
     use crate::compat::{
-        MessageCompat, ReasoningCompat, SchemaCompat, ToolCompat, TransportCompat,
+        MessageCompat, ReasoningCompat, SchemaCompat, ToolCompat, ToolWireShape, TransportCompat,
     };
 
     // -------------------------------------------------------------------------
@@ -2397,6 +2397,49 @@ supports_effort = true
         assert!(profile_config.compat.include_stream_options());
         assert!(profile_config.compat.emit_tools());
         assert!(profile_config.compat.supports_effort());
+    }
+
+    #[test]
+    fn test_config_resolve_tool_wire_shape_override_from_provider_compat() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".aionrs.toml"),
+            r#"
+[default]
+provider = "openai"
+model = "test-model"
+
+[providers.openai]
+api_key = "test-key"
+base_url = "https://example.test/v1"
+
+[providers.openai.compat]
+tool_wire_shape = "anthropic_input_schema"
+"#,
+        )
+        .unwrap();
+
+        let cli = CliArgs {
+            provider: None,
+            api_key: None,
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert_eq!(
+            config.compat.tool_wire_shape(),
+            ToolWireShape::AnthropicInputSchema
+        );
     }
 
     #[test]

@@ -6,11 +6,13 @@ use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
-use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use crate::framing::{FrameKind, SseLineFramer};
 use crate::parser::{OpenAiParser, ResponseParser};
-use crate::projector::{OpenAiProjector, projection_to_provider_error};
+use crate::projector::{
+    OpenAiProjector, ResolvedToolWireShape, classify_tools_wire_shape_mismatch,
+    projection_to_provider_error,
+};
 use crate::stream_runner::{RetryPolicy, StreamOutcome, run_stream};
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use crate::{LlmProvider, ProviderError};
@@ -333,39 +335,6 @@ impl OpenAIProvider {
         result
     }
 
-    pub(crate) fn build_tools(tools: &[ToolDef]) -> Vec<Value> {
-        tools
-            .iter()
-            .map(|t| {
-                if t.deferred {
-                    let short_desc = truncate_deferred_description(&t.description);
-                    json!({
-                        "type": "function",
-                        "function": {
-                            "name": t.name,
-                            "description": format!(
-                                "(Deferred) {short_desc} — Use ToolSearch to load full schema before calling."
-                            ),
-                            "parameters": {
-                                "type": "object",
-                                "properties": {}
-                            }
-                        }
-                    })
-                } else {
-                    json!({
-                        "type": "function",
-                        "function": {
-                            "name": t.name,
-                            "description": t.description,
-                            "parameters": t.input_schema
-                        }
-                    })
-                }
-            })
-            .collect()
-    }
-
     fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
         OpenAiProjector::project(request, &self.compat).map_err(projection_to_provider_error)
     }
@@ -597,10 +566,17 @@ impl LlmProvider for OpenAIProvider {
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
         let auto_tool_id = self.compat.auto_tool_id();
+        let tool_wire_shape = OpenAiProjector::resolved_tool_wire_shape(&self.compat);
         let client = self.client.clone();
 
         let send = move || {
-            send_openai_stream_request(client.clone(), url.clone(), headers.clone(), body.clone())
+            send_openai_stream_request(
+                client.clone(),
+                url.clone(),
+                headers.clone(),
+                body.clone(),
+                tool_wire_shape,
+            )
         };
         let process = move |response, tx| async move {
             process_sse_stream(response, &tx, auto_tool_id).await
@@ -620,6 +596,7 @@ async fn send_openai_stream_request(
     url: String,
     headers: HeaderMap,
     body: Value,
+    tool_wire_shape: ResolvedToolWireShape,
 ) -> Result<reqwest::Response, ProviderError> {
     let response = client
         .post(&url)
@@ -634,6 +611,14 @@ async fn send_openai_stream_request(
         if status.as_u16() == 429 {
             return Err(ProviderError::RateLimited {
                 retry_after_ms: 5000,
+            });
+        }
+        if let Some(message) =
+            classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape)
+        {
+            return Err(ProviderError::Api {
+                status: status.as_u16(),
+                message,
             });
         }
         return Err(ProviderError::Api {
@@ -838,6 +823,9 @@ pub(crate) fn parse_sse_chunk(
 mod tests {
     use super::*;
     use aion_config::compat::TransportCompat;
+    use aion_types::tool::ToolDef;
+
+    use crate::projector::project_tools;
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -1692,7 +1680,7 @@ mod tests {
                 deferred: true,
             },
         ];
-        let result = OpenAIProvider::build_tools(&tools);
+        let result = project_tools(&tools, ResolvedToolWireShape::OpenAiFunction);
 
         // Core tool has full parameters
         let read_params = &result[0]["function"]["parameters"];

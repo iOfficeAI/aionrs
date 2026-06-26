@@ -1,5 +1,6 @@
-use aion_config::compat::{self, ProviderCompat};
+use aion_config::compat::{self, ProviderCompat, ToolWireShape};
 use aion_types::llm::{LlmRequest, ThinkingConfig};
+use aion_types::tool::{ToolDef, truncate_deferred_description};
 use serde_json::{Value, json};
 use std::fmt;
 
@@ -73,6 +74,10 @@ pub(crate) struct WireParams {
 pub(crate) struct AnthropicWireProjector;
 
 impl AnthropicWireProjector {
+    pub(crate) fn resolved_tool_wire_shape(compat: &ProviderCompat) -> ResolvedToolWireShape {
+        resolve_tool_wire_shape(compat, ResolvedToolWireShape::AnthropicInputSchema)
+    }
+
     pub(crate) fn project(
         request: &LlmRequest,
         compat: &ProviderCompat,
@@ -108,16 +113,20 @@ impl AnthropicWireProjector {
 
         let mut tool_count = 0;
         if !request.tools.is_empty() {
-            let mut tools = anthropic_shared::build_tools(&request.tools);
+            let tool_wire_shape = Self::resolved_tool_wire_shape(compat);
+            let mut tools = project_tools(&request.tools, tool_wire_shape);
             tool_count = tools.len();
             if params.sanitize_schema {
                 for tool in &mut tools {
-                    if let Some(schema) = tool.get("input_schema").cloned() {
-                        tool["input_schema"] = compat::sanitize_json_schema(&schema);
+                    if let Some(schema) = projected_tool_schema_mut(tool, tool_wire_shape) {
+                        *schema = compat::sanitize_json_schema(schema);
                     }
                 }
             }
-            if let Some(last) = tools.last_mut().filter(|_| params.cache_enabled) {
+            if let Some(last) = tools.last_mut().filter(|_| {
+                params.cache_enabled
+                    && tool_wire_shape == ResolvedToolWireShape::AnthropicInputSchema
+            }) {
                 last["cache_control"] = json!({ "type": "ephemeral" });
             }
             body["tools"] = json!(tools);
@@ -139,6 +148,10 @@ impl AnthropicWireProjector {
 pub(crate) struct OpenAiProjector;
 
 impl OpenAiProjector {
+    pub(crate) fn resolved_tool_wire_shape(compat: &ProviderCompat) -> ResolvedToolWireShape {
+        resolve_tool_wire_shape(compat, ResolvedToolWireShape::OpenAiFunction)
+    }
+
     pub(crate) fn project(
         request: &LlmRequest,
         compat: &ProviderCompat,
@@ -162,7 +175,7 @@ impl OpenAiProjector {
 
         let mut tool_count = 0;
         if !request.tools.is_empty() && compat.emit_tools() {
-            let tools = OpenAIProvider::build_tools(&request.tools);
+            let tools = project_tools(&request.tools, Self::resolved_tool_wire_shape(compat));
             tool_count = tools.len();
             body["tools"] = json!(tools);
         } else if !request.tools.is_empty() {
@@ -187,6 +200,116 @@ impl OpenAiProjector {
 
         Ok(body)
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ResolvedToolWireShape {
+    OpenAiFunction,
+    AnthropicInputSchema,
+}
+
+impl ResolvedToolWireShape {
+    pub(crate) const fn as_config_value(self) -> &'static str {
+        match self {
+            Self::OpenAiFunction => "openai_function",
+            Self::AnthropicInputSchema => "anthropic_input_schema",
+        }
+    }
+}
+
+fn resolve_tool_wire_shape(
+    compat: &ProviderCompat,
+    native: ResolvedToolWireShape,
+) -> ResolvedToolWireShape {
+    match compat.tool_wire_shape() {
+        ToolWireShape::Native => native,
+        ToolWireShape::OpenAiFunction => ResolvedToolWireShape::OpenAiFunction,
+        ToolWireShape::AnthropicInputSchema => ResolvedToolWireShape::AnthropicInputSchema,
+    }
+}
+
+pub(crate) fn project_tools(tools: &[ToolDef], shape: ResolvedToolWireShape) -> Vec<Value> {
+    tools.iter().map(|tool| project_tool(tool, shape)).collect()
+}
+
+fn project_tool(tool: &ToolDef, shape: ResolvedToolWireShape) -> Value {
+    match shape {
+        ResolvedToolWireShape::OpenAiFunction => project_openai_function_tool(tool),
+        ResolvedToolWireShape::AnthropicInputSchema => project_anthropic_input_schema_tool(tool),
+    }
+}
+
+fn project_openai_function_tool(tool: &ToolDef) -> Value {
+    let (description, parameters) = tool_description_and_schema(tool);
+    json!({
+        "type": "function",
+        "function": {
+            "name": tool.name,
+            "description": description,
+            "parameters": parameters
+        }
+    })
+}
+
+fn project_anthropic_input_schema_tool(tool: &ToolDef) -> Value {
+    let (description, input_schema) = tool_description_and_schema(tool);
+    json!({
+        "name": tool.name,
+        "description": description,
+        "input_schema": input_schema
+    })
+}
+
+fn tool_description_and_schema(tool: &ToolDef) -> (String, Value) {
+    if tool.deferred {
+        let short_desc = truncate_deferred_description(&tool.description);
+        (
+            format!("(Deferred) {short_desc} — Use ToolSearch to load full schema before calling."),
+            json!({
+                "type": "object",
+                "properties": {}
+            }),
+        )
+    } else {
+        (tool.description.clone(), tool.input_schema.clone())
+    }
+}
+
+fn projected_tool_schema_mut(tool: &mut Value, shape: ResolvedToolWireShape) -> Option<&mut Value> {
+    match shape {
+        ResolvedToolWireShape::OpenAiFunction => tool
+            .get_mut("function")
+            .and_then(|function| function.get_mut("parameters")),
+        ResolvedToolWireShape::AnthropicInputSchema => tool.get_mut("input_schema"),
+    }
+}
+
+pub(crate) fn classify_tools_wire_shape_mismatch(
+    status: u16,
+    body_text: &str,
+    configured_shape: ResolvedToolWireShape,
+) -> Option<String> {
+    if status != 400 {
+        return None;
+    }
+
+    let lower = body_text.to_ascii_lowercase();
+    let expected_shape = if lower.contains("body.tools[0].function")
+        && (lower.contains("missing") || lower.contains("required"))
+    {
+        Some(ResolvedToolWireShape::OpenAiFunction)
+    } else if lower.contains("input tag function does not match expected custom") {
+        Some(ResolvedToolWireShape::AnthropicInputSchema)
+    } else {
+        None
+    }?;
+
+    Some(format!(
+        "tools wire shape mismatch: configured tool_wire_shape resolved to {}; upstream appears to expect {}; upstream error: {}",
+        configured_shape.as_config_value(),
+        expected_shape.as_config_value(),
+        body_text
+    ))
 }
 
 fn preflight_projected_body(
@@ -529,6 +652,82 @@ mod tests {
             .expect("request body projection should succeed");
 
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn test_tool_wire_shape_anthropic_default_emits_input_schema() {
+        let request = test_request(test_tools(), None);
+        let body = AnthropicWireProjector::project(
+            &request,
+            &ProviderCompat::anthropic_defaults(),
+            WireParams {
+                provider: WireProvider::Anthropic,
+                anthropic_version: None,
+                include_model_in_body: true,
+                include_stream: true,
+                cache_enabled: false,
+                sanitize_schema: false,
+            },
+        )
+        .expect("request body projection should succeed");
+
+        assert_eq!(body["tools"][0]["name"], "read");
+        assert!(body["tools"][0].get("input_schema").is_some());
+        assert!(body["tools"][0].get("function").is_none());
+    }
+
+    #[test]
+    fn test_tool_wire_shape_anthropic_override_openai_function() {
+        let request = test_request(test_tools(), None);
+        let user_compat: ProviderCompat =
+            serde_json::from_value(json!({"tool_wire_shape": "openai_function"})).unwrap();
+        let compat = ProviderCompat::merge(ProviderCompat::anthropic_defaults(), user_compat);
+
+        let body = AnthropicWireProjector::project(
+            &request,
+            &compat,
+            WireParams {
+                provider: WireProvider::Anthropic,
+                anthropic_version: None,
+                include_model_in_body: true,
+                include_stream: true,
+                cache_enabled: false,
+                sanitize_schema: false,
+            },
+        )
+        .expect("request body projection should succeed");
+
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["function"]["name"], "read");
+        assert!(body["tools"][0]["function"].get("parameters").is_some());
+        assert!(body["tools"][0].get("input_schema").is_none());
+    }
+
+    #[test]
+    fn test_tool_wire_shape_openai_default_emits_function() {
+        let request = test_request(test_tools(), None);
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert_eq!(body["tools"][0]["function"]["name"], "read");
+        assert!(body["tools"][0]["function"].get("parameters").is_some());
+        assert!(body["tools"][0].get("input_schema").is_none());
+    }
+
+    #[test]
+    fn test_tool_wire_shape_openai_override_anthropic_input_schema() {
+        let request = test_request(test_tools(), None);
+        let user_compat: ProviderCompat =
+            serde_json::from_value(json!({"tool_wire_shape": "anthropic_input_schema"})).unwrap();
+        let compat = ProviderCompat::merge(ProviderCompat::openai_defaults(), user_compat);
+
+        let body = OpenAiProjector::project(&request, &compat)
+            .expect("request body projection should succeed");
+
+        assert_eq!(body["tools"][0]["name"], "read");
+        assert!(body["tools"][0].get("input_schema").is_some());
+        assert!(body["tools"][0].get("function").is_none());
     }
 
     #[test]

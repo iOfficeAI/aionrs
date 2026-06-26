@@ -14,7 +14,8 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 
 use super::anthropic_shared;
 use crate::projector::{
-    AnthropicWireProjector, WireParams, WireProvider, projection_to_provider_error,
+    AnthropicWireProjector, ResolvedToolWireShape, WireParams, WireProvider,
+    classify_tools_wire_shape_mismatch, projection_to_provider_error,
 };
 use crate::stream_runner::{RetryPolicy, run_stream};
 use crate::{LlmProvider, ProviderError};
@@ -237,6 +238,7 @@ impl VertexProvider {
         &self,
         url: &str,
         body: &Value,
+        tool_wire_shape: ResolvedToolWireShape,
     ) -> Result<reqwest::Response, ProviderError> {
         let access_token = self.get_access_token().await?;
 
@@ -264,6 +266,14 @@ impl VertexProvider {
                     retry_after_ms: 5000,
                 });
             }
+            if let Some(message) =
+                classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape)
+            {
+                return Err(ProviderError::Api {
+                    status: status.as_u16(),
+                    message,
+                });
+            }
             return Err(ProviderError::Api {
                 status: status.as_u16(),
                 message: body_text,
@@ -282,6 +292,7 @@ impl LlmProvider for VertexProvider {
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = self.build_url(&request.model);
         let body = self.build_request_body(request)?;
+        let tool_wire_shape = AnthropicWireProjector::resolved_tool_wire_shape(&self.compat);
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
@@ -294,7 +305,11 @@ impl LlmProvider for VertexProvider {
                 let provider = provider.clone();
                 let url = url.clone();
                 let body = body.clone();
-                async move { provider.send_stream_request(&url, &body).await }
+                async move {
+                    provider
+                        .send_stream_request(&url, &body, tool_wire_shape)
+                        .await
+                }
             }
         };
         let process = move |response, tx| async move {

@@ -87,6 +87,20 @@ pub struct ToolCompat {
     /// Whether OpenAI-compatible requests include outgoing tools.
     /// Default: true for OpenAI-compatible providers.
     pub emit_tools: Option<bool>,
+
+    /// Explicit tools declaration wire shape.
+    /// Default: native provider path shape.
+    pub tool_wire_shape: Option<ToolWireShape>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, Eq, PartialEq)]
+pub enum ToolWireShape {
+    #[serde(rename = "native")]
+    Native,
+    #[serde(rename = "openai_function")]
+    OpenAiFunction,
+    #[serde(rename = "anthropic_input_schema")]
+    AnthropicInputSchema,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -155,6 +169,7 @@ impl ToolCompat {
             auto_tool_id: user.auto_tool_id.or(defaults.auto_tool_id),
             max_tool_count: user.max_tool_count.or(defaults.max_tool_count),
             emit_tools: user.emit_tools.or(defaults.emit_tools),
+            tool_wire_shape: user.tool_wire_shape.or(defaults.tool_wire_shape),
         }
     }
 }
@@ -293,6 +308,10 @@ impl ProviderCompat {
         self.tools.emit_tools.unwrap_or(true)
     }
 
+    pub fn tool_wire_shape(&self) -> ToolWireShape {
+        self.tools.tool_wire_shape.unwrap_or(ToolWireShape::Native)
+    }
+
     pub fn merge_assistant_messages(&self) -> bool {
         self.messages.merge_assistant_messages.unwrap_or(false)
     }
@@ -423,6 +442,7 @@ clean_orphan_tool_calls = true
 sanitize_malformed_tool_calls = false
 max_tool_count = 512
 emit_tools = false
+tool_wire_shape = "openai_function"
 ensure_alternation = true
 merge_same_role = true
 sanitize_schema = true
@@ -461,6 +481,7 @@ effort_levels = ["low", "medium"]
         assert_eq!(compat.max_tool_count(), Some(512));
         assert_eq!(compat.tools.emit_tools, Some(false));
         assert!(!compat.emit_tools());
+        assert_eq!(compat.tool_wire_shape(), ToolWireShape::OpenAiFunction);
         assert_eq!(compat.schema.sanitize_schema, Some(true));
         assert_eq!(compat.reasoning.supports_thinking, Some(true));
         assert_eq!(compat.reasoning.supports_effort, Some(false));
@@ -493,6 +514,7 @@ effort_levels = ["low", "medium"]
                 auto_tool_id: Some(true),
                 max_tool_count: Some(512),
                 emit_tools: Some(false),
+                tool_wire_shape: Some(ToolWireShape::OpenAiFunction),
             },
             schema: SchemaCompat {
                 sanitize_schema: Some(true),
@@ -517,6 +539,7 @@ effort_levels = ["low", "medium"]
         assert!(toml.contains("sanitize_malformed_tool_calls = false"));
         assert!(toml.contains("max_tool_count = 512"));
         assert!(toml.contains("emit_tools = false"));
+        assert!(toml.contains("tool_wire_shape = \"openai_function\""));
         assert!(toml.contains("ensure_alternation = true"));
         assert!(toml.contains("merge_same_role = true"));
         assert!(toml.contains("sanitize_schema = true"));
@@ -556,6 +579,7 @@ effort_levels = ["low", "medium"]
                 auto_tool_id: Some(false),
                 max_tool_count: Some(42),
                 emit_tools: None,
+                tool_wire_shape: None,
             },
             schema: SchemaCompat {
                 sanitize_schema: Some(true),
@@ -586,6 +610,7 @@ effort_levels = ["low", "medium"]
         assert!(!merged.sanitize_malformed_tool_calls());
         assert_eq!(merged.max_tool_count(), Some(42));
         assert!(merged.emit_tools());
+        assert_eq!(merged.tool_wire_shape(), ToolWireShape::Native);
         assert!(merged.sanitize_schema());
         assert!(!merged.auto_tool_id());
         assert!(merged.supports_thinking());
@@ -703,6 +728,29 @@ supports_effort = false
         assert!(!merged.include_stream_options());
         assert!(!merged.emit_tools());
         assert!(!merged.supports_effort());
+    }
+
+    #[test]
+    fn test_tool_wire_shape_toml_round_trips_supported_values() {
+        for value in ["native", "openai_function", "anthropic_input_schema"] {
+            let compat: ProviderCompat =
+                toml::from_str(&format!("tool_wire_shape = \"{value}\"")).unwrap();
+
+            let toml = toml::to_string(&compat).unwrap();
+
+            assert!(toml.contains(&format!("tool_wire_shape = \"{value}\"")));
+        }
+    }
+
+    #[test]
+    fn test_tool_wire_shape_toml_rejects_unknown_value() {
+        let result = toml::from_str::<ProviderCompat>(
+            r#"
+tool_wire_shape = "provider_guess"
+"#,
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]

@@ -7,7 +7,8 @@ use aion_types::llm::{LlmEvent, LlmRequest};
 
 use super::anthropic_shared;
 use crate::projector::{
-    AnthropicWireProjector, WireParams, WireProvider, projection_to_provider_error,
+    AnthropicWireProjector, ResolvedToolWireShape, WireParams, WireProvider,
+    classify_tools_wire_shape_mismatch, projection_to_provider_error,
 };
 use crate::stream_runner::{RetryPolicy, run_stream};
 use crate::{LlmProvider, ProviderError};
@@ -75,6 +76,7 @@ async fn send_anthropic_stream_request(
     url: String,
     headers: HeaderMap,
     body: Value,
+    tool_wire_shape: ResolvedToolWireShape,
 ) -> Result<reqwest::Response, ProviderError> {
     let response = client
         .post(&url)
@@ -89,6 +91,14 @@ async fn send_anthropic_stream_request(
         if status.as_u16() == 429 {
             return Err(ProviderError::RateLimited {
                 retry_after_ms: 5000,
+            });
+        }
+        if let Some(message) =
+            classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape)
+        {
+            return Err(ProviderError::Api {
+                status: status.as_u16(),
+                message,
             });
         }
         return Err(ProviderError::Api {
@@ -113,6 +123,7 @@ impl LlmProvider for AnthropicProvider {
 
         let client = self.client.clone();
         let headers = self.build_headers()?;
+        let tool_wire_shape = AnthropicWireProjector::resolved_tool_wire_shape(&self.compat);
         let send = {
             let url = url.clone();
             let body = body.clone();
@@ -121,7 +132,9 @@ impl LlmProvider for AnthropicProvider {
                 let url = url.clone();
                 let headers = headers.clone();
                 let body = body.clone();
-                async move { send_anthropic_stream_request(client, url, headers, body).await }
+                async move {
+                    send_anthropic_stream_request(client, url, headers, body, tool_wire_shape).await
+                }
             }
         };
         let process = move |response, tx| async move {

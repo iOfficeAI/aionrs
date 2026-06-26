@@ -7,11 +7,12 @@ use tokio::sync::mpsc;
 
 use aion_types::llm::LlmEvent;
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
-use aion_types::tool::{ToolDef, truncate_deferred_description};
+use aion_types::tool::ToolDef;
 
 use crate::error::ProviderError;
 use crate::framing::SseBlockFramer;
 use crate::parser::{AnthropicParser, ResponseParser};
+use crate::projector::{ResolvedToolWireShape, project_tools};
 pub(crate) use crate::stream_runner::StreamOutcome;
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use aion_config::compat::ProviderCompat;
@@ -247,30 +248,7 @@ fn generate_tool_id() -> String {
 /// Deferred tools emit a minimal schema to reduce input token usage;
 /// the caller must invoke ToolSearch to retrieve the full schema.
 pub fn build_tools(tools: &[ToolDef]) -> Vec<Value> {
-    tools
-        .iter()
-        .map(|t| {
-            if t.deferred {
-                let short_desc = truncate_deferred_description(&t.description);
-                json!({
-                    "name": t.name,
-                    "description": format!(
-                        "(Deferred) {short_desc} — Use ToolSearch to load full schema before calling."
-                    ),
-                    "input_schema": {
-                        "type": "object",
-                        "properties": {}
-                    }
-                })
-            } else {
-                json!({
-                    "name": t.name,
-                    "description": t.description,
-                    "input_schema": t.input_schema
-                })
-            }
-        })
-        .collect()
+    project_tools(tools, ResolvedToolWireShape::AnthropicInputSchema)
 }
 
 /// State machine for accumulating SSE content blocks
