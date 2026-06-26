@@ -6,7 +6,9 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest};
 
 use super::anthropic_shared;
-use crate::projector::{AnthropicWireProjector, WireParams};
+use crate::projector::{
+    AnthropicWireProjector, WireParams, WireProvider, projection_to_provider_error,
+};
 use crate::stream_runner::{RetryPolicy, run_stream};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
@@ -51,11 +53,12 @@ impl AnthropicProvider {
         Ok(headers)
     }
 
-    fn build_request_body(&self, request: &LlmRequest) -> Value {
+    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
         AnthropicWireProjector::project(
             request,
             &self.compat,
             WireParams {
+                provider: WireProvider::Anthropic,
                 anthropic_version: None,
                 include_model_in_body: true,
                 include_stream: true,
@@ -63,6 +66,7 @@ impl AnthropicProvider {
                 sanitize_schema: false,
             },
         )
+        .map_err(projection_to_provider_error)
     }
 }
 
@@ -103,7 +107,7 @@ impl LlmProvider for AnthropicProvider {
         request: &LlmRequest,
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = format!("{}/v1/messages", self.base_url);
-        let body = self.build_request_body(request);
+        let body = self.build_request_body(request)?;
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
@@ -196,7 +200,11 @@ mod tests {
             vec![],
             None,
         );
-        insta::assert_json_snapshot!("anthropic_basic", p.build_request_body(&r));
+        insta::assert_json_snapshot!(
+            "anthropic_basic",
+            p.build_request_body(&r)
+                .expect("request body projection should succeed")
+        );
     }
 
     #[test]
@@ -212,7 +220,11 @@ mod tests {
             atools(),
             None,
         );
-        insta::assert_json_snapshot!("anthropic_with_tools_no_cache", p.build_request_body(&r));
+        insta::assert_json_snapshot!(
+            "anthropic_with_tools_no_cache",
+            p.build_request_body(&r)
+                .expect("request body projection should succeed")
+        );
     }
 
     #[test]
@@ -228,7 +240,11 @@ mod tests {
             atools(),
             None,
         );
-        insta::assert_json_snapshot!("anthropic_with_cache", p.build_request_body(&r));
+        insta::assert_json_snapshot!(
+            "anthropic_with_cache",
+            p.build_request_body(&r)
+                .expect("request body projection should succeed")
+        );
     }
 
     #[test]
@@ -246,6 +262,10 @@ mod tests {
                 budget_tokens: 4096,
             }),
         );
-        insta::assert_json_snapshot!("anthropic_with_thinking", p.build_request_body(&r));
+        insta::assert_json_snapshot!(
+            "anthropic_with_thinking",
+            p.build_request_body(&r)
+                .expect("request body projection should succeed")
+        );
     }
 }

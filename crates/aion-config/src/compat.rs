@@ -29,6 +29,10 @@ pub struct TransportCompat {
     /// Custom API path appended to base_url for chat completions.
     /// Default: "/v1/chat/completions" for OpenAI provider.
     pub api_path: Option<String>,
+
+    /// Maximum serialized provider request body size in bytes.
+    /// Default: None (no local preflight limit).
+    pub max_request_body_bytes: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -71,6 +75,10 @@ pub struct ToolCompat {
     /// Auto-generate tool IDs when missing.
     /// Default: true for anthropic/bedrock/vertex.
     pub auto_tool_id: Option<bool>,
+
+    /// Maximum number of tools allowed in the projected provider request.
+    /// Default: None (no local preflight limit).
+    pub max_tool_count: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -100,6 +108,9 @@ impl TransportCompat {
         Self {
             max_tokens_field: user.max_tokens_field.or(defaults.max_tokens_field),
             api_path: user.api_path.or(defaults.api_path),
+            max_request_body_bytes: user
+                .max_request_body_bytes
+                .or(defaults.max_request_body_bytes),
         }
     }
 }
@@ -131,6 +142,7 @@ impl ToolCompat {
                 .sanitize_malformed_tool_calls
                 .or(defaults.sanitize_malformed_tool_calls),
             auto_tool_id: user.auto_tool_id.or(defaults.auto_tool_id),
+            max_tool_count: user.max_tool_count.or(defaults.max_tool_count),
         }
     }
 }
@@ -220,6 +232,7 @@ impl ProviderCompat {
                 clean_orphan_tool_calls: Some(true),
                 sanitize_malformed_tool_calls: Some(true),
                 auto_tool_id: Some(true),
+                ..Default::default()
             },
             reasoning: ReasoningCompat {
                 supports_thinking: Some(false),
@@ -248,6 +261,14 @@ impl ProviderCompat {
             .max_tokens_field
             .as_deref()
             .unwrap_or("max_tokens")
+    }
+
+    pub fn max_request_body_bytes(&self) -> Option<usize> {
+        self.transport.max_request_body_bytes
+    }
+
+    pub fn max_tool_count(&self) -> Option<usize> {
+        self.tools.max_tool_count
     }
 
     pub fn merge_assistant_messages(&self) -> bool {
@@ -371,11 +392,13 @@ mod tests {
         let toml_str = r#"
 max_tokens_field = "max_completion_tokens"
 api_path = "/chat/completions"
+max_request_body_bytes = 1048576
 merge_assistant_messages = true
 clean_orphan_tool_results = false
 dedup_tool_results = true
 clean_orphan_tool_calls = true
 sanitize_malformed_tool_calls = false
+max_tool_count = 512
 ensure_alternation = true
 merge_same_role = true
 sanitize_schema = true
@@ -396,6 +419,7 @@ effort_levels = ["low", "medium"]
             compat.transport.api_path.as_deref(),
             Some("/chat/completions")
         );
+        assert_eq!(compat.max_request_body_bytes(), Some(1_048_576));
         assert_eq!(compat.messages.merge_assistant_messages, Some(true));
         assert_eq!(compat.messages.clean_orphan_tool_results, Some(false));
         assert_eq!(compat.messages.dedup_tool_results, Some(true));
@@ -408,6 +432,7 @@ effort_levels = ["low", "medium"]
         assert_eq!(compat.tools.clean_orphan_tool_calls, Some(true));
         assert_eq!(compat.tools.sanitize_malformed_tool_calls, Some(false));
         assert_eq!(compat.tools.auto_tool_id, Some(true));
+        assert_eq!(compat.max_tool_count(), Some(512));
         assert_eq!(compat.schema.sanitize_schema, Some(true));
         assert_eq!(compat.reasoning.supports_thinking, Some(true));
         assert_eq!(compat.reasoning.supports_effort, Some(false));
@@ -423,6 +448,7 @@ effort_levels = ["low", "medium"]
             transport: TransportCompat {
                 max_tokens_field: Some("max_completion_tokens".to_string()),
                 api_path: Some("/chat/completions".to_string()),
+                max_request_body_bytes: Some(1_048_576),
             },
             messages: MessageCompat {
                 merge_assistant_messages: Some(true),
@@ -436,6 +462,7 @@ effort_levels = ["low", "medium"]
                 clean_orphan_tool_calls: Some(true),
                 sanitize_malformed_tool_calls: Some(false),
                 auto_tool_id: Some(true),
+                max_tool_count: Some(512),
             },
             schema: SchemaCompat {
                 sanitize_schema: Some(true),
@@ -451,11 +478,13 @@ effort_levels = ["low", "medium"]
 
         assert!(toml.contains("max_tokens_field = \"max_completion_tokens\""));
         assert!(toml.contains("api_path = \"/chat/completions\""));
+        assert!(toml.contains("max_request_body_bytes = 1048576"));
         assert!(toml.contains("merge_assistant_messages = true"));
         assert!(toml.contains("clean_orphan_tool_results = false"));
         assert!(toml.contains("dedup_tool_results = true"));
         assert!(toml.contains("clean_orphan_tool_calls = true"));
         assert!(toml.contains("sanitize_malformed_tool_calls = false"));
+        assert!(toml.contains("max_tool_count = 512"));
         assert!(toml.contains("ensure_alternation = true"));
         assert!(toml.contains("merge_same_role = true"));
         assert!(toml.contains("sanitize_schema = true"));
@@ -478,6 +507,7 @@ effort_levels = ["low", "medium"]
             transport: TransportCompat {
                 max_tokens_field: Some("max_completion_tokens".to_string()),
                 api_path: Some("/chat/completions".to_string()),
+                max_request_body_bytes: Some(2_048),
             },
             messages: MessageCompat {
                 merge_assistant_messages: Some(false),
@@ -491,6 +521,7 @@ effort_levels = ["low", "medium"]
                 clean_orphan_tool_calls: Some(false),
                 sanitize_malformed_tool_calls: Some(false),
                 auto_tool_id: Some(false),
+                max_tool_count: Some(42),
             },
             schema: SchemaCompat {
                 sanitize_schema: Some(true),
@@ -512,11 +543,13 @@ effort_levels = ["low", "medium"]
             merged.transport.api_path.as_deref(),
             Some("/chat/completions")
         );
+        assert_eq!(merged.max_request_body_bytes(), Some(2_048));
         assert!(!merged.merge_assistant_messages());
         assert!(!merged.clean_orphan_tool_calls());
         assert!(!merged.clean_orphan_tool_results());
         assert!(merged.dedup_tool_results());
         assert!(!merged.sanitize_malformed_tool_calls());
+        assert_eq!(merged.max_tool_count(), Some(42));
         assert!(merged.sanitize_schema());
         assert!(!merged.auto_tool_id());
         assert!(merged.supports_thinking());

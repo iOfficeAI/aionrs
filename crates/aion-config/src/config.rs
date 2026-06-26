@@ -2283,6 +2283,49 @@ effort_levels = ["low", "medium"]
     }
 
     #[test]
+    fn test_config_resolve_loads_flat_provider_max_tool_count_limits() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".aionrs.toml"),
+            r#"
+[default]
+provider = "gemini"
+model = "test-model"
+
+[providers.gemini]
+provider = "openai"
+api_key = "test-key"
+base_url = "https://example.test/v1"
+
+[providers.gemini.compat]
+max_tool_count = 512
+max_request_body_bytes = 1048576
+"#,
+        )
+        .unwrap();
+
+        let cli = CliArgs {
+            provider: None,
+            api_key: None,
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert_eq!(config.compat.max_tool_count(), Some(512));
+        assert_eq!(config.compat.max_request_body_bytes(), Some(1_048_576));
+    }
+
+    #[test]
     fn test_resolve_zero_max_turns_disables_turn_limit() {
         let tmp = tempfile::tempdir().unwrap();
         let cli_args = CliArgs {

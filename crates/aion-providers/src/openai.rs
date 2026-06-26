@@ -10,6 +10,7 @@ use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use crate::framing::{FrameKind, SseLineFramer};
 use crate::parser::{OpenAiParser, ResponseParser};
+use crate::projector::{OpenAiProjector, projection_to_provider_error};
 use crate::stream_runner::{RetryPolicy, StreamOutcome, run_stream};
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use crate::{LlmProvider, ProviderError};
@@ -365,8 +366,8 @@ impl OpenAIProvider {
             .collect()
     }
 
-    fn build_request_body(&self, request: &LlmRequest) -> Value {
-        crate::projector::OpenAiProjector::project(request, &self.compat)
+    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
+        OpenAiProjector::project(request, &self.compat).map_err(projection_to_provider_error)
     }
 }
 
@@ -590,7 +591,7 @@ impl LlmProvider for OpenAIProvider {
         request: &LlmRequest,
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = format!("{}{}", self.base_url, self.compat.api_path());
-        let body = self.build_request_body(request);
+        let body = self.build_request_body(request)?;
         let headers = self.build_headers()?;
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
@@ -860,7 +861,9 @@ mod tests {
             thinking: None,
             reasoning_effort: None,
         };
-        let body = provider.build_request_body(&req);
+        let body = provider
+            .build_request_body(&req)
+            .expect("request body projection should succeed");
         assert_eq!(body["max_tokens"], 1024);
         assert!(body.get("max_completion_tokens").is_none());
     }
@@ -884,9 +887,44 @@ mod tests {
             thinking: None,
             reasoning_effort: None,
         };
-        let body = provider.build_request_body(&req);
+        let body = provider
+            .build_request_body(&req)
+            .expect("request body projection should succeed");
         assert_eq!(body["max_completion_tokens"], 2048);
         assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn test_projection_limit_maps_to_non_retryable_prompt_too_long() {
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.tools.max_tool_count = Some(0);
+        let provider = OpenAIProvider::new("key", "http://localhost", compat);
+        let req = LlmRequest {
+            model: "gpt-4o".into(),
+            system: String::new(),
+            messages: vec![],
+            tools: vec![ToolDef {
+                name: "read".into(),
+                description: "Read".into(),
+                input_schema: json!({"type":"object","properties":{}}),
+                deferred: false,
+            }],
+            max_tokens: 1024,
+            thinking: None,
+            reasoning_effort: None,
+        };
+
+        let error = provider
+            .build_request_body(&req)
+            .expect_err("projection limit should map to provider error");
+
+        match &error {
+            ProviderError::PromptTooLong(message) => {
+                assert!(message.contains("openai tools count 1 exceeds configured limit 0"));
+            }
+            other => panic!("unexpected provider error: {other}"),
+        }
+        assert!(!error.is_retryable());
     }
 
     // --- merge_assistant_messages ---
@@ -1885,7 +1923,9 @@ mod tests {
             )],
             vec![],
         );
-        let body = provider.build_request_body(&request);
+        let body = provider
+            .build_request_body(&request)
+            .expect("request body projection should succeed");
         insta::assert_json_snapshot!("openai_basic", body);
     }
 
@@ -1918,7 +1958,12 @@ mod tests {
             )],
             sample_tools(),
         );
-        insta::assert_json_snapshot!("openai_with_tools", provider.build_request_body(&request));
+        insta::assert_json_snapshot!(
+            "openai_with_tools",
+            provider
+                .build_request_body(&request)
+                .expect("request body projection should succeed")
+        );
     }
 
     #[test]
@@ -1945,7 +1990,9 @@ mod tests {
         ];
         insta::assert_json_snapshot!(
             "openai_with_tool_result",
-            provider.build_request_body(&golden_req(messages, vec![]))
+            provider
+                .build_request_body(&golden_req(messages, vec![]))
+                .expect("request body projection should succeed")
         );
     }
 
@@ -1980,7 +2027,9 @@ mod tests {
         ];
         insta::assert_json_snapshot!(
             "openai_with_thinking",
-            provider.build_request_body(&golden_req(messages, vec![]))
+            provider
+                .build_request_body(&golden_req(messages, vec![]))
+                .expect("request body projection should succeed")
         );
     }
 
@@ -1999,7 +2048,9 @@ mod tests {
         request.reasoning_effort = Some("medium".to_string());
         insta::assert_json_snapshot!(
             "openai_with_reasoning_effort",
-            provider.build_request_body(&request)
+            provider
+                .build_request_body(&request)
+                .expect("request body projection should succeed")
         );
     }
 
@@ -2019,7 +2070,9 @@ mod tests {
         );
         insta::assert_json_snapshot!(
             "openai_custom_max_tokens_field",
-            provider.build_request_body(&request)
+            provider
+                .build_request_body(&request)
+                .expect("request body projection should succeed")
         );
     }
 }

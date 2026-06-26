@@ -13,7 +13,9 @@ use tokio::sync::mpsc;
 use aion_types::llm::{LlmEvent, LlmRequest};
 
 use super::anthropic_shared;
-use crate::projector::{AnthropicWireProjector, WireParams};
+use crate::projector::{
+    AnthropicWireProjector, WireParams, WireProvider, projection_to_provider_error,
+};
 use crate::stream_runner::{RetryPolicy, run_stream};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
@@ -68,11 +70,12 @@ impl VertexProvider {
         )
     }
 
-    fn build_request_body(&self, request: &LlmRequest) -> Value {
+    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
         AnthropicWireProjector::project(
             request,
             &self.compat,
             WireParams {
+                provider: WireProvider::Vertex,
                 anthropic_version: Some("vertex-2023-10-16"),
                 include_model_in_body: false,
                 include_stream: true,
@@ -80,6 +83,7 @@ impl VertexProvider {
                 sanitize_schema: false,
             },
         )
+        .map_err(projection_to_provider_error)
     }
 
     async fn get_access_token(&self) -> Result<String, ProviderError> {
@@ -277,7 +281,7 @@ impl LlmProvider for VertexProvider {
         request: &LlmRequest,
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let url = self.build_url(&request.model);
-        let body = self.build_request_body(request);
+        let body = self.build_request_body(request)?;
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
@@ -396,6 +400,10 @@ mod tests {
             )],
             vec![],
         );
-        insta::assert_json_snapshot!("vertex_basic", p.build_request_body(&r));
+        insta::assert_json_snapshot!(
+            "vertex_basic",
+            p.build_request_body(&r)
+                .expect("request body projection should succeed")
+        );
     }
 }
