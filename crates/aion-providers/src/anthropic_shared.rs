@@ -10,6 +10,9 @@ use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::{ToolDef, truncate_deferred_description};
 
 use crate::error::ProviderError;
+use crate::framing::SseBlockFramer;
+use crate::parser::{AnthropicParser, ResponseParser};
+pub(crate) use crate::stream_runner::StreamOutcome;
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use aion_config::compat::ProviderCompat;
 
@@ -37,7 +40,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
             match block {
                 ContentBlock::Text { text } => {
                     let mut text = text.clone();
-                    if let Some(patterns) = &compat.strip_patterns {
+                    if let Some(patterns) = &compat.messages.strip_patterns {
                         for pattern in patterns {
                             text = text.replace(pattern, "");
                         }
@@ -311,24 +314,16 @@ impl StreamState {
     }
 }
 
-/// Outcome of SSE stream processing — distinguishes "failed before any content
-/// was emitted" (safe to retry) from "failed after partial content" (not safe).
-pub enum StreamOutcome {
-    Ok,
-    FailedEmpty(ProviderError),
-    FailedPartial(ProviderError),
-}
-
 /// Process the SSE stream from an Anthropic-compatible API
-pub async fn process_sse_stream(
+pub(crate) async fn process_sse_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
 ) -> StreamOutcome {
     use futures::StreamExt;
 
-    let mut state = StreamState::new();
-    let mut buffer = String::new();
-    let mut current_event_type = String::new();
+    let parser = AnthropicParser;
+    let mut state = parser.new_state();
+    let mut framer = SseBlockFramer::default();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
 
@@ -345,35 +340,29 @@ pub async fn process_sse_stream(
             }
         };
         let text = String::from_utf8_lossy(&chunk);
-        buffer.push_str(&text);
-
-        // Process complete SSE events (separated by double newlines)
-        while let Some(event_end) = buffer.find("\n\n") {
-            let event_block = buffer[..event_end].to_string();
-            buffer = buffer[event_end + 2..].to_string();
-
-            for line in event_block.lines() {
-                if let Some(event_type) = line.strip_prefix("event: ") {
-                    current_event_type = event_type.to_string();
-                } else if let Some(data) = line.strip_prefix("data: ") {
-                    tracing::debug!(target: "aion_providers", chunk = %data, "sse chunk received");
-                    let events = parse_sse_data(&current_event_type, data, &mut state);
-                    for event in events {
-                        if matches!(
-                            event,
-                            LlmEvent::TextDelta(_)
-                                | LlmEvent::ThinkingDelta(_)
-                                | LlmEvent::ThinkingSignature(_)
-                                | LlmEvent::ToolUse { .. }
-                        ) {
-                            emitted_content = true;
-                        }
-                        if tx.send(event).await.is_err() {
-                            return StreamOutcome::Ok; // receiver dropped
-                        }
-                    }
+        for frame in framer.push_text(&text) {
+            tracing::debug!(target: "aion_providers", chunk = %frame.data, "sse chunk received");
+            let events = parser.parse_frame(&frame, &mut state);
+            for event in events {
+                if matches!(
+                    event,
+                    LlmEvent::TextDelta(_)
+                        | LlmEvent::ThinkingDelta(_)
+                        | LlmEvent::ThinkingSignature(_)
+                        | LlmEvent::ToolUse { .. }
+                ) {
+                    emitted_content = true;
+                }
+                if tx.send(event).await.is_err() {
+                    return StreamOutcome::Ok; // receiver dropped
                 }
             }
+        }
+    }
+
+    for event in parser.finish(&mut state) {
+        if tx.send(event).await.is_err() {
+            return StreamOutcome::Ok;
         }
     }
 
@@ -507,13 +496,17 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
 mod tests {
     use super::*;
 
+    use aion_config::compat::{MessageCompat, ToolCompat};
     use aion_types::tool::ToolDef;
     use serde_json::json;
 
     /// Compat with merge but no alternation — matches pre-compat behavior
     fn default_compat() -> ProviderCompat {
         ProviderCompat {
-            merge_same_role: Some(true),
+            messages: MessageCompat {
+                merge_same_role: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -626,8 +619,11 @@ mod tests {
             vec![ContentBlock::Text { text: "hi".into() }],
         )];
         let compat = ProviderCompat {
-            ensure_alternation: Some(true),
-            merge_same_role: Some(true),
+            messages: MessageCompat {
+                ensure_alternation: Some(true),
+                merge_same_role: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -643,7 +639,10 @@ mod tests {
             vec![ContentBlock::Text { text: "hi".into() }],
         )];
         let compat = ProviderCompat {
-            ensure_alternation: Some(false),
+            messages: MessageCompat {
+                ensure_alternation: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -658,7 +657,10 @@ mod tests {
             Message::new(Role::User, vec![ContentBlock::Text { text: "b".into() }]),
         ];
         let compat = ProviderCompat {
-            merge_same_role: Some(true),
+            messages: MessageCompat {
+                merge_same_role: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -674,7 +676,10 @@ mod tests {
             Message::new(Role::User, vec![ContentBlock::Text { text: "b".into() }]),
         ];
         let compat = ProviderCompat {
-            merge_same_role: Some(false),
+            messages: MessageCompat {
+                merge_same_role: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -693,7 +698,10 @@ mod tests {
             }],
         )];
         let compat = ProviderCompat {
-            auto_tool_id: Some(true),
+            tools: ToolCompat {
+                auto_tool_id: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -714,7 +722,10 @@ mod tests {
             }],
         )];
         let compat = ProviderCompat {
-            auto_tool_id: Some(true),
+            tools: ToolCompat {
+                auto_tool_id: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let result = build_messages(&messages, &compat);
@@ -807,7 +818,7 @@ mod tests {
     #[test]
     fn test_anthropic_downgrade_text_not_stripped() {
         let mut compat = anthropic_compat();
-        compat.strip_patterns = Some(vec![
+        compat.messages.strip_patterns = Some(vec![
             "REMOVE_ME".into(),
             "[tool call skipped:".into(),
             "arguments={}".into(),
@@ -847,7 +858,7 @@ mod tests {
     #[test]
     fn test_anthropic_sanitize_disabled_keeps_empty_name() {
         let mut compat = anthropic_compat();
-        compat.sanitize_malformed_tool_calls = Some(false);
+        compat.tools.sanitize_malformed_tool_calls = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -928,7 +939,7 @@ mod tests {
     #[test]
     fn test_anthropic_empty_id_toolcall_downgraded_when_auto_id_disabled() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(false);
+        compat.tools.auto_tool_id = Some(false);
         let messages = vec![Message::new(
             Role::Assistant,
             vec![ContentBlock::ToolUse {
@@ -962,7 +973,7 @@ mod tests {
     #[test]
     fn test_anthropic_empty_id_toolcall_generates_id_when_auto_id_enabled() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -997,7 +1008,7 @@ mod tests {
     #[test]
     fn test_anthropic_empty_id_rewrites_paired_result_when_auto_id_enabled() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,
@@ -1068,7 +1079,7 @@ mod tests {
     #[test]
     fn test_anthropic_dropped_empty_id_does_not_consume_later_generated_empty_id_result() {
         let mut compat = anthropic_compat();
-        compat.auto_tool_id = Some(true);
+        compat.tools.auto_tool_id = Some(true);
         let messages = vec![
             Message::new(
                 Role::Assistant,

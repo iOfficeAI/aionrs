@@ -5,20 +5,37 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Provider-level compatibility settings.
-/// Each field is Option — None means "use provider-type default".
+/// Each child struct is flattened so on-disk TOML remains backward-compatible.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ProviderCompat {
+    #[serde(flatten)]
+    pub transport: TransportCompat,
+    #[serde(flatten)]
+    pub messages: MessageCompat,
+    #[serde(flatten)]
+    pub tools: ToolCompat,
+    #[serde(flatten)]
+    pub schema: SchemaCompat,
+    #[serde(flatten)]
+    pub reasoning: ReasoningCompat,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct TransportCompat {
     /// Field name for max tokens in request body.
     /// Default: "max_tokens" for all providers.
     pub max_tokens_field: Option<String>,
 
+    /// Custom API path appended to base_url for chat completions.
+    /// Default: "/v1/chat/completions" for OpenAI provider.
+    pub api_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct MessageCompat {
     /// Merge consecutive assistant messages (text concat + tool_calls merge).
     /// Default: true for openai.
     pub merge_assistant_messages: Option<bool>,
-
-    /// Remove tool_use blocks that have no corresponding tool_result.
-    /// Default: true for openai.
-    pub clean_orphan_tool_calls: Option<bool>,
 
     /// Remove tool_result blocks that have no corresponding tool_use.
     /// Default: true for provider families that support tool results.
@@ -28,12 +45,6 @@ pub struct ProviderCompat {
     /// Default: true for openai.
     pub dedup_tool_results: Option<bool>,
 
-    /// Downgrade malformed tool_calls (empty function name) to text in the
-    /// outgoing request, and drop their paired tool results. History is never
-    /// mutated; only the projected request body is affected.
-    /// Default: true for all providers.
-    pub sanitize_malformed_tool_calls: Option<bool>,
-
     /// Ensure messages alternate user/assistant (insert filler if needed).
     /// Default: true for anthropic/bedrock/vertex.
     pub ensure_alternation: Option<bool>,
@@ -42,48 +53,126 @@ pub struct ProviderCompat {
     /// Default: true for anthropic/bedrock/vertex.
     pub merge_same_role: Option<bool>,
 
-    /// Sanitize JSON schemas for strict providers (remove additionalProperties, etc.).
-    /// Default: true for bedrock.
-    pub sanitize_schema: Option<bool>,
-
     /// Text patterns to strip from message history before sending.
     /// Default: empty.
     pub strip_patterns: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ToolCompat {
+    /// Remove tool_use blocks that have no corresponding tool_result.
+    /// Default: true for openai.
+    pub clean_orphan_tool_calls: Option<bool>,
+
+    /// Downgrade malformed tool_calls in the projected request body.
+    /// Default: true for all providers.
+    pub sanitize_malformed_tool_calls: Option<bool>,
 
     /// Auto-generate tool IDs when missing.
     /// Default: true for anthropic/bedrock/vertex.
     pub auto_tool_id: Option<bool>,
+}
 
-    /// Custom API path appended to base_url for chat completions.
-    /// Default: "/v1/chat/completions" for OpenAI provider.
-    /// Override to "/chat/completions" for providers like Gemini that include
-    /// version prefix in the base URL itself.
-    pub api_path: Option<String>,
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct SchemaCompat {
+    /// Sanitize JSON schemas for strict providers.
+    /// Default: true for bedrock.
+    pub sanitize_schema: Option<bool>,
+}
 
-    /// Whether this provider supports extended thinking (Anthropic-style).
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ReasoningCompat {
+    /// Whether this provider supports extended thinking.
     /// Default: true for anthropic/bedrock/vertex, false for openai.
     pub supports_thinking: Option<bool>,
 
-    /// Whether this provider supports reasoning_effort (OpenAI-style).
+    /// Whether this provider supports reasoning_effort.
     /// Default: false for anthropic/bedrock/vertex, true for openai.
     pub supports_effort: Option<bool>,
 
-    /// Available effort levels for this provider (e.g., ["low", "medium", "high"]).
+    /// Available effort levels for this provider.
     /// Only meaningful when supports_effort is true.
     pub effort_levels: Option<Vec<String>>,
+}
+
+impl TransportCompat {
+    fn merge(defaults: Self, user: Self) -> Self {
+        Self {
+            max_tokens_field: user.max_tokens_field.or(defaults.max_tokens_field),
+            api_path: user.api_path.or(defaults.api_path),
+        }
+    }
+}
+
+impl MessageCompat {
+    fn merge(defaults: Self, user: Self) -> Self {
+        Self {
+            merge_assistant_messages: user
+                .merge_assistant_messages
+                .or(defaults.merge_assistant_messages),
+            clean_orphan_tool_results: user
+                .clean_orphan_tool_results
+                .or(defaults.clean_orphan_tool_results),
+            dedup_tool_results: user.dedup_tool_results.or(defaults.dedup_tool_results),
+            ensure_alternation: user.ensure_alternation.or(defaults.ensure_alternation),
+            merge_same_role: user.merge_same_role.or(defaults.merge_same_role),
+            strip_patterns: user.strip_patterns.or(defaults.strip_patterns),
+        }
+    }
+}
+
+impl ToolCompat {
+    fn merge(defaults: Self, user: Self) -> Self {
+        Self {
+            clean_orphan_tool_calls: user
+                .clean_orphan_tool_calls
+                .or(defaults.clean_orphan_tool_calls),
+            sanitize_malformed_tool_calls: user
+                .sanitize_malformed_tool_calls
+                .or(defaults.sanitize_malformed_tool_calls),
+            auto_tool_id: user.auto_tool_id.or(defaults.auto_tool_id),
+        }
+    }
+}
+
+impl SchemaCompat {
+    fn merge(defaults: Self, user: Self) -> Self {
+        Self {
+            sanitize_schema: user.sanitize_schema.or(defaults.sanitize_schema),
+        }
+    }
+}
+
+impl ReasoningCompat {
+    fn merge(defaults: Self, user: Self) -> Self {
+        Self {
+            supports_thinking: user.supports_thinking.or(defaults.supports_thinking),
+            supports_effort: user.supports_effort.or(defaults.supports_effort),
+            effort_levels: user.effort_levels.or(defaults.effort_levels),
+        }
+    }
 }
 
 impl ProviderCompat {
     /// Defaults for Anthropic-family providers (Anthropic, Vertex)
     pub fn anthropic_defaults() -> Self {
         Self {
-            ensure_alternation: Some(true),
-            merge_same_role: Some(true),
-            auto_tool_id: Some(true),
-            supports_thinking: Some(true),
-            supports_effort: Some(false),
-            sanitize_malformed_tool_calls: Some(true),
-            clean_orphan_tool_results: Some(true),
+            messages: MessageCompat {
+                ensure_alternation: Some(true),
+                merge_same_role: Some(true),
+                clean_orphan_tool_results: Some(true),
+                ..Default::default()
+            },
+            tools: ToolCompat {
+                auto_tool_id: Some(true),
+                sanitize_malformed_tool_calls: Some(true),
+                ..Default::default()
+            },
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(true),
+                supports_effort: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -91,14 +180,25 @@ impl ProviderCompat {
     /// Defaults for Bedrock (Anthropic + schema sanitization)
     pub fn bedrock_defaults() -> Self {
         Self {
-            ensure_alternation: Some(true),
-            merge_same_role: Some(true),
-            auto_tool_id: Some(true),
-            sanitize_schema: Some(true),
-            supports_thinking: Some(true),
-            supports_effort: Some(false),
-            sanitize_malformed_tool_calls: Some(true),
-            clean_orphan_tool_results: Some(true),
+            messages: MessageCompat {
+                ensure_alternation: Some(true),
+                merge_same_role: Some(true),
+                clean_orphan_tool_results: Some(true),
+                ..Default::default()
+            },
+            tools: ToolCompat {
+                auto_tool_id: Some(true),
+                sanitize_malformed_tool_calls: Some(true),
+                ..Default::default()
+            },
+            schema: SchemaCompat {
+                sanitize_schema: Some(true),
+            },
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(true),
+                supports_effort: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -106,16 +206,26 @@ impl ProviderCompat {
     /// Defaults for OpenAI-compatible providers
     pub fn openai_defaults() -> Self {
         Self {
-            max_tokens_field: Some("max_tokens".into()),
-            merge_assistant_messages: Some(true),
-            clean_orphan_tool_calls: Some(true),
-            clean_orphan_tool_results: Some(true),
-            dedup_tool_results: Some(true),
-            auto_tool_id: Some(true),
-            supports_thinking: Some(false),
-            supports_effort: Some(true),
-            effort_levels: Some(vec!["low".into(), "medium".into(), "high".into()]),
-            sanitize_malformed_tool_calls: Some(true),
+            transport: TransportCompat {
+                max_tokens_field: Some("max_tokens".into()),
+                ..Default::default()
+            },
+            messages: MessageCompat {
+                merge_assistant_messages: Some(true),
+                clean_orphan_tool_results: Some(true),
+                dedup_tool_results: Some(true),
+                ..Default::default()
+            },
+            tools: ToolCompat {
+                clean_orphan_tool_calls: Some(true),
+                sanitize_malformed_tool_calls: Some(true),
+                auto_tool_id: Some(true),
+            },
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(false),
+                supports_effort: Some(true),
+                effort_levels: Some(vec!["low".into(), "medium".into(), "high".into()]),
+            },
             ..Default::default()
         }
     }
@@ -123,84 +233,76 @@ impl ProviderCompat {
     /// Merge user config over defaults (user wins on non-None fields)
     pub fn merge(defaults: Self, user: Self) -> Self {
         Self {
-            max_tokens_field: user.max_tokens_field.or(defaults.max_tokens_field),
-            merge_assistant_messages: user
-                .merge_assistant_messages
-                .or(defaults.merge_assistant_messages),
-            clean_orphan_tool_calls: user
-                .clean_orphan_tool_calls
-                .or(defaults.clean_orphan_tool_calls),
-            clean_orphan_tool_results: user
-                .clean_orphan_tool_results
-                .or(defaults.clean_orphan_tool_results),
-            dedup_tool_results: user.dedup_tool_results.or(defaults.dedup_tool_results),
-            sanitize_malformed_tool_calls: user
-                .sanitize_malformed_tool_calls
-                .or(defaults.sanitize_malformed_tool_calls),
-            ensure_alternation: user.ensure_alternation.or(defaults.ensure_alternation),
-            merge_same_role: user.merge_same_role.or(defaults.merge_same_role),
-            sanitize_schema: user.sanitize_schema.or(defaults.sanitize_schema),
-            strip_patterns: user.strip_patterns.or(defaults.strip_patterns),
-            auto_tool_id: user.auto_tool_id.or(defaults.auto_tool_id),
-            api_path: user.api_path.or(defaults.api_path),
-            supports_thinking: user.supports_thinking.or(defaults.supports_thinking),
-            supports_effort: user.supports_effort.or(defaults.supports_effort),
-            effort_levels: user.effort_levels.or(defaults.effort_levels),
+            transport: TransportCompat::merge(defaults.transport, user.transport),
+            messages: MessageCompat::merge(defaults.messages, user.messages),
+            tools: ToolCompat::merge(defaults.tools, user.tools),
+            schema: SchemaCompat::merge(defaults.schema, user.schema),
+            reasoning: ReasoningCompat::merge(defaults.reasoning, user.reasoning),
         }
     }
 
     // --- Resolved accessors (Option<bool> → bool with false default) ---
 
+    pub fn max_tokens_field(&self) -> &str {
+        self.transport
+            .max_tokens_field
+            .as_deref()
+            .unwrap_or("max_tokens")
+    }
+
     pub fn merge_assistant_messages(&self) -> bool {
-        self.merge_assistant_messages.unwrap_or(false)
+        self.messages.merge_assistant_messages.unwrap_or(false)
     }
 
     pub fn clean_orphan_tool_calls(&self) -> bool {
-        self.clean_orphan_tool_calls.unwrap_or(false)
+        self.tools.clean_orphan_tool_calls.unwrap_or(false)
     }
 
     pub fn clean_orphan_tool_results(&self) -> bool {
-        self.clean_orphan_tool_results.unwrap_or(false)
+        self.messages.clean_orphan_tool_results.unwrap_or(false)
     }
 
     pub fn dedup_tool_results(&self) -> bool {
-        self.dedup_tool_results.unwrap_or(false)
+        self.messages.dedup_tool_results.unwrap_or(false)
     }
 
     pub fn sanitize_malformed_tool_calls(&self) -> bool {
-        self.sanitize_malformed_tool_calls.unwrap_or(false)
+        self.tools.sanitize_malformed_tool_calls.unwrap_or(false)
     }
 
     pub fn ensure_alternation(&self) -> bool {
-        self.ensure_alternation.unwrap_or(false)
+        self.messages.ensure_alternation.unwrap_or(false)
     }
 
     pub fn merge_same_role(&self) -> bool {
-        self.merge_same_role.unwrap_or(false)
+        self.messages.merge_same_role.unwrap_or(false)
     }
 
     pub fn sanitize_schema(&self) -> bool {
-        self.sanitize_schema.unwrap_or(false)
+        self.schema.sanitize_schema.unwrap_or(false)
     }
 
     pub fn auto_tool_id(&self) -> bool {
-        self.auto_tool_id.unwrap_or(false)
+        self.tools.auto_tool_id.unwrap_or(false)
     }
 
     pub fn api_path(&self) -> &str {
-        self.api_path.as_deref().unwrap_or("/v1/chat/completions")
+        self.transport
+            .api_path
+            .as_deref()
+            .unwrap_or("/v1/chat/completions")
     }
 
     pub fn supports_thinking(&self) -> bool {
-        self.supports_thinking.unwrap_or(false)
+        self.reasoning.supports_thinking.unwrap_or(false)
     }
 
     pub fn supports_effort(&self) -> bool {
-        self.supports_effort.unwrap_or(false)
+        self.reasoning.supports_effort.unwrap_or(false)
     }
 
     pub fn effort_levels(&self) -> &[String] {
-        self.effort_levels.as_deref().unwrap_or(&[])
+        self.reasoning.effort_levels.as_deref().unwrap_or(&[])
     }
 }
 
@@ -265,6 +367,191 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn test_flattened_compat_deserializes_legacy_toml_keys() {
+        let toml_str = r#"
+max_tokens_field = "max_completion_tokens"
+api_path = "/chat/completions"
+merge_assistant_messages = true
+clean_orphan_tool_results = false
+dedup_tool_results = true
+clean_orphan_tool_calls = true
+sanitize_malformed_tool_calls = false
+ensure_alternation = true
+merge_same_role = true
+sanitize_schema = true
+strip_patterns = ["__REASONING__"]
+auto_tool_id = true
+supports_thinking = true
+supports_effort = false
+effort_levels = ["low", "medium"]
+"#;
+
+        let compat: ProviderCompat = toml::from_str(toml_str).unwrap();
+
+        assert_eq!(
+            compat.transport.max_tokens_field.as_deref(),
+            Some("max_completion_tokens")
+        );
+        assert_eq!(
+            compat.transport.api_path.as_deref(),
+            Some("/chat/completions")
+        );
+        assert_eq!(compat.messages.merge_assistant_messages, Some(true));
+        assert_eq!(compat.messages.clean_orphan_tool_results, Some(false));
+        assert_eq!(compat.messages.dedup_tool_results, Some(true));
+        assert_eq!(compat.messages.ensure_alternation, Some(true));
+        assert_eq!(compat.messages.merge_same_role, Some(true));
+        assert_eq!(
+            compat.messages.strip_patterns,
+            Some(vec!["__REASONING__".to_string()])
+        );
+        assert_eq!(compat.tools.clean_orphan_tool_calls, Some(true));
+        assert_eq!(compat.tools.sanitize_malformed_tool_calls, Some(false));
+        assert_eq!(compat.tools.auto_tool_id, Some(true));
+        assert_eq!(compat.schema.sanitize_schema, Some(true));
+        assert_eq!(compat.reasoning.supports_thinking, Some(true));
+        assert_eq!(compat.reasoning.supports_effort, Some(false));
+        assert_eq!(
+            compat.reasoning.effort_levels,
+            Some(vec!["low".to_string(), "medium".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_flattened_compat_serializes_to_legacy_toml_keys() {
+        let compat = ProviderCompat {
+            transport: TransportCompat {
+                max_tokens_field: Some("max_completion_tokens".to_string()),
+                api_path: Some("/chat/completions".to_string()),
+            },
+            messages: MessageCompat {
+                merge_assistant_messages: Some(true),
+                clean_orphan_tool_results: Some(false),
+                dedup_tool_results: Some(true),
+                ensure_alternation: Some(true),
+                merge_same_role: Some(true),
+                strip_patterns: Some(vec!["__REASONING__".to_string()]),
+            },
+            tools: ToolCompat {
+                clean_orphan_tool_calls: Some(true),
+                sanitize_malformed_tool_calls: Some(false),
+                auto_tool_id: Some(true),
+            },
+            schema: SchemaCompat {
+                sanitize_schema: Some(true),
+            },
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(true),
+                supports_effort: Some(false),
+                effort_levels: Some(vec!["low".to_string(), "medium".to_string()]),
+            },
+        };
+
+        let toml = toml::to_string(&compat).unwrap();
+
+        assert!(toml.contains("max_tokens_field = \"max_completion_tokens\""));
+        assert!(toml.contains("api_path = \"/chat/completions\""));
+        assert!(toml.contains("merge_assistant_messages = true"));
+        assert!(toml.contains("clean_orphan_tool_results = false"));
+        assert!(toml.contains("dedup_tool_results = true"));
+        assert!(toml.contains("clean_orphan_tool_calls = true"));
+        assert!(toml.contains("sanitize_malformed_tool_calls = false"));
+        assert!(toml.contains("ensure_alternation = true"));
+        assert!(toml.contains("merge_same_role = true"));
+        assert!(toml.contains("sanitize_schema = true"));
+        assert!(toml.contains("strip_patterns = [\"__REASONING__\"]"));
+        assert!(toml.contains("auto_tool_id = true"));
+        assert!(toml.contains("supports_thinking = true"));
+        assert!(toml.contains("supports_effort = false"));
+        assert!(toml.contains("effort_levels = [\"low\", \"medium\"]"));
+        assert!(!toml.contains("[transport]"));
+        assert!(!toml.contains("[messages]"));
+        assert!(!toml.contains("[tools]"));
+        assert!(!toml.contains("[schema]"));
+        assert!(!toml.contains("[reasoning]"));
+    }
+
+    #[test]
+    fn test_domain_merge_preserves_user_overrides_and_defaults() {
+        let defaults = ProviderCompat::openai_defaults();
+        let user = ProviderCompat {
+            transport: TransportCompat {
+                max_tokens_field: Some("max_completion_tokens".to_string()),
+                api_path: Some("/chat/completions".to_string()),
+            },
+            messages: MessageCompat {
+                merge_assistant_messages: Some(false),
+                clean_orphan_tool_results: Some(false),
+                dedup_tool_results: None,
+                ensure_alternation: None,
+                merge_same_role: None,
+                strip_patterns: Some(vec!["strip-me".to_string()]),
+            },
+            tools: ToolCompat {
+                clean_orphan_tool_calls: Some(false),
+                sanitize_malformed_tool_calls: Some(false),
+                auto_tool_id: Some(false),
+            },
+            schema: SchemaCompat {
+                sanitize_schema: Some(true),
+            },
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(true),
+                supports_effort: None,
+                effort_levels: Some(vec!["custom".to_string()]),
+            },
+        };
+
+        let merged = ProviderCompat::merge(defaults, user);
+
+        assert_eq!(
+            merged.transport.max_tokens_field.as_deref(),
+            Some("max_completion_tokens")
+        );
+        assert_eq!(
+            merged.transport.api_path.as_deref(),
+            Some("/chat/completions")
+        );
+        assert!(!merged.merge_assistant_messages());
+        assert!(!merged.clean_orphan_tool_calls());
+        assert!(!merged.clean_orphan_tool_results());
+        assert!(merged.dedup_tool_results());
+        assert!(!merged.sanitize_malformed_tool_calls());
+        assert!(merged.sanitize_schema());
+        assert!(!merged.auto_tool_id());
+        assert!(merged.supports_thinking());
+        assert!(merged.supports_effort());
+        assert_eq!(merged.effort_levels(), &["custom"]);
+        assert_eq!(
+            merged.messages.strip_patterns,
+            Some(vec!["strip-me".to_string()])
+        );
+        assert_eq!(merged.reasoning.supports_thinking, Some(true));
+        assert_eq!(merged.reasoning.supports_effort, Some(true));
+        assert_eq!(
+            merged.reasoning.effort_levels,
+            Some(vec!["custom".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_domain_merge_empty_user_keeps_all_defaults() {
+        let merged = ProviderCompat::merge(
+            ProviderCompat::anthropic_defaults(),
+            ProviderCompat::default(),
+        );
+
+        assert!(merged.ensure_alternation());
+        assert!(merged.merge_same_role());
+        assert!(merged.auto_tool_id());
+        assert!(merged.sanitize_malformed_tool_calls());
+        assert!(merged.clean_orphan_tool_results());
+        assert!(merged.supports_thinking());
+        assert!(!merged.supports_effort());
+        assert!(merged.effort_levels().is_empty());
+    }
+
+    #[test]
     fn test_anthropic_defaults() {
         let compat = ProviderCompat::anthropic_defaults();
         assert!(compat.ensure_alternation());
@@ -291,22 +578,31 @@ mod tests {
         assert!(compat.clean_orphan_tool_calls());
         assert!(compat.clean_orphan_tool_results());
         assert!(compat.dedup_tool_results());
-        assert_eq!(compat.max_tokens_field.as_deref(), Some("max_tokens"));
+        assert_eq!(
+            compat.transport.max_tokens_field.as_deref(),
+            Some("max_tokens")
+        );
         assert!(!compat.ensure_alternation());
     }
 
     #[test]
     fn test_clean_orphan_tool_results_defaults() {
         assert_eq!(
-            ProviderCompat::openai_defaults().clean_orphan_tool_results,
+            ProviderCompat::openai_defaults()
+                .messages
+                .clean_orphan_tool_results,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::anthropic_defaults().clean_orphan_tool_results,
+            ProviderCompat::anthropic_defaults()
+                .messages
+                .clean_orphan_tool_results,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::bedrock_defaults().clean_orphan_tool_results,
+            ProviderCompat::bedrock_defaults()
+                .messages
+                .clean_orphan_tool_results,
             Some(true)
         );
     }
@@ -321,14 +617,20 @@ mod tests {
     fn test_merge_user_overrides_defaults() {
         let defaults = ProviderCompat::openai_defaults();
         let user = ProviderCompat {
-            max_tokens_field: Some("max_completion_tokens".into()),
-            merge_assistant_messages: Some(false),
+            transport: TransportCompat {
+                max_tokens_field: Some("max_completion_tokens".into()),
+                ..Default::default()
+            },
+            messages: MessageCompat {
+                merge_assistant_messages: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
         let merged = ProviderCompat::merge(defaults, user);
         assert_eq!(
-            merged.max_tokens_field.as_deref(),
+            merged.transport.max_tokens_field.as_deref(),
             Some("max_completion_tokens")
         );
         assert!(!merged.merge_assistant_messages());
@@ -342,12 +644,15 @@ mod tests {
     fn test_merge_clean_orphan_tool_results_user_overrides() {
         let defaults = ProviderCompat::openai_defaults();
         let user = ProviderCompat {
-            clean_orphan_tool_results: Some(false),
+            messages: MessageCompat {
+                clean_orphan_tool_results: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
         let merged = ProviderCompat::merge(defaults, user);
-        assert_eq!(merged.clean_orphan_tool_results, Some(false));
+        assert_eq!(merged.messages.clean_orphan_tool_results, Some(false));
         assert!(!merged.clean_orphan_tool_results());
     }
 
@@ -421,18 +726,18 @@ mod tests {
     #[test]
     fn test_anthropic_defaults_capability_fields() {
         let compat = ProviderCompat::anthropic_defaults();
-        assert_eq!(compat.supports_thinking, Some(true));
-        assert_eq!(compat.supports_effort, Some(false));
-        assert!(compat.effort_levels.is_none());
+        assert_eq!(compat.reasoning.supports_thinking, Some(true));
+        assert_eq!(compat.reasoning.supports_effort, Some(false));
+        assert!(compat.reasoning.effort_levels.is_none());
     }
 
     #[test]
     fn test_openai_defaults_capability_fields() {
         let compat = ProviderCompat::openai_defaults();
-        assert_eq!(compat.supports_thinking, Some(false));
-        assert_eq!(compat.supports_effort, Some(true));
+        assert_eq!(compat.reasoning.supports_thinking, Some(false));
+        assert_eq!(compat.reasoning.supports_effort, Some(true));
         assert_eq!(
-            compat.effort_levels,
+            compat.reasoning.effort_levels,
             Some(vec![
                 "low".to_string(),
                 "medium".to_string(),
@@ -444,20 +749,23 @@ mod tests {
     #[test]
     fn test_bedrock_defaults_capability_fields() {
         let compat = ProviderCompat::bedrock_defaults();
-        assert_eq!(compat.supports_thinking, Some(true));
-        assert_eq!(compat.supports_effort, Some(false));
+        assert_eq!(compat.reasoning.supports_thinking, Some(true));
+        assert_eq!(compat.reasoning.supports_effort, Some(false));
     }
 
     #[test]
     fn test_merge_capability_fields_user_overrides() {
         let defaults = ProviderCompat::openai_defaults();
         let user = ProviderCompat {
-            supports_thinking: Some(true),
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(true),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let merged = ProviderCompat::merge(defaults, user);
-        assert_eq!(merged.supports_thinking, Some(true));
-        assert_eq!(merged.supports_effort, Some(true));
+        assert_eq!(merged.reasoning.supports_thinking, Some(true));
+        assert_eq!(merged.reasoning.supports_effort, Some(true));
     }
 
     #[test]
@@ -477,15 +785,21 @@ mod tests {
     #[test]
     fn test_defaults_enable_sanitize_malformed_tool_calls() {
         assert_eq!(
-            ProviderCompat::openai_defaults().sanitize_malformed_tool_calls,
+            ProviderCompat::openai_defaults()
+                .tools
+                .sanitize_malformed_tool_calls,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::anthropic_defaults().sanitize_malformed_tool_calls,
+            ProviderCompat::anthropic_defaults()
+                .tools
+                .sanitize_malformed_tool_calls,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::bedrock_defaults().sanitize_malformed_tool_calls,
+            ProviderCompat::bedrock_defaults()
+                .tools
+                .sanitize_malformed_tool_calls,
             Some(true)
         );
     }
@@ -495,12 +809,15 @@ mod tests {
     fn test_merge_preserves_sanitize_field() {
         let defaults = ProviderCompat::openai_defaults();
         let user = ProviderCompat {
-            sanitize_malformed_tool_calls: Some(false),
+            tools: ToolCompat {
+                sanitize_malformed_tool_calls: Some(false),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let merged = ProviderCompat::merge(defaults, user);
-        assert_eq!(merged.sanitize_malformed_tool_calls, Some(false)); // user wins
-        assert_eq!(merged.clean_orphan_tool_calls, Some(true)); // default preserved
+        assert_eq!(merged.tools.sanitize_malformed_tool_calls, Some(false)); // user wins
+        assert_eq!(merged.tools.clean_orphan_tool_calls, Some(true)); // default preserved
     }
 
     #[test]
@@ -513,15 +830,15 @@ strip_patterns = ["__REASONING__"]
 "#;
         let compat: ProviderCompat = toml::from_str(toml_str).unwrap();
         assert_eq!(
-            compat.max_tokens_field.as_deref(),
+            compat.transport.max_tokens_field.as_deref(),
             Some("max_completion_tokens")
         );
-        assert_eq!(compat.merge_assistant_messages, Some(true));
-        assert_eq!(compat.clean_orphan_tool_results, Some(false));
+        assert_eq!(compat.messages.merge_assistant_messages, Some(true));
+        assert_eq!(compat.messages.clean_orphan_tool_results, Some(false));
         assert_eq!(
-            compat.strip_patterns,
+            compat.messages.strip_patterns,
             Some(vec!["__REASONING__".to_string()])
         );
-        assert!(compat.clean_orphan_tool_calls.is_none());
+        assert!(compat.tools.clean_orphan_tool_calls.is_none());
     }
 }

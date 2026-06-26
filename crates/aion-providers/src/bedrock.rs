@@ -8,18 +8,19 @@ use aws_sigv4::http_request::{
     SigningSettings,
 };
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::time::SystemTime;
 use tokio::sync::mpsc;
 
-use base64::Engine as _;
-
-use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
+use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{StopReason, TokenUsage};
 
-use super::anthropic_shared;
+use crate::framing::bedrock_payload_to_frame;
+use crate::parser::ResponseParser;
+use crate::projector::{AnthropicWireProjector, WireParams};
+use crate::stream_runner::StreamOutcome;
 use crate::{LlmProvider, ProviderError};
-use aion_config::compat::{self, ProviderCompat};
+use aion_config::compat::ProviderCompat;
 
 pub struct BedrockProvider {
     client: reqwest::Client,
@@ -57,48 +58,17 @@ impl BedrockProvider {
     }
 
     fn build_request_body(&self, request: &LlmRequest) -> Value {
-        let system = if self.cache_enabled {
-            json!([{
-                "type": "text",
-                "text": &request.system,
-                "cache_control": { "type": "ephemeral" }
-            }])
-        } else {
-            json!(&request.system)
-        };
-
-        let mut body = json!({
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": request.max_tokens,
-            "system": system,
-            "messages": anthropic_shared::build_messages(&request.messages, &self.compat)
-        });
-
-        if !request.tools.is_empty() {
-            let mut tools = anthropic_shared::build_tools(&request.tools);
-            if self.compat.sanitize_schema() {
-                for tool in &mut tools {
-                    if let Some(schema) = tool.get("input_schema").cloned() {
-                        tool["input_schema"] = compat::sanitize_json_schema(&schema);
-                    }
-                }
-            }
-            if self.cache_enabled
-                && let Some(last) = tools.last_mut()
-            {
-                last["cache_control"] = json!({ "type": "ephemeral" });
-            }
-            body["tools"] = json!(tools);
-        }
-
-        if let Some(ThinkingConfig::Enabled { budget_tokens }) = &request.thinking {
-            body["thinking"] = json!({
-                "type": "enabled",
-                "budget_tokens": budget_tokens
-            });
-        }
-
-        body
+        AnthropicWireProjector::project(
+            request,
+            &self.compat,
+            WireParams {
+                anthropic_version: Some("bedrock-2023-05-31"),
+                include_model_in_body: false,
+                include_stream: false,
+                cache_enabled: self.cache_enabled,
+                sanitize_schema: self.compat.sanitize_schema(),
+            },
+        )
     }
 
     fn build_url(&self, model: &str) -> String {
@@ -289,9 +259,8 @@ impl LlmProvider for BedrockProvider {
         // AWS event stream uses binary framing
         tokio::spawn(async move {
             match process_aws_event_stream(response, &tx).await {
-                anthropic_shared::StreamOutcome::Ok => {}
-                anthropic_shared::StreamOutcome::FailedPartial(e)
-                | anthropic_shared::StreamOutcome::FailedEmpty(e) => {
+                StreamOutcome::Ok => {}
+                StreamOutcome::FailedPartial(e) | StreamOutcome::FailedEmpty(e) => {
                     // Bedrock retry requires re-signing; not implemented yet.
                     let _ = tx.send(LlmEvent::Error(e.to_string())).await;
                 }
@@ -306,10 +275,11 @@ impl LlmProvider for BedrockProvider {
 async fn process_aws_event_stream(
     response: reqwest::Response,
     tx: &mpsc::Sender<LlmEvent>,
-) -> anthropic_shared::StreamOutcome {
+) -> StreamOutcome {
     use futures::StreamExt;
 
-    let mut state = anthropic_shared::StreamState::new();
+    let parser = crate::parser::AnthropicParser;
+    let mut state = parser.new_state();
     let mut buffer = Vec::new();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
@@ -320,9 +290,9 @@ async fn process_aws_event_stream(
             Err(e) => {
                 let err = ProviderError::Connection(e.to_string());
                 return if emitted_content {
-                    anthropic_shared::StreamOutcome::FailedPartial(err)
+                    StreamOutcome::FailedPartial(err)
                 } else {
-                    anthropic_shared::StreamOutcome::FailedEmpty(err)
+                    StreamOutcome::FailedEmpty(err)
                 };
             }
         };
@@ -332,35 +302,25 @@ async fn process_aws_event_stream(
         while let Some((event_data, consumed)) = parse_aws_event(&buffer) {
             buffer = buffer[consumed..].to_vec();
 
-            if let Some(payload) = event_data {
-                // The payload contains an SSE-like structure with "bytes" field
-                if let Ok(wrapper) = serde_json::from_slice::<Value>(&payload) {
-                    // Bedrock wraps the payload in {"bytes": "base64-encoded-data"}
-                    if let Some(b64) = wrapper["bytes"].as_str()
-                        && let Ok(decoded) = base64::engine::general_purpose::STANDARD.decode(b64)
-                        && let Ok(inner) = String::from_utf8(decoded)
-                    {
-                        tracing::debug!(target: "aion_providers", chunk = %inner, "bedrock event chunk");
-                        // Inner payload is JSON with event type hints
-                        if let Ok(json_val) = serde_json::from_str::<Value>(&inner) {
-                            let event_type = json_val["type"].as_str().unwrap_or("");
-                            let events =
-                                anthropic_shared::parse_sse_data(event_type, &inner, &mut state);
-                            for event in events {
-                                if matches!(
-                                    event,
-                                    LlmEvent::TextDelta(_)
-                                        | LlmEvent::ThinkingDelta(_)
-                                        | LlmEvent::ThinkingSignature(_)
-                                        | LlmEvent::ToolUse { .. }
-                                ) {
-                                    emitted_content = true;
-                                }
-                                if tx.send(event).await.is_err() {
-                                    return anthropic_shared::StreamOutcome::Ok;
-                                }
-                            }
-                        }
+            let Some(payload) = event_data else {
+                continue;
+            };
+
+            if let Some(frame) = bedrock_payload_to_frame(&payload) {
+                tracing::debug!(target: "aion_providers", chunk = %frame.data, "bedrock event chunk");
+                let events = parser.parse_frame(&frame, &mut state);
+                for event in events {
+                    if matches!(
+                        event,
+                        LlmEvent::TextDelta(_)
+                            | LlmEvent::ThinkingDelta(_)
+                            | LlmEvent::ThinkingSignature(_)
+                            | LlmEvent::ToolUse { .. }
+                    ) {
+                        emitted_content = true;
+                    }
+                    if tx.send(event).await.is_err() {
+                        return StreamOutcome::Ok;
                     }
                 }
             }
@@ -382,7 +342,7 @@ async fn process_aws_event_stream(
             .await;
     }
 
-    anthropic_shared::StreamOutcome::Ok
+    StreamOutcome::Ok
 }
 
 /// Parse one AWS event stream message from the buffer.
@@ -475,5 +435,83 @@ pub fn credentials_from_config(bc: &aion_config::config::BedrockConfig) -> AwsCr
         AwsCredentials::Profile(profile.clone())
     } else {
         AwsCredentials::Environment
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aion_types::message::{ContentBlock, Message, Role};
+    use aion_types::tool::ToolDef;
+    use serde_json::json;
+
+    // --- Golden body snapshots (baseline for compat-split / seam-extraction refactors) ---
+
+    fn bedrock_test_provider() -> BedrockProvider {
+        BedrockProvider::new(
+            "us-east-1",
+            AwsCredentials::Explicit {
+                access_key_id: "test-key".to_string(),
+                secret_access_key: "test-secret".to_string(),
+                session_token: None,
+            },
+            false,
+            ProviderCompat::bedrock_defaults(),
+        )
+    }
+
+    fn bedrock_req(messages: Vec<Message>, tools: Vec<ToolDef>) -> LlmRequest {
+        LlmRequest {
+            model: "test-model".to_string(),
+            system: "You are a test assistant.".to_string(),
+            messages,
+            tools,
+            max_tokens: 8192,
+            thinking: None,
+            reasoning_effort: None,
+        }
+    }
+
+    fn bedrock_tools() -> Vec<ToolDef> {
+        vec![ToolDef {
+            name: "read".to_string(),
+            description: "Read".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {"path": {"type": ["string", "null"]}},
+                "additionalProperties": false
+            }),
+            deferred: false,
+        }]
+    }
+
+    #[test]
+    fn golden_bedrock_basic() {
+        let p = bedrock_test_provider();
+        let r = bedrock_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "Hello".to_string(),
+                }],
+            )],
+            vec![],
+        );
+        insta::assert_json_snapshot!("bedrock_basic", p.build_request_body(&r));
+    }
+
+    #[test]
+    fn golden_bedrock_with_tools() {
+        let p = bedrock_test_provider();
+        let r = bedrock_req(
+            vec![Message::new(
+                Role::User,
+                vec![ContentBlock::Text {
+                    text: "go".to_string(),
+                }],
+            )],
+            bedrock_tools(),
+        );
+        insta::assert_json_snapshot!("bedrock_with_tools", p.build_request_body(&r));
     }
 }
