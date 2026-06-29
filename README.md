@@ -46,19 +46,21 @@ aionrs --help
 
 ## Runtime Limits
 
-`max_turns` is the broad model-turn limit per run; it defaults to `20`.
-Set it to `0` to disable the broad limit. `max_tool_call_malformed_turns`
+`max_turns` is the broad model-turn limit per run. It is unset by default,
+so runs have no broad model-turn limit unless you configure one. Set it to
+`0` to explicitly disable the broad limit. `max_tool_call_malformed_turns`
 stops repeated same tool-call-malformed rounds earlier; it defaults to `3`.
 `max_tool_call_failure_turns` stops zero-text turns where every executable
 tool result failed; it also defaults to `3`. Set either guard to `0` to
-disable that breaker and rely on `max_turns`.
+disable that breaker and rely on `max_turns` if a broad turn limit is
+configured.
 
 See [Core Concepts](docs/core-concepts.md) for the distinction between runs,
 turns, tool rounds, and tool calls.
 
 ```toml
 [default]
-max_turns = 20
+max_turns = 20  # optional broad model-turn limit
 max_tool_call_malformed_turns = 3
 max_tool_call_failure_turns = 3
 

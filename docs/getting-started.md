@@ -30,7 +30,7 @@ aionrs [OPTIONS] [PROMPT]...
 | `--profile <name>` | Named profile from config file |
 | `--compaction <level>` | Output compaction: `off`, `safe` (default), `full` |
 | `--toon` | Enable TOON tabular encoding (with `full` compaction) |
-| `--max-turns <n>` | Broad model-turn limit per run; defaults to `20`, `0` disables |
+| `--max-turns <n>` | Broad model-turn limit per run; unset by default, `0` disables |
 | `--max-tool-call-malformed-turns <n>` | Stop after repeated same tool-call-malformed rounds; `0` disables |
 | `--max-tool-call-failure-turns <n>` | Stop after repeated tool-call-failure rounds; `0` disables |
 | `--auto-approve` | Skip all tool confirmations |
@@ -69,7 +69,7 @@ aionrs --init-config
 provider = "anthropic"
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
-max_turns = 20  # max model turns per run; set 0 to disable
+# max_turns = 20  # optional max model turns per run; omit or set 0 to disable
 max_tool_call_malformed_turns = 3  # default; set 0 to disable this breaker
 max_tool_call_failure_turns = 3  # default; set 0 to disable this breaker
 
@@ -140,17 +140,18 @@ plan_directory = ".aionrs/plans"
 
 ### Runtime Limits
 
-`max_turns` is the broad model-turn limit per run. It defaults to `20`; set it
-to `0` to disable the broad limit. See [Core Concepts](core-concepts.md) for
+`max_turns` is the broad model-turn limit per run. It is unset by default, so
+runs have no broad model-turn limit unless you configure one. Set it to `0` to
+explicitly disable the broad limit. See [Core Concepts](core-concepts.md) for
 the distinction between runs, turns, tool rounds, and tool calls.
 
 `max_tool_call_malformed_turns` limits consecutive same tool-call-malformed
 rounds from a provider. The default is `3`; `0` disables this breaker
-and leaves stopping to `max_turns`.
+and leaves stopping to `max_turns` if a broad turn limit is configured.
 
 `max_tool_call_failure_turns` limits consecutive zero-text turns where every
 executable tool result failed. The default is `3`; `0` disables this breaker
-and leaves stopping to `max_turns`.
+and leaves stopping to `max_turns` if a broad turn limit is configured.
 
 Precedence is `CLI > profile > project config > global config > built-in default 3`. Use `--max-tool-call-malformed-turns <n>` or `--max-tool-call-failure-turns <n>` for a one-off CLI override.
 

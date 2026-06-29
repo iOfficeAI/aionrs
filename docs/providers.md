@@ -84,8 +84,8 @@ aionrs --profile dev "Create a GitHub issue"
 - Supports multi-level inheritance chains
 - Auto-detects circular inheritance
 - Child profile settings override parent
-- `max_tool_call_malformed_turns` can be set per profile. It defaults to `3`; `0` disables this tool-call-malformed round breaker and leaves stopping to `max_turns`.
-- `max_tool_call_failure_turns` can be set per profile. It defaults to `3`; `0` disables this tool-call-failure round breaker and leaves stopping to `max_turns`.
+- `max_tool_call_malformed_turns` can be set per profile. It defaults to `3`; `0` disables this tool-call-malformed round breaker and leaves stopping to `max_turns` if a broad turn limit is configured.
+- `max_tool_call_failure_turns` can be set per profile. It defaults to `3`; `0` disables this tool-call-failure round breaker and leaves stopping to `max_turns` if a broad turn limit is configured.
 - Override them for one run with `--max-tool-call-malformed-turns <n>` or `--max-tool-call-failure-turns <n>`.
 
 ---

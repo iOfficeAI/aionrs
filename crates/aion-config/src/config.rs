@@ -13,8 +13,6 @@ use crate::plan::PlanConfig;
 use crate::shell::ShellConfig;
 use aion_types::llm::ThinkingConfig;
 
-pub const DEFAULT_MAX_TURNS: usize = 20;
-
 // ---------------------------------------------------------------------------
 // Provider-specific sub-configurations (defined here to avoid circular deps)
 // ---------------------------------------------------------------------------
@@ -262,7 +260,7 @@ fn resolve_max_turns(configured: Option<usize>) -> Option<usize> {
     match configured {
         Some(0) => None,
         Some(limit) => Some(limit),
-        None => Some(DEFAULT_MAX_TURNS),
+        None => None,
     }
 }
 
@@ -894,7 +892,7 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r#"# aionrs configuration
 provider = "anthropic"            # built-in provider or custom alias from [providers.<name>]
 # model = "claude-sonnet-4-20250514"
 max_tokens = 8192
-# max_turns = 20                  # max model turns per run; set 0 to disable
+# max_turns = 20                  # optional max model turns per run; omit or set 0 to disable
 # max_tool_call_malformed_turns = 3  # 0 disables the tool-call-malformed round breaker
 # max_tool_call_failure_turns = 3    # 0 disables the tool-call-failure round breaker
 # system_prompt = "..."          # optional custom system prompt
@@ -1580,8 +1578,8 @@ allow = ["commit", "review-pr", "db:*"]
     }
 
     #[test]
-    fn resolve_max_turns_defaults_and_allows_explicit_disable() {
-        assert_eq!(resolve_max_turns(None), Some(DEFAULT_MAX_TURNS));
+    fn resolve_max_turns_defaults_to_unlimited_and_preserves_explicit_limits() {
+        assert_eq!(resolve_max_turns(None), None);
         assert_eq!(resolve_max_turns(Some(0)), None);
         assert_eq!(resolve_max_turns(Some(7)), Some(7));
     }

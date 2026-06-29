@@ -106,7 +106,8 @@ tool call/result pairs: 3
 
 ## Runtime Limit Semantics
 
-`max_turns` is the broad non-convergence limit for one run:
+`max_turns` is the broad non-convergence limit for one run. It is unset by
+default, so runs have no broad model-turn limit unless you configure one:
 
 ```toml
 max_turns = 20
@@ -118,7 +119,7 @@ means:
 max model turns per run = 20
 ```
 
-Setting `max_turns = 0` disables this broad turn limit.
+Omitting `max_turns` or setting `max_turns = 0` disables this broad turn limit.
 
 The limit applies to turns, not individual tool calls. If one turn requests
 three tools, that consumes:
