@@ -14,6 +14,7 @@ pub fn collapse_cr_lines(text: &str) -> String {
         if !result.is_empty() {
             result.push('\n');
         }
+        let line = line.strip_suffix('\r').unwrap_or(line);
         if let Some(last) = line.rsplit('\r').next() {
             result.push_str(last);
         }
@@ -105,6 +106,21 @@ mod tests {
     }
 
     #[test]
+    fn collapse_cr_preserves_crlf_line_content() {
+        let input = "Exit code: 0\nSTDOUT:\nmessage\r\nSTDERR:";
+        assert_eq!(
+            collapse_cr_lines(input),
+            "Exit code: 0\nSTDOUT:\nmessage\nSTDERR:"
+        );
+    }
+
+    #[test]
+    fn collapse_cr_preserves_overwrite_semantics_with_crlf() {
+        let input = "Downloading... 10%\rDownloading... 100%\r\nDone\r\nLast";
+        assert_eq!(collapse_cr_lines(input), "Downloading... 100%\nDone\nLast");
+    }
+
+    #[test]
     fn collapse_cr_no_cr_unchanged() {
         let input = "line1\nline2\nline3";
         assert_eq!(collapse_cr_lines(input), input);
@@ -154,5 +170,19 @@ mod tests {
         assert!(!result.contains("\n\n\n"));
         assert!(!result.contains("   \n"));
         assert!(result.contains("bar done"));
+    }
+
+    #[test]
+    fn sanitize_preserves_windows_command_stdout() {
+        let input = "Exit code: 0\nSTDOUT:\nmessage\r\nSTDERR:";
+        let result = sanitize(input);
+        assert_eq!(result, "Exit code: 0\nSTDOUT:\nmessage\nSTDERR:");
+    }
+
+    #[test]
+    fn sanitize_preserves_unix_command_stdout() {
+        let input = "Exit code: 0\nSTDOUT:\nmessage\nSTDERR:";
+        let result = sanitize(input);
+        assert_eq!(result, input);
     }
 }

@@ -320,6 +320,25 @@ mod tests {
 
     #[cfg(windows)]
     #[tokio::test]
+    async fn execute_powershell_echo_quoted_message_returns_stdout() {
+        let tool = ExecCommandTool::new(std::env::temp_dir());
+        let input = json!({
+            "cmd": "echo \"message\"",
+            "shell": "powershell"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(
+            result.content.contains("STDOUT:\n") && result.content.contains("message"),
+            "PowerShell quoted echo stdout should be preserved, got: {}",
+            result.content
+        );
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
     async fn execute_cmd_echo_returns_stdout() {
         let tool = ExecCommandTool::new(std::env::temp_dir());
         let input = json!({

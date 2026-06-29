@@ -6,7 +6,7 @@
 
 # Cross-platform shell defaults for linewise recipes.
 set shell := ["sh", "-cu"]
-set windows-shell := ["pwsh", "-NoLogo", "-NoProfile", "-Command"]
+set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command"]
 
 # `which()` is used below to probe for `vx`; it is a just unstable feature.
 set unstable
@@ -141,13 +141,17 @@ clean:
 push *ARGS: lint-fix fmt _auto-commit-fixes test
     git push {{ ARGS }}
 
-# Auto-commit any fmt/clippy fixes. Pure git + the `||` chain operator, which
-# both `sh` and `pwsh` (7+) understand — so no bash shebang / `[ ]` test, and
-# it runs the same on every OS. `git diff --cached --quiet` exits non-zero only
-# when there is something staged, gating the commit.
+# Auto-commit any fmt/clippy fixes. Split by shell so the Windows path works
+# with the built-in Windows PowerShell as well as PowerShell 7.
+[unix]
 _auto-commit-fixes:
     @git add -A
     @git diff --cached --quiet || git commit -m "chore: auto-commit lint/fmt fixes in just push recipe"
+
+[windows]
+_auto-commit-fixes:
+    @git add -A
+    @git diff --cached --quiet; if ($LASTEXITCODE -eq 1) { git commit -m "chore: auto-commit lint/fmt fixes in just push recipe" } elseif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # ── All checks (mirrors CI exactly) ───────────────────────────────────────
 check-all: fmt-check lint test-ci hakari-verify audit
