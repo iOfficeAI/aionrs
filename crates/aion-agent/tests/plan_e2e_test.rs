@@ -63,9 +63,7 @@ fn mock_tool(name: &str, category: ToolCategory) -> Box<MockTool> {
 /// Simulate the plan mode filter the engine applies in its run() loop.
 fn plan_mode_filter(registry: &ToolRegistry) -> Vec<String> {
     registry
-        .to_tool_defs_filtered(|t| {
-            t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
-        })
+        .to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode")
         .iter()
         .map(|d| d.name.clone())
         .collect()
@@ -223,10 +221,7 @@ fn tc_3_6_e2e_02_plan_mode_and_compaction_independent() {
     let result = microcompact(&mut messages, &config);
 
     // Microcompact should have cleared some results
-    assert!(
-        result.cleared_count > 0,
-        "microcompact should clear old results"
-    );
+    assert!(result.cleared_count > 0, "microcompact should clear old results");
 
     // Plan state should be completely unaffected (microcompact only touches messages)
     assert!(plan_state.is_active, "plan mode should remain active");
@@ -262,10 +257,7 @@ fn tc_3_6_e2e_03_skill_tool_available_in_plan_mode() {
         plan_tools.contains(&"Skill".to_string()),
         "Skill tool (Info category) should be available in plan mode"
     );
-    assert!(
-        plan_tools.contains(&"Read".to_string()),
-        "Read should be available"
-    );
+    assert!(plan_tools.contains(&"Read".to_string()), "Read should be available");
     assert!(
         !plan_tools.contains(&"Write".to_string()),
         "Write should not be available"
@@ -368,10 +360,7 @@ fn plan_mode_modifiers_do_not_interfere_with_other_fields() {
     assert!(enter_cm.model.is_none());
     assert!(enter_cm.effort.is_none());
     assert!(enter_cm.allowed_tools.is_empty());
-    assert_eq!(
-        enter_cm.plan_mode_transition,
-        Some(PlanModeTransition::Enter)
-    );
+    assert_eq!(enter_cm.plan_mode_transition, Some(PlanModeTransition::Enter));
 
     // Exit modifier should only set plan_mode_transition
     let exit_cm = exit.context_modifier_for(&json!({})).unwrap();

@@ -46,9 +46,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                         "text": text
                     }));
                 }
-                ContentBlock::ToolUse {
-                    id, name, input, ..
-                } => {
+                ContentBlock::ToolUse { id, name, input, .. } => {
                     if sanitize && name.is_empty() {
                         let reason = DroppedToolCallReason::EmptyName;
                         dropped_ids.entry(id.clone()).or_default().push_back(reason);
@@ -117,11 +115,8 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                         .and_then(VecDeque::pop_front)
                         .unwrap_or_else(|| tool_use_id.clone());
 
-                    if clean_orphan_tool_results
-                        && !available_tool_use_ids.contains(&projected_tool_use_id)
-                    {
-                        empty_message_placeholder
-                            .get_or_insert("[tool call skipped: malformed (orphan tool result).]");
+                    if clean_orphan_tool_results && !available_tool_use_ids.contains(&projected_tool_use_id) {
+                        empty_message_placeholder.get_or_insert("[tool call skipped: malformed (orphan tool result).]");
                         tracing::warn!(
                             target: "aion_providers",
                             tool_call_id = %tool_use_id,
@@ -138,10 +133,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                         "is_error": is_error
                     }));
                 }
-                ContentBlock::Thinking {
-                    thinking,
-                    signature,
-                } => {
+                ContentBlock::Thinking { thinking, signature } => {
                     let mut value = json!({
                         "type": "thinking",
                         "thinking": thinking
@@ -210,11 +202,7 @@ fn ensure_message_alternation(messages: &mut Vec<Value>) {
         let prev_role = messages[i - 1]["role"].as_str().unwrap_or("");
         let curr_role = messages[i]["role"].as_str().unwrap_or("");
         if prev_role == curr_role {
-            let filler_role = if curr_role == "user" {
-                "assistant"
-            } else {
-                "user"
-            };
+            let filler_role = if curr_role == "user" { "assistant" } else { "user" };
             messages.insert(
                 i,
                 json!({
@@ -300,8 +288,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
         "message_start" => {
             if let Some(usage) = json.get("message").and_then(|m| m.get("usage")) {
                 state.input_tokens = usage["input_tokens"].as_u64().unwrap_or(0);
-                state.cache_creation_tokens =
-                    usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
+                state.cache_creation_tokens = usage["cache_creation_input_tokens"].as_u64().unwrap_or(0);
                 state.cache_read_tokens = usage["cache_read_input_tokens"].as_u64().unwrap_or(0);
             }
         }
@@ -349,8 +336,8 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
 
         "content_block_stop" => {
             if state.current_block_type.as_deref() == Some("tool_use") {
-                let input: Value = serde_json::from_str(&state.tool_input_json)
-                    .unwrap_or(Value::Object(serde_json::Map::new()));
+                let input: Value =
+                    serde_json::from_str(&state.tool_input_json).unwrap_or(Value::Object(serde_json::Map::new()));
                 if state.tool_name.is_empty() {
                     tracing::warn!(
                         target: "aion_providers",
@@ -398,9 +385,7 @@ pub fn parse_sse_data(event_type: &str, data: &str, state: &mut StreamState) -> 
         }
 
         "error" => {
-            let msg = json["error"]["message"]
-                .as_str()
-                .unwrap_or("Unknown API error");
+            let msg = json["error"]["message"].as_str().unwrap_or("Unknown API error");
             events.push(LlmEvent::Error(msg.to_string()));
         }
 
@@ -659,9 +644,7 @@ mod tests {
             Message::new(
                 Role::Assistant,
                 vec![
-                    ContentBlock::Text {
-                        text: "writing".into(),
-                    },
+                    ContentBlock::Text { text: "writing".into() },
                     ContentBlock::ToolUse {
                         id: "call_x".into(),
                         name: "".into(),
@@ -693,13 +676,7 @@ mod tests {
         let any_text = result
             .iter()
             .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
-            .any(|b| {
-                b["type"] == "text"
-                    && b["text"]
-                        .as_str()
-                        .unwrap_or("")
-                        .contains("[tool call skipped:")
-            });
+            .any(|b| b["type"] == "text" && b["text"].as_str().unwrap_or("").contains("[tool call skipped:"));
         assert!(any_text);
     }
 
@@ -721,17 +698,10 @@ mod tests {
             .unwrap();
         assert!(content.iter().any(|b| {
             b["type"] == "text"
-                && b["text"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("[tool call skipped:")
+                && b["text"].as_str().unwrap_or("").contains("[tool call skipped:")
                 && b["text"].as_str().unwrap_or("").contains("arguments={}")
         }));
-        assert!(
-            !content
-                .iter()
-                .any(|b| b["type"] == "tool_use" && b["name"] == "")
-        );
+        assert!(!content.iter().any(|b| b["type"] == "tool_use" && b["name"] == ""));
     }
 
     #[test]
@@ -761,15 +731,14 @@ mod tests {
         let content = result.iter().find(|m| m["role"] == "assistant").unwrap()["content"]
             .as_array()
             .unwrap();
-        assert!(content.iter().any(|b| {
-            b["type"] == "text" && b["text"].as_str().unwrap_or("") == "ordinary  text"
-        }));
+        assert!(
+            content
+                .iter()
+                .any(|b| { b["type"] == "text" && b["text"].as_str().unwrap_or("") == "ordinary  text" })
+        );
         assert!(content.iter().any(|b| {
             b["type"] == "text"
-                && b["text"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("[tool call skipped:")
+                && b["text"].as_str().unwrap_or("").contains("[tool call skipped:")
                 && b["text"].as_str().unwrap_or("").contains("arguments={}")
         }));
     }
@@ -878,10 +847,7 @@ mod tests {
         assert!(!blocks.iter().any(|b| b["type"] == "tool_result"));
         assert!(blocks.iter().any(|b| {
             b["type"] == "text"
-                && b["text"]
-                    .as_str()
-                    .unwrap_or("")
-                    .contains("empty tool call id")
+                && b["text"].as_str().unwrap_or("").contains("empty tool call id")
                 && b["text"]
                     .as_str()
                     .unwrap_or("")
@@ -1046,10 +1012,7 @@ mod tests {
             .find(|b| b["type"] == "tool_use" && b["name"] == "Bash")
             .and_then(|b| b["id"].as_str())
             .unwrap();
-        let tool_results: Vec<_> = blocks
-            .iter()
-            .filter(|b| b["type"] == "tool_result")
-            .collect();
+        let tool_results: Vec<_> = blocks.iter().filter(|b| b["type"] == "tool_result").collect();
         assert_eq!(tool_results.len(), 1);
         assert_eq!(tool_results[0]["tool_use_id"], generated_id);
         assert_eq!(tool_results[0]["content"], "ok");
@@ -1172,19 +1135,10 @@ mod tests {
         let result = build_tools(&tools);
 
         // Core tool has full input_schema
-        assert!(
-            result[0]["input_schema"]["properties"]
-                .get("path")
-                .is_some()
-        );
+        assert!(result[0]["input_schema"]["properties"].get("path").is_some());
 
         // Deferred tool has empty input_schema and modified description
-        assert!(
-            result[1]["input_schema"]["properties"]
-                .as_object()
-                .unwrap()
-                .is_empty()
-        );
+        assert!(result[1]["input_schema"]["properties"].as_object().unwrap().is_empty());
         let desc = result[1]["description"].as_str().unwrap();
         assert!(desc.contains("ToolSearch"));
     }
@@ -1289,9 +1243,7 @@ mod tests {
         // assert
         assert_eq!(events.len(), 1);
         match &events[0] {
-            LlmEvent::ToolUse {
-                id, name, input, ..
-            } => {
+            LlmEvent::ToolUse { id, name, input, .. } => {
                 assert_eq!(id, "id1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

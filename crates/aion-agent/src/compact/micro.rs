@@ -57,11 +57,7 @@ fn time_trigger(messages: &[Message], config: &CompactConfig) -> bool {
 /// Count-based trigger: compactable tool results > keep_recent * 2.
 fn count_trigger(messages: &[Message], config: &CompactConfig) -> bool {
     let tool_names = build_tool_name_map(messages);
-    let compactable_set: HashSet<&str> = config
-        .compactable_tools
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let compactable_set: HashSet<&str> = config.compactable_tools.iter().map(String::as_str).collect();
 
     let count = count_compactable_results(messages, &tool_names, &compactable_set);
     count > config.micro_keep_recent * 2
@@ -77,11 +73,7 @@ fn count_trigger(messages: &[Message], config: &CompactConfig) -> bool {
 /// the keep budget.
 pub fn microcompact(messages: &mut [Message], config: &CompactConfig) -> MicrocompactResult {
     let tool_names = build_tool_name_map(messages);
-    let compactable_set: HashSet<&str> = config
-        .compactable_tools
-        .iter()
-        .map(String::as_str)
-        .collect();
+    let compactable_set: HashSet<&str> = config.compactable_tools.iter().map(String::as_str).collect();
 
     // Collect (message_index, block_index) of all compactable, non-cleared
     // tool results, in conversation order.
@@ -172,9 +164,7 @@ fn is_compactable_and_live(
     compactable_set: &HashSet<&str>,
 ) -> bool {
     if let ContentBlock::ToolResult {
-        tool_use_id,
-        content,
-        ..
+        tool_use_id, content, ..
     } = block
     {
         if content == CLEARED_TOOL_RESULT {
@@ -213,9 +203,7 @@ mod tests {
     }
 
     fn text_block(text: &str) -> ContentBlock {
-        ContentBlock::Text {
-            text: text.to_string(),
-        }
+        ContentBlock::Text { text: text.to_string() }
     }
 
     fn assistant_msg(blocks: Vec<ContentBlock>) -> Message {
@@ -265,8 +253,7 @@ mod tests {
 
     #[test]
     fn live_compactable_result_returns_true() {
-        let tool_names: HashMap<String, String> =
-            [("t1".into(), "Read".into())].into_iter().collect();
+        let tool_names: HashMap<String, String> = [("t1".into(), "Read".into())].into_iter().collect();
         let set: HashSet<&str> = ["Read"].into_iter().collect();
         let block = tool_result_block("t1", "file content here");
         assert!(is_compactable_and_live(&block, &tool_names, &set));
@@ -274,8 +261,7 @@ mod tests {
 
     #[test]
     fn already_cleared_result_returns_false() {
-        let tool_names: HashMap<String, String> =
-            [("t1".into(), "Read".into())].into_iter().collect();
+        let tool_names: HashMap<String, String> = [("t1".into(), "Read".into())].into_iter().collect();
         let set: HashSet<&str> = ["Read"].into_iter().collect();
         let block = tool_result_block("t1", CLEARED_TOOL_RESULT);
         assert!(!is_compactable_and_live(&block, &tool_names, &set));
@@ -283,8 +269,7 @@ mod tests {
 
     #[test]
     fn non_compactable_tool_returns_false() {
-        let tool_names: HashMap<String, String> =
-            [("t1".into(), "Skill".into())].into_iter().collect();
+        let tool_names: HashMap<String, String> = [("t1".into(), "Skill".into())].into_iter().collect();
         let set: HashSet<&str> = ["Read", "ExecCommand"].into_iter().collect();
         let block = tool_result_block("t1", "result");
         assert!(!is_compactable_and_live(&block, &tool_names, &set));
@@ -516,11 +501,7 @@ mod tests {
         assert_eq!(msgs.len(), original_len);
         // Roles alternate: Assistant, User, Assistant, User, ...
         for (i, msg) in msgs.iter().enumerate() {
-            let expected = if i % 2 == 0 {
-                Role::Assistant
-            } else {
-                Role::User
-            };
+            let expected = if i % 2 == 0 { Role::Assistant } else { Role::User };
             assert_eq!(msg.role, expected);
         }
     }

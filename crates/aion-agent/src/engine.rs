@@ -1,35 +1,46 @@
+use std::mem::replace;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
+use crate::commands::{CommandContext, CommandRegistry, CommandResult, SlashCommand, default_registry};
+use crate::compact::auto::{CompactError, autocompact, should_autocompact};
+use crate::compact::emergency::is_at_emergency_limit;
+use crate::compact::estimate::estimate_tokens_from_messages;
+use crate::compact::micro::{microcompact, should_microcompact};
 use crate::compact::state::CompactState;
-use crate::compact::{auto, emergency, estimate, micro};
 use crate::confirm::ToolConfirmer;
 use crate::error::AgentError;
-use crate::orchestration::{
-    ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval,
-};
+use crate::orchestration::{ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval};
 use crate::output::OutputSink;
-use crate::plan::prompt as plan_prompt;
+use crate::plan::prompt::plan_mode_instructions;
 use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
 use crate::stream::StreamOutcome;
 use crate::tool_call::{
-    DEFAULT_MAX_TOOL_CALL_FAILURE, DEFAULT_MAX_TOOL_CALL_MALFORMED, ToolCallMalformedFingerprint,
-    merge_tool_results, tool_call_malformed_fingerprint, tool_call_malformed_reason,
+    DEFAULT_MAX_TOOL_CALL_FAILURE, DEFAULT_MAX_TOOL_CALL_MALFORMED, ToolCallMalformedFingerprint, merge_tool_results,
+    tool_call_malformed_fingerprint, tool_call_malformed_reason,
 };
 use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
+use aion_compact::CompactLevel;
 use aion_config::compact::CompactConfig;
+use aion_config::compat::ProviderCompat;
 use aion_config::config::Config;
 use aion_config::hooks::HookEngine;
+use aion_protocol::ToolApprovalManager;
 use aion_protocol::events::ToolCategory;
+use aion_protocol::writer::ProtocolEmitter;
 use aion_providers::provider::{LlmProvider, create_provider};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
-use tracing::Instrument;
+use anyhow::{Error as AnyhowError, Result as AnyhowResult};
+use chrono::Utc;
+use serde_json::to_string;
+use tokio::sync::mpsc::Receiver;
+use tracing::{Instrument, debug, error, info, info_span, warn};
 
 #[derive(Debug)]
 pub struct AgentResult {
@@ -41,54 +52,85 @@ pub struct AgentResult {
 }
 
 pub struct AgentEngine {
+    // Provider request configuration.
+    /// Shared LLM provider used to issue model requests.
     provider: Arc<dyn LlmProvider>,
-    tools: ToolRegistry,
-    messages: Vec<Message>,
-    system_prompt: String,
-    model: String,
-    max_tokens: u32,
-    max_turns_per_run: Option<usize>,
-    max_tool_call_malformed_turns: usize,
-    max_tool_call_failure_turns: usize,
-    total_usage: TokenUsage,
+    /// Resolved provider compatibility and capability settings.
+    compat: ProviderCompat,
+    /// Optional provider-neutral thinking configuration for model requests.
     thinking: Option<ThinkingConfig>,
-    /// Resolved provider compat settings (for capability validation)
-    compat: aion_config::compat::ProviderCompat,
-    confirmer: Arc<Mutex<ToolConfirmer>>,
-    hooks: Option<HookEngine>,
-    session_manager: Option<SessionManager>,
-    current_session: Option<Session>,
-    output: Arc<dyn OutputSink>,
-    current_msg_id: String,
-    approval_manager: Option<Arc<aion_protocol::ToolApprovalManager>>,
-    protocol_writer: Option<Arc<dyn aion_protocol::writer::ProtocolEmitter>>,
-    allow_list: Vec<String>,
+    /// Base system prompt sent with each model request.
+    system_prompt: String,
+    /// Active model identifier used for provider requests.
+    model: String,
     /// Persisted reasoning effort, updated by skill context modifiers.
     /// Carried into each model turn's LlmRequest.reasoning_effort.
-    current_reasoning_effort: Option<String>,
-    /// Compaction configuration (thresholds, enabled flag, etc.)
+    reasoning_effort: Option<String>,
+
+    // Conversation and run state.
+    /// Conversation history used to build the next provider request.
+    messages: Vec<Message>,
+    /// Cumulative token usage across the active session/run.
+    total_usage: TokenUsage,
+    /// Output message ID for the currently streaming run.
+    current_msg_id: String,
+    /// Maximum output tokens requested from the provider per turn.
+    max_tokens: u32,
+    /// Optional cap on counted model turns within a single run.
+    max_turns_per_run: Option<usize>,
+    /// Consecutive malformed tool-call round limit before aborting.
+    max_tool_call_malformed_turns: usize,
+    /// Consecutive failed tool-call round limit before aborting.
+    max_tool_call_failure_turns: usize,
+
+    // Tool execution policy.
+    /// Registry of tools available to the engine.
+    tools: ToolRegistry,
+    /// Shared tool confirmer used for approval policy decisions.
+    confirmer: Arc<Mutex<ToolConfirmer>>,
+    /// Tool names currently allowed without additional approval.
+    allow_list: Vec<String>,
+    /// Optional hook engine for lifecycle and tool hooks.
+    hooks: Option<HookEngine>,
+
+    // Session persistence.
+    /// Optional session manager used when persistence is enabled.
+    session_manager: Option<SessionManager>,
+    /// Active session record updated as the conversation progresses.
+    current_session: Option<Session>,
+
+    // Output and host protocol integration.
+    /// Sink for user-visible and host-visible output events.
+    output: Arc<dyn OutputSink>,
+    /// Optional host approval manager for JSON stream tool approvals.
+    approval_manager: Option<Arc<ToolApprovalManager>>,
+    /// Optional protocol emitter used to send structured host events.
+    protocol_writer: Option<Arc<dyn ProtocolEmitter>>,
+
+    // Compaction and plan-mode state.
+    /// Static compaction thresholds, flags, and sizing configuration.
     compact_config: CompactConfig,
-    /// Runtime compaction state (circuit breaker, last input tokens)
+    /// Runtime compaction watermark and circuit-breaker state.
     compact_state: CompactState,
-    /// Runtime plan mode state (active flag, pre-plan allow-list, plan file path)
+    /// Active compaction strategy level.
+    compact_level: CompactLevel,
+    /// Whether TOON-formatted compaction output is enabled.
+    toon_enabled: bool,
+    /// Runtime plan mode state and restoration data.
     plan_state: PlanState,
     /// Shared flag read by EnterPlanMode/ExitPlanMode tools to validate transitions.
     /// Updated by the engine when processing PlanModeTransition modifiers.
     plan_active_flag: Option<Arc<AtomicBool>>,
+
+    // Diagnostics and command handling.
     /// Prompt cache break detector for diagnostics.
     cache_detector: CacheBreakDetector,
-    compaction_level: aion_compact::CompactionLevel,
-    toon_enabled: bool,
-    commands: crate::commands::CommandRegistry,
+    /// Slash command registry used before normal model execution.
+    commands: CommandRegistry,
 }
 
 impl AgentEngine {
-    pub fn new(
-        config: Config,
-        tools: ToolRegistry,
-        output: Arc<dyn OutputSink>,
-        cwd: PathBuf,
-    ) -> Self {
+    pub fn new(config: Config, tools: ToolRegistry, output: Arc<dyn OutputSink>, cwd: PathBuf) -> Self {
         let provider = create_provider(&config);
         Self::new_with_provider(provider, config, tools, output, cwd)
     }
@@ -102,8 +144,7 @@ impl AgentEngine {
         cwd: PathBuf,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
-        let confirmer =
-            ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
+        let confirmer = ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
         let session_manager = if config.session.enabled {
             Some(SessionManager::new(
@@ -119,11 +160,15 @@ impl AgentEngine {
 
         Self {
             provider,
-            tools,
-            messages: Vec::new(),
-            system_prompt,
             model: config.model,
             max_tokens: config.max_tokens,
+            thinking: config.thinking,
+            compat: config.compat.clone(),
+            system_prompt,
+            reasoning_effort: None,
+            messages: Vec::new(),
+            total_usage: TokenUsage::default(),
+            current_msg_id: String::new(),
             max_turns_per_run: config.max_turns,
             max_tool_call_malformed_turns: config
                 .max_tool_call_malformed_turns
@@ -131,27 +176,23 @@ impl AgentEngine {
             max_tool_call_failure_turns: config
                 .max_tool_call_failure_turns
                 .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
-            total_usage: TokenUsage::default(),
-            thinking: config.thinking,
-            compat: config.compat.clone(),
+            tools,
             confirmer: Arc::new(Mutex::new(confirmer)),
+            allow_list,
             hooks: Some(HookEngine::new(config.hooks.clone(), cwd.clone())),
             session_manager,
             current_session: None,
             output,
-            current_msg_id: String::new(),
             approval_manager: None,
             protocol_writer: None,
-            allow_list,
-            current_reasoning_effort: None,
             compact_config,
             compact_state: CompactState::new(),
+            compact_level: config.compact.compaction,
+            toon_enabled: config.compact.toon,
             plan_state: PlanState::default(),
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
-            compaction_level: config.compact.compaction,
-            toon_enabled: config.compact.toon,
-            commands: crate::commands::default_registry(),
+            commands: default_registry(),
         }
     }
 
@@ -177,8 +218,7 @@ impl AgentEngine {
         cwd: PathBuf,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
-        let confirmer =
-            ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
+        let confirmer = ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
         let session_manager = if config.session.enabled {
             Some(SessionManager::new(
@@ -194,11 +234,15 @@ impl AgentEngine {
 
         Self {
             provider,
-            tools,
-            messages: session.messages.clone(),
-            system_prompt,
             model: config.model.clone(),
             max_tokens: config.max_tokens,
+            thinking: config.thinking,
+            compat: config.compat.clone(),
+            system_prompt,
+            reasoning_effort: None,
+            messages: session.messages.clone(),
+            total_usage: session.total_usage.clone(),
+            current_msg_id: String::new(),
             max_turns_per_run: config.max_turns,
             max_tool_call_malformed_turns: config
                 .max_tool_call_malformed_turns
@@ -206,32 +250,28 @@ impl AgentEngine {
             max_tool_call_failure_turns: config
                 .max_tool_call_failure_turns
                 .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
-            total_usage: session.total_usage.clone(),
-            thinking: config.thinking,
-            compat: config.compat.clone(),
+            tools,
             confirmer: Arc::new(Mutex::new(confirmer)),
+            allow_list,
             hooks: Some(HookEngine::new(config.hooks.clone(), cwd)),
             session_manager,
             current_session: Some(session),
             output,
-            current_msg_id: String::new(),
             approval_manager: None,
             protocol_writer: None,
-            allow_list,
-            current_reasoning_effort: None,
             compact_config,
             compact_state: CompactState::new(),
+            compact_level: config.compact.compaction,
+            toon_enabled: config.compact.toon,
             plan_state: PlanState::default(),
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
-            compaction_level: config.compact.compaction,
-            toon_enabled: config.compact.toon,
-            commands: crate::commands::default_registry(),
+            commands: default_registry(),
         }
     }
 
-    pub fn compaction_level(&self) -> aion_compact::CompactionLevel {
-        self.compaction_level
+    pub fn compaction_level(&self) -> CompactLevel {
+        self.compact_level
     }
 
     /// Get a reference to the shared provider
@@ -240,7 +280,7 @@ impl AgentEngine {
     }
 
     /// Get a reference to the resolved compat settings
-    pub fn compat(&self) -> &aion_config::compat::ProviderCompat {
+    pub fn compat(&self) -> &ProviderCompat {
         &self.compat
     }
 
@@ -262,17 +302,17 @@ impl AgentEngine {
         self.output.as_ref()
     }
 
-    pub fn set_approval_manager(&mut self, mgr: Arc<aion_protocol::ToolApprovalManager>) {
+    pub fn set_approval_manager(&mut self, mgr: Arc<ToolApprovalManager>) {
         self.approval_manager = Some(mgr);
     }
 
-    pub fn set_protocol_writer(&mut self, writer: Arc<dyn aion_protocol::writer::ProtocolEmitter>) {
+    pub fn set_protocol_writer(&mut self, writer: Arc<dyn ProtocolEmitter>) {
         self.protocol_writer = Some(writer);
     }
 
     /// Set the initial reasoning effort override (used by sub-agents spawned with an effort override).
     pub fn set_initial_reasoning_effort(&mut self, effort: Option<String>) {
-        self.current_reasoning_effort = effort;
+        self.reasoning_effort = effort;
     }
 
     /// Set the shared plan-mode active flag.
@@ -288,12 +328,8 @@ impl AgentEngine {
 impl AgentEngine {
     /// Run the agent loop with user input
     pub async fn run(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
-        let session_id = self
-            .current_session
-            .as_ref()
-            .map(|s| s.id.clone())
-            .unwrap_or_default();
-        let span = tracing::info_span!(
+        let session_id = self.current_session.as_ref().map(|s| s.id.clone()).unwrap_or_default();
+        let span = info_span!(
             target: "aion_agent",
             "agent_run",
             session_id = %session_id,
@@ -302,17 +338,13 @@ impl AgentEngine {
         self.run_inner(user_input, msg_id).instrument(span).await
     }
 
-    async fn run_inner(
-        &mut self,
-        user_input: &str,
-        msg_id: &str,
-    ) -> Result<AgentResult, AgentError> {
+    async fn run_inner(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
         // Slash command interception — before any LLM call
         if let Some(result) = self.handle_command(user_input).await {
             let cmd_name = user_input.split_whitespace().next().unwrap_or(user_input);
             return match result {
-                Ok(crate::commands::CommandResult::Continue) => {
-                    tracing::info!(command = cmd_name, "Slash command executed");
+                Ok(CommandResult::Continue) => {
+                    info!(command = cmd_name, "Slash command executed");
                     Ok(AgentResult {
                         text: String::new(),
                         stop_reason: StopReason::EndTurn,
@@ -320,12 +352,12 @@ impl AgentEngine {
                         turns: 0,
                     })
                 }
-                Ok(crate::commands::CommandResult::Exit) => {
-                    tracing::info!(command = cmd_name, "Slash command executed: exit");
+                Ok(CommandResult::Exit) => {
+                    info!(command = cmd_name, "Slash command executed: exit");
                     Err(AgentError::UserAborted)
                 }
                 Err(e) => {
-                    tracing::error!(command = cmd_name, error = %e, "Slash command failed");
+                    error!(command = cmd_name, error = %e, "Slash command failed");
                     Err(AgentError::ApiError(e.to_string()))
                 }
             };
@@ -351,7 +383,7 @@ impl AgentEngine {
                 let message = format!(
                     "Stopped after reaching the turn budget (max_turns={limit}); the task did not converge. Try adjusting the request or retrying."
                 );
-                tracing::warn!(target: "aion_agent", limit, "stopping agent run at turn budget");
+                warn!(target: "aion_agent", limit, "stopping agent run at turn budget");
                 self.output.emit_error(&message);
                 return Ok(AgentResult {
                     text: String::new(),
@@ -366,14 +398,12 @@ impl AgentEngine {
             let (assistant_text, tool_calls) = match TurnOutcome::from_stream(outcome) {
                 TurnOutcome::ToolRound(outcome) => {
                     let assistant_content = build_assistant_content(&outcome);
-                    self.messages
-                        .push(Message::now(Role::Assistant, assistant_content));
+                    self.messages.push(Message::now(Role::Assistant, assistant_content));
                     (outcome.assistant_text, outcome.tool_calls)
                 }
                 TurnOutcome::Final(outcome) => {
                     let assistant_content = build_assistant_content(&outcome);
-                    self.messages
-                        .push(Message::now(Role::Assistant, assistant_content));
+                    self.messages.push(Message::now(Role::Assistant, assistant_content));
                     self.save_session();
                     return Ok(AgentResult {
                         text: outcome.assistant_text,
@@ -384,8 +414,7 @@ impl AgentEngine {
                 }
                 TurnOutcome::Truncated(outcome) => {
                     let assistant_content = build_assistant_content(&outcome);
-                    self.messages
-                        .push(Message::now(Role::Assistant, assistant_content));
+                    self.messages.push(Message::now(Role::Assistant, assistant_content));
                     return self
                         .finalize_once(
                             FinalizationReason::MaxTokens,
@@ -412,9 +441,7 @@ impl AgentEngine {
                 tool_modifiers,
                 tool_call_malformed_fingerprint,
                 tool_call_failure_round,
-            } = self
-                .execute_tool_round(&tool_calls, &assistant_text)
-                .await?;
+            } = self.execute_tool_round(&tool_calls, &assistant_text).await?;
 
             // Apply any context modifiers from skill executions before the next turn.
             self.apply_context_modifiers(&tool_modifiers);
@@ -426,8 +453,7 @@ impl AgentEngine {
             // Save session after each tool round.
             self.save_session();
 
-            match guards.after_tool_round(tool_call_malformed_fingerprint, tool_call_failure_round)
-            {
+            match guards.after_tool_round(tool_call_malformed_fingerprint, tool_call_failure_round) {
                 TurnGuardAction::Continue => {}
                 TurnGuardAction::Finalize => {
                     return self
@@ -452,22 +478,16 @@ impl AgentEngine {
             Vec::new()
         } else if self.plan_state.is_active {
             // Plan mode: only Info-category tools (excluding EnterPlanMode)
-            self.tools.to_tool_defs_filtered(|t| {
-                t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
-            })
+            self.tools
+                .to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode")
         } else {
             // Normal mode: all tools except ExitPlanMode
-            self.tools
-                .to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
+            self.tools.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
         };
 
         // Build system prompt: append plan mode instructions when active
         let system = if self.plan_state.is_active {
-            format!(
-                "{}\n\n{}",
-                self.system_prompt,
-                plan_prompt::plan_mode_instructions()
-            )
+            format!("{}\n\n{}", self.system_prompt, plan_mode_instructions())
         } else {
             self.system_prompt.clone()
         };
@@ -492,7 +512,7 @@ impl AgentEngine {
             tools,
             max_tokens: self.max_tokens,
             thinking: self.thinking.clone(),
-            reasoning_effort: self.current_reasoning_effort.clone(),
+            reasoning_effort: self.reasoning_effort.clone(),
         }
     }
 
@@ -520,8 +540,7 @@ impl AgentEngine {
                 tool_call_malformed_reason(id, name)
             })
             .collect();
-        let tool_call_malformed_fingerprint =
-            tool_call_malformed_fingerprint(tool_calls, &tool_call_malformed_reasons);
+        let tool_call_malformed_fingerprint = tool_call_malformed_fingerprint(tool_calls, &tool_call_malformed_reasons);
         let executable_tool_calls: Vec<_> = tool_calls
             .iter()
             .zip(&tool_call_malformed_reasons)
@@ -547,7 +566,7 @@ impl AgentEngine {
                 auto_approve,
                 &self.allow_list,
                 self.hooks.as_mut(),
-                self.compaction_level,
+                self.compact_level,
                 self.toon_enabled,
             )
             .await
@@ -565,7 +584,7 @@ impl AgentEngine {
                 &executable_tool_calls,
                 &self.confirmer,
                 self.hooks.as_mut(),
-                self.compaction_level,
+                self.compact_level,
                 self.toon_enabled,
             )
             .await
@@ -623,14 +642,14 @@ impl AgentEngine {
                     .unwrap_or("unknown");
                 let status = if *is_error { "error" } else { "completed" };
                 if tool_use_id.trim().is_empty() {
-                    tracing::error!(
+                    error!(
                         target: "aion_agent",
                         tool = %tool_name,
                         status,
                         "tool result has empty tool_use_id"
                     );
                 } else {
-                    tracing::debug!(
+                    debug!(
                         target: "aion_agent",
                         tool_use_id = %tool_use_id,
                         tool = %tool_name,
@@ -638,8 +657,7 @@ impl AgentEngine {
                         "tool result emitted"
                     );
                 }
-                self.output
-                    .emit_tool_result(tool_use_id, tool_name, *is_error, content);
+                self.output.emit_tool_result(tool_use_id, tool_name, *is_error, content);
             }
         }
     }
@@ -671,8 +689,7 @@ impl AgentEngine {
 
         if is_success {
             let assistant_content = build_assistant_content(&outcome);
-            self.messages
-                .push(Message::now(Role::Assistant, assistant_content));
+            self.messages.push(Message::now(Role::Assistant, assistant_content));
             self.save_session();
             return Ok(AgentResult {
                 text: combined_text,
@@ -689,9 +706,7 @@ impl AgentEngine {
             FinalizationReason::MaxTokens => {
                 "The response was cut off by the token limit and could not be completed automatically."
             }
-            FinalizationReason::EmptyFinal => {
-                "The model finished without visible answer text after one retry."
-            }
+            FinalizationReason::EmptyFinal => "The model finished without visible answer text after one retry.",
         };
         self.output.emit_error(fallback);
         let fallback_text = if combined_text.trim().is_empty() {
@@ -719,10 +734,7 @@ impl AgentEngine {
     /// Emits text/thinking/tool-call events to the output sink as they arrive
     /// and accumulates the assistant text, thinking block, tool calls, stop
     /// reason and usage for the caller. Returns early on `LlmEvent::Error`.
-    async fn consume_stream(
-        &self,
-        rx: &mut tokio::sync::mpsc::Receiver<LlmEvent>,
-    ) -> Result<StreamOutcome, AgentError> {
+    async fn consume_stream(&self, rx: &mut Receiver<LlmEvent>) -> Result<StreamOutcome, AgentError> {
         let mut assistant_text = String::new();
         let mut thinking_text = String::new();
         let mut thinking_signature: Option<String> = None;
@@ -736,34 +748,24 @@ impl AgentEngine {
                     self.output.emit_text_delta(&text, &self.current_msg_id);
                     assistant_text.push_str(&text);
                 }
-                LlmEvent::ToolUse {
-                    id,
-                    name,
-                    input,
-                    extra,
-                } => {
+                LlmEvent::ToolUse { id, name, input, extra } => {
                     if id.trim().is_empty() {
-                        tracing::error!(
+                        error!(
                             target: "aion_agent",
                             tool = %name,
                             "provider emitted tool call with empty tool_use_id"
                         );
                     } else {
-                        tracing::debug!(
+                        debug!(
                             target: "aion_agent",
                             tool_use_id = %id,
                             tool = %name,
                             "provider tool call received"
                         );
                     }
-                    let input_str = serde_json::to_string(&input).unwrap_or_default();
+                    let input_str = to_string(&input).unwrap_or_default();
                     self.output.emit_tool_call(&id, &name, &input_str);
-                    tool_calls.push(ContentBlock::ToolUse {
-                        id,
-                        name,
-                        input,
-                        extra,
-                    });
+                    tool_calls.push(ContentBlock::ToolUse { id, name, input, extra });
                 }
                 LlmEvent::ThinkingDelta(text) => {
                     self.output.emit_thinking(&text, &self.current_msg_id);
@@ -807,12 +809,10 @@ impl AgentEngine {
         // Use max(provider_reported, local_estimate) as a safety net:
         // some providers (e.g. DeepSeek with prefix caching) underreport
         // prompt_tokens, causing compaction to never trigger.
-        let local_estimate = estimate::estimate_tokens_from_messages(&self.messages);
+        let local_estimate = estimate_tokens_from_messages(&self.messages);
         let effective_watermark = turn_usage.input_tokens.max(local_estimate);
 
-        if local_estimate > turn_usage.input_tokens
-            && local_estimate.saturating_sub(turn_usage.input_tokens) > 10_000
-        {
+        if local_estimate > turn_usage.input_tokens && local_estimate.saturating_sub(turn_usage.input_tokens) > 10_000 {
             self.output.emit_info(&format!(
                 "Token watermark override: provider={}, local_estimate={}, using={}",
                 turn_usage.input_tokens, local_estimate, effective_watermark
@@ -830,15 +830,12 @@ impl AgentEngine {
         if let Some(diagnostic) = self.cache_detector.check_response(cache_stats) {
             match &diagnostic {
                 CacheDiagnostic::FullMiss { cause } => {
-                    self.output
-                        .emit_error(&format!("Cache full miss: {cause:?}"));
+                    self.output.emit_error(&format!("Cache full miss: {cause:?}"));
                 }
                 CacheDiagnostic::PartialMiss { hit_rate, cause } => {
                     if self.compact_config.cache_diagnostics {
-                        self.output.emit_info(&format!(
-                            "Cache: {:.0}% hit rate (cause: {cause:?})",
-                            hit_rate * 100.0
-                        ));
+                        self.output
+                            .emit_info(&format!("Cache: {:.0}% hit rate (cause: {cause:?})", hit_rate * 100.0));
                     }
                 }
                 CacheDiagnostic::Healthy { hit_rate } => {
@@ -858,8 +855,8 @@ impl AgentEngine {
     /// because the context has been significantly reduced.
     async fn run_compaction(&mut self) -> Result<(), AgentError> {
         // 1. Microcompact (lightweight, no LLM call)
-        if micro::should_microcompact(&self.messages, &self.compact_config) {
-            let result = micro::microcompact(&mut self.messages, &self.compact_config);
+        if should_microcompact(&self.messages, &self.compact_config) {
+            let result = microcompact(&mut self.messages, &self.compact_config);
             if result.cleared_count > 0 {
                 self.output.emit_info(&format!(
                     "Microcompact: cleared {} tool results (~{} tokens freed)",
@@ -870,10 +867,9 @@ impl AgentEngine {
 
         // 2. Autocompact (LLM summarization)
         let mut compacted = false;
-        let should_compact =
-            auto::should_autocompact(self.compact_state.last_input_tokens, &self.compact_config);
+        let should_compact = should_autocompact(self.compact_state.last_input_tokens, &self.compact_config);
         if should_compact {
-            tracing::info!(target: "aion_agent", last_input_tokens = self.compact_state.last_input_tokens, "context compaction triggered");
+            info!(target: "aion_agent", last_input_tokens = self.compact_state.last_input_tokens, "context compaction triggered");
             let threshold = if let Some(pct) = self.compact_config.autocompact_threshold_pct {
                 let t = self.compact_config.context_window * pct as usize / 100;
                 self.output.emit_info(&format!(
@@ -891,7 +887,7 @@ impl AgentEngine {
         }
         if should_compact && !self.compact_state.is_circuit_broken(&self.compact_config) {
             let provider = Arc::clone(&self.provider);
-            match auto::autocompact(
+            match autocompact(
                 provider.as_ref(),
                 &self.messages,
                 &self.model,
@@ -908,12 +904,11 @@ impl AgentEngine {
                     self.messages = result.messages;
                     compacted = true;
                 }
-                Err(auto::CompactError::CircuitBroken { .. }) => {
+                Err(CompactError::CircuitBroken { .. }) => {
                     // Already tripped; logged at circuit-breaker level
                 }
                 Err(e) => {
-                    self.output
-                        .emit_error(&format!("Autocompact failed: {}", e));
+                    self.output.emit_error(&format!("Autocompact failed: {}", e));
                 }
             }
         } else if should_compact {
@@ -941,12 +936,7 @@ impl AgentEngine {
         }
 
         // 3. Emergency check (skip if autocompact just succeeded)
-        if !compacted
-            && emergency::is_at_emergency_limit(
-                self.compact_state.last_input_tokens,
-                &self.compact_config,
-            )
-        {
+        if !compacted && is_at_emergency_limit(self.compact_state.last_input_tokens, &self.compact_config) {
             return Err(AgentError::ContextTooLong {
                 input_tokens: self.compact_state.last_input_tokens,
                 limit: self
@@ -962,15 +952,10 @@ impl AgentEngine {
 
 impl AgentEngine {
     /// Initialize a new session for this engine run
-    pub fn init_session(
-        &mut self,
-        provider_name: &str,
-        cwd: &str,
-        session_id: Option<&str>,
-    ) -> anyhow::Result<()> {
+    pub fn init_session(&mut self, provider_name: &str, cwd: &str, session_id: Option<&str>) -> AnyhowResult<()> {
         if let Some(mgr) = &self.session_manager {
             let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
-            tracing::info!(target: "aion_agent", session_id = %session.id, provider = %provider_name, model = %self.model, "session started");
+            info!(target: "aion_agent", session_id = %session.id, provider = %provider_name, model = %self.model, "session started");
             self.current_session = Some(session);
         }
         Ok(())
@@ -994,7 +979,7 @@ impl AgentEngine {
         let mut changes = Vec::new();
 
         if let Some(new_model) = model {
-            let old = std::mem::replace(&mut self.model, new_model.clone());
+            let old = replace(&mut self.model, new_model.clone());
             changes.push(format!("model: {old} → {new_model}"));
         }
 
@@ -1005,9 +990,7 @@ impl AgentEngine {
                 match thinking_str.as_str() {
                     "enabled" => {
                         let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
-                        self.thinking = Some(ThinkingConfig::Enabled {
-                            budget_tokens: budget,
-                        });
+                        self.thinking = Some(ThinkingConfig::Enabled { budget_tokens: budget });
                         changes.push(format!("thinking: enabled (budget: {budget})"));
                     }
                     "disabled" => {
@@ -1028,7 +1011,7 @@ impl AgentEngine {
 
         if let Some(new_effort) = effort {
             if new_effort.is_empty() {
-                self.current_reasoning_effort = None;
+                self.reasoning_effort = None;
                 changes.push("effort: cleared".to_string());
             } else if !self.compat.supports_effort() {
                 changes.push("effort: not supported by current provider".to_string());
@@ -1042,7 +1025,7 @@ impl AgentEngine {
                     ));
                 } else {
                     let old = self
-                        .current_reasoning_effort
+                        .reasoning_effort
                         .replace(new_effort.clone())
                         .unwrap_or_else(|| "none".to_string());
                     changes.push(format!("effort: {old} → {new_effort}"));
@@ -1051,10 +1034,10 @@ impl AgentEngine {
         }
 
         if let Some(ref level_str) = compaction {
-            match level_str.parse::<aion_compact::CompactionLevel>() {
+            match level_str.parse::<CompactLevel>() {
                 Ok(new_level) => {
-                    let old = self.compaction_level.to_string();
-                    self.compaction_level = new_level;
+                    let old = self.compact_level.to_string();
+                    self.compact_level = new_level;
                     changes.push(format!("compaction: {old} → {new_level}"));
                 }
                 Err(e) => {
@@ -1067,13 +1050,10 @@ impl AgentEngine {
     }
 
     /// Handle a slash command. Returns `None` if input is not a recognized command.
-    pub async fn handle_command(
-        &mut self,
-        input: &str,
-    ) -> Option<Result<crate::commands::CommandResult, anyhow::Error>> {
+    pub async fn handle_command(&mut self, input: &str) -> Option<Result<CommandResult, AnyhowError>> {
         let input = input.trim();
         let without_slash = input.strip_prefix('/')?;
-        let (name, args) = match without_slash.split_once(char::is_whitespace) {
+        let (name, args) = match without_slash.split_once(|c: char| c.is_whitespace()) {
             Some((n, rest)) => (n, rest.trim()),
             None => (without_slash, ""),
         };
@@ -1084,9 +1064,9 @@ impl AgentEngine {
         // borrowing self.commands immutably (already done above via find()).
         // Use a raw pointer to break the borrow conflict — safe because
         // the command is not modified during execution.
-        let cmd_ptr = cmd as *const dyn crate::commands::SlashCommand;
+        let cmd_ptr = cmd as *const dyn SlashCommand;
 
-        let mut ctx = crate::commands::CommandContext {
+        let mut ctx = CommandContext {
             messages: &mut self.messages,
             compact_state: &mut self.compact_state,
             compact_config: &self.compact_config,
@@ -1118,7 +1098,7 @@ impl AgentEngine {
                 self.model = model.clone();
             }
             if let Some(effort) = modifier.effort {
-                self.current_reasoning_effort = Some(effort_to_string(effort));
+                self.reasoning_effort = Some(effort_to_string(effort));
             }
             for tool_name in &modifier.allowed_tools {
                 if !self.allow_list.contains(tool_name) {
@@ -1153,10 +1133,9 @@ impl AgentEngine {
         if let (Some(mgr), Some(session)) = (&self.session_manager, &mut self.current_session) {
             session.messages = self.messages.clone();
             session.total_usage = self.total_usage.clone();
-            session.updated_at = chrono::Utc::now();
+            session.updated_at = Utc::now();
             if let Err(e) = mgr.save(session) {
-                self.output
-                    .emit_error(&format!("Failed to save session: {}", e));
+                self.output.emit_error(&format!("Failed to save session: {}", e));
             }
             if let Err(e) = mgr.update_index_for(session) {
                 self.output
@@ -1198,14 +1177,13 @@ impl AgentEngine {
         let result_blocks = pending_results
             .into_iter()
             .map(|(tool_use_id, name)| {
-                tracing::info!(
+                info!(
                     target: "aion_agent",
                     tool_use_id = %tool_use_id,
                     tool = %name,
                     "closing pending tool_use after abort"
                 );
-                self.output
-                    .emit_tool_result(&tool_use_id, &name, true, reason);
+                self.output.emit_tool_result(&tool_use_id, &name, true, reason);
                 ContentBlock::ToolResult {
                     tool_use_id,
                     content: reason.to_string(),
@@ -1223,7 +1201,7 @@ impl AgentEngine {
         if let Some(hook_engine) = &self.hooks {
             let messages = hook_engine.run_stop().await;
             for msg in messages {
-                tracing::info!(target: "aion_agent", hook_message = %msg, "stop hook output");
+                info!(target: "aion_agent", hook_message = %msg, "stop hook output");
             }
         }
     }
@@ -1263,1567 +1241,6 @@ fn build_assistant_content(outcome: &StreamOutcome) -> Vec<ContentBlock> {
     content
 }
 
-// ---------------------------------------------------------------------------
-// set_config tests — apply_config_update()
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
-mod tests_set_config {
-    use std::sync::{Arc, Mutex};
-
-    use aion_providers::error::ProviderError;
-    use aion_providers::provider::LlmProvider;
-    use aion_tools::registry::ToolRegistry;
-    use aion_types::llm::{LlmEvent, LlmRequest};
-
-    use crate::confirm::ToolConfirmer;
-    use crate::output::OutputSink;
-
-    struct NullOutput;
-    impl OutputSink for NullOutput {
-        fn emit_text_delta(&self, _: &str, _: &str) {}
-        fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
-        fn emit_stream_start(&self, _: &str) {}
-        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
-        fn emit_error(&self, _: &str) {}
-        fn emit_info(&self, _: &str) {}
-    }
-
-    struct NullProvider;
-    #[async_trait::async_trait]
-    impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
-            let (_tx, rx) = tokio::sync::mpsc::channel(1);
-            Ok(rx)
-        }
-    }
-
-    fn make_engine(model: &str) -> super::AgentEngine {
-        super::AgentEngine {
-            provider: Arc::new(NullProvider),
-            tools: ToolRegistry::new(),
-            messages: vec![],
-            system_prompt: String::new(),
-            model: model.to_string(),
-            max_tokens: 4096,
-            max_turns_per_run: Some(10),
-            max_tool_call_malformed_turns: 3,
-            max_tool_call_failure_turns: 3,
-            total_usage: Default::default(),
-            thinking: None,
-            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
-            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
-            hooks: None,
-            session_manager: None,
-            current_session: None,
-            output: Arc::new(NullOutput),
-            current_msg_id: String::new(),
-            approval_manager: None,
-            protocol_writer: None,
-            allow_list: vec![],
-            current_reasoning_effort: None,
-            compact_config: aion_config::compact::CompactConfig::default(),
-            compact_state: super::CompactState::new(),
-            plan_state: Default::default(),
-            plan_active_flag: None,
-            cache_detector: super::CacheBreakDetector::new(),
-            compaction_level: aion_compact::CompactionLevel::default(),
-            toon_enabled: false,
-            commands: crate::commands::default_registry(),
-        }
-    }
-
-    fn make_engine_with_compat(
-        model: &str,
-        compat: aion_config::compat::ProviderCompat,
-    ) -> super::AgentEngine {
-        let mut engine = make_engine(model);
-        engine.compat = compat;
-        engine
-    }
-
-    // --- Cycle 1 tests (updated signature) ---
-
-    #[test]
-    fn set_config_changes_model() {
-        let mut engine = make_engine("old-model");
-        let changes = engine.apply_config_update(Some("new-model".into()), None, None, None, None);
-        assert_eq!(engine.model, "new-model");
-        assert_eq!(changes.len(), 1);
-        assert!(changes[0].contains("old-model"));
-        assert!(changes[0].contains("new-model"));
-    }
-
-    #[test]
-    fn set_config_none_model_no_change() {
-        let mut engine = make_engine("current");
-        let changes = engine.apply_config_update(None, None, None, None, None);
-        assert_eq!(engine.model, "current");
-        assert!(changes.is_empty());
-    }
-
-    #[test]
-    fn set_config_same_model_still_reports_change() {
-        let mut engine = make_engine("same");
-        let changes = engine.apply_config_update(Some("same".into()), None, None, None, None);
-        assert_eq!(changes.len(), 1);
-    }
-
-    #[test]
-    fn set_config_empty_string_model_accepted() {
-        let mut engine = make_engine("real-model");
-        engine.apply_config_update(Some(String::new()), None, None, None, None);
-        assert_eq!(engine.model, "");
-    }
-
-    #[test]
-    fn set_config_model_does_not_affect_other_state() {
-        let mut engine = make_engine("m");
-        engine.current_reasoning_effort = Some("high".into());
-        engine.apply_config_update(Some("new-m".into()), None, None, None, None);
-        assert_eq!(engine.model, "new-m");
-        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
-    }
-
-    // --- Cycle 2: Effort config tests ---
-
-    #[test]
-    fn set_config_changes_effort() {
-        let mut engine =
-            make_engine_with_compat("m", aion_config::compat::ProviderCompat::openai_defaults());
-        assert!(engine.current_reasoning_effort.is_none());
-        let changes = engine.apply_config_update(None, None, None, Some("high".into()), None);
-        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
-        assert_eq!(changes.len(), 1);
-        assert!(changes[0].contains("high"));
-    }
-
-    #[test]
-    fn set_config_clears_effort_with_empty_string() {
-        let mut engine = make_engine("m");
-        engine.current_reasoning_effort = Some("high".into());
-        let changes = engine.apply_config_update(None, None, None, Some(String::new()), None);
-        assert!(engine.current_reasoning_effort.is_none());
-        assert_eq!(changes.len(), 1);
-    }
-
-    // --- Cycle 2: Thinking config tests ---
-
-    #[test]
-    fn set_config_enables_thinking() {
-        let mut engine = make_engine("m");
-        let changes =
-            engine.apply_config_update(None, Some("enabled".into()), Some(16000), None, None);
-        match &engine.thinking {
-            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
-                assert_eq!(*budget_tokens, 16000);
-            }
-            other => panic!("expected Enabled, got: {other:?}"),
-        }
-        assert_eq!(changes.len(), 1);
-    }
-
-    #[test]
-    fn set_config_disables_thinking() {
-        let mut engine = make_engine("m");
-        engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
-            budget_tokens: 8000,
-        });
-        let changes = engine.apply_config_update(None, Some("disabled".into()), None, None, None);
-        match &engine.thinking {
-            Some(aion_types::llm::ThinkingConfig::Disabled) => {}
-            other => panic!("expected Disabled, got: {other:?}"),
-        }
-        assert_eq!(changes.len(), 1);
-    }
-
-    #[test]
-    fn set_config_thinking_enabled_default_budget() {
-        let mut engine = make_engine("m");
-        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None, None);
-        match &engine.thinking {
-            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
-                assert!(*budget_tokens > 0);
-            }
-            other => panic!("expected Enabled with default budget, got: {other:?}"),
-        }
-        assert_eq!(changes.len(), 1);
-    }
-
-    #[test]
-    fn set_config_invalid_thinking_ignored() {
-        let mut engine = make_engine("m");
-        engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
-            budget_tokens: 8000,
-        });
-        let changes =
-            engine.apply_config_update(None, Some("invalid_value".into()), None, None, None);
-        match &engine.thinking {
-            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
-                assert_eq!(*budget_tokens, 8000);
-            }
-            other => panic!("expected Enabled unchanged, got: {other:?}"),
-        }
-        assert_eq!(changes.len(), 1);
-        assert!(changes[0].contains("invalid") || changes[0].contains("ignored"));
-    }
-
-    // --- Cycle 2: Combined fields test ---
-
-    #[test]
-    fn set_config_all_fields_at_once() {
-        let compat = aion_config::compat::ProviderCompat {
-            reasoning: aion_config::compat::ReasoningCompat {
-                supports_thinking: Some(true),
-                supports_effort: Some(true),
-                effort_levels: Some(vec!["low".into()]),
-            },
-            ..Default::default()
-        };
-        let mut engine = make_engine_with_compat("old-model", compat);
-        let changes = engine.apply_config_update(
-            Some("new-model".into()),
-            Some("enabled".into()),
-            Some(12000),
-            Some("low".into()),
-            None,
-        );
-        assert_eq!(engine.model, "new-model");
-        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("low"));
-        match &engine.thinking {
-            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
-                assert_eq!(*budget_tokens, 12000);
-            }
-            other => panic!("expected Enabled, got: {other:?}"),
-        }
-        assert_eq!(changes.len(), 3);
-    }
-
-    // --- Cycle 2: White-box edge case tests ---
-
-    #[test]
-    fn set_config_thinking_budget_only_updates_existing_enabled() {
-        let mut engine = make_engine("m");
-        engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled {
-            budget_tokens: 5000,
-        });
-        let changes = engine.apply_config_update(None, None, Some(20000), None, None);
-        match &engine.thinking {
-            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
-                assert_eq!(*budget_tokens, 20000);
-            }
-            other => panic!("expected Enabled with 20000, got: {other:?}"),
-        }
-        assert_eq!(changes.len(), 1);
-    }
-
-    #[test]
-    fn set_config_thinking_budget_ignored_when_disabled() {
-        let mut engine = make_engine("m");
-        engine.thinking = Some(aion_types::llm::ThinkingConfig::Disabled);
-        let changes = engine.apply_config_update(None, None, Some(20000), None, None);
-        match &engine.thinking {
-            Some(aion_types::llm::ThinkingConfig::Disabled) => {}
-            other => panic!("expected Disabled unchanged, got: {other:?}"),
-        }
-        assert!(changes.is_empty());
-    }
-
-    #[test]
-    fn set_config_effort_valid_values() {
-        let compat = aion_config::compat::ProviderCompat {
-            reasoning: aion_config::compat::ReasoningCompat {
-                supports_effort: Some(true),
-                effort_levels: Some(vec![
-                    "low".into(),
-                    "medium".into(),
-                    "high".into(),
-                    "max".into(),
-                ]),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        for value in ["low", "medium", "high", "max"] {
-            let mut engine = make_engine_with_compat("m", compat.clone());
-            engine.apply_config_update(None, None, None, Some(value.to_string()), None);
-            assert_eq!(
-                engine.current_reasoning_effort.as_deref(),
-                Some(value),
-                "effort should be set to {value}"
-            );
-        }
-    }
-
-    // --- Capability validation tests ---
-
-    #[test]
-    fn set_config_thinking_rejected_when_unsupported() {
-        let mut engine =
-            make_engine_with_compat("m", aion_config::compat::ProviderCompat::openai_defaults());
-        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None, None);
-        assert!(changes.iter().any(|c| c.contains("not supported")));
-        assert!(engine.thinking.is_none());
-    }
-
-    #[test]
-    fn set_config_effort_rejected_when_unsupported() {
-        let mut engine = make_engine("m"); // anthropic defaults: supports_effort = false
-        let changes = engine.apply_config_update(None, None, None, Some("high".into()), None);
-        assert!(changes.iter().any(|c| c.contains("not supported")));
-        assert!(engine.current_reasoning_effort.is_none());
-    }
-
-    #[test]
-    fn set_config_effort_rejected_invalid_level() {
-        let mut engine =
-            make_engine_with_compat("m", aion_config::compat::ProviderCompat::openai_defaults());
-        let changes = engine.apply_config_update(None, None, None, Some("max".into()), None);
-        assert!(changes.iter().any(|c| c.contains("invalid")));
-        assert!(engine.current_reasoning_effort.is_none());
-    }
-
-    #[test]
-    fn set_config_effort_clear_always_works() {
-        let mut engine = make_engine("m"); // anthropic defaults: supports_effort = false
-        engine.current_reasoning_effort = Some("high".into());
-        let changes = engine.apply_config_update(None, None, None, Some(String::new()), None);
-        assert!(engine.current_reasoning_effort.is_none());
-        assert!(changes.iter().any(|c| c.contains("cleared")));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Phase 6 tests — apply_context_modifiers()
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests_phase6 {
-    use std::sync::{Arc, Mutex};
-
-    use aion_providers::error::ProviderError;
-    use aion_providers::provider::LlmProvider;
-    use aion_tools::registry::ToolRegistry;
-    use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::skill_types::{ContextModifier, EffortLevel};
-
-    use crate::confirm::ToolConfirmer;
-    use crate::output::OutputSink;
-
-    struct NullOutput;
-    impl OutputSink for NullOutput {
-        fn emit_text_delta(&self, _: &str, _: &str) {}
-        fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
-        fn emit_stream_start(&self, _: &str) {}
-        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
-        fn emit_error(&self, _: &str) {}
-        fn emit_info(&self, _: &str) {}
-    }
-
-    struct NullProvider;
-    #[async_trait::async_trait]
-    impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
-            let (_tx, rx) = tokio::sync::mpsc::channel(1);
-            Ok(rx)
-        }
-    }
-
-    fn make_engine(model: &str, allow_list: Vec<String>) -> super::AgentEngine {
-        super::AgentEngine {
-            provider: Arc::new(NullProvider),
-            tools: ToolRegistry::new(),
-            messages: vec![],
-            system_prompt: String::new(),
-            model: model.to_string(),
-            max_tokens: 4096,
-            max_turns_per_run: Some(10),
-            max_tool_call_malformed_turns: 3,
-            max_tool_call_failure_turns: 3,
-            total_usage: Default::default(),
-            thinking: None,
-            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
-            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
-            hooks: None,
-            session_manager: None,
-            current_session: None,
-            output: Arc::new(NullOutput),
-            current_msg_id: String::new(),
-            approval_manager: None,
-            protocol_writer: None,
-            allow_list,
-            current_reasoning_effort: None,
-            compact_config: aion_config::compact::CompactConfig::default(),
-            compact_state: super::CompactState::new(),
-            plan_state: Default::default(),
-            plan_active_flag: None,
-            cache_detector: super::CacheBreakDetector::new(),
-            compaction_level: aion_compact::CompactionLevel::default(),
-            toon_enabled: false,
-            commands: crate::commands::default_registry(),
-        }
-    }
-
-    #[test]
-    fn tc_6_21_model_override_applied() {
-        let mut engine = make_engine("original-model", vec![]);
-        let modifiers = vec![Some(ContextModifier {
-            model: Some("override-model".to_string()),
-            ..Default::default()
-        })];
-        engine.apply_context_modifiers(&modifiers);
-        assert_eq!(engine.model, "override-model");
-    }
-
-    #[test]
-    fn tc_6_22_effort_override_applied() {
-        let mut engine = make_engine("m", vec![]);
-        let modifiers = vec![Some(ContextModifier {
-            effort: Some(EffortLevel::High),
-            ..Default::default()
-        })];
-        engine.apply_context_modifiers(&modifiers);
-        assert_eq!(engine.current_reasoning_effort.as_deref(), Some("high"));
-    }
-
-    #[test]
-    fn tc_6_22b_effort_all_variants() {
-        for (level, expected) in [
-            (EffortLevel::Low, "low"),
-            (EffortLevel::Medium, "medium"),
-            (EffortLevel::High, "high"),
-            (EffortLevel::Max, "max"),
-        ] {
-            let mut engine = make_engine("m", vec![]);
-            engine.apply_context_modifiers(&[Some(ContextModifier {
-                effort: Some(level),
-                ..Default::default()
-            })]);
-            assert_eq!(
-                engine.current_reasoning_effort.as_deref(),
-                Some(expected),
-                "EffortLevel::{level:?} should map to {expected:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn tc_6_23_allowed_tools_no_duplicates() {
-        let mut engine = make_engine("m", vec!["ExecCommand".to_string()]);
-        let modifiers = vec![Some(ContextModifier {
-            allowed_tools: vec!["ExecCommand".to_string(), "Read".to_string()],
-            ..Default::default()
-        })];
-        engine.apply_context_modifiers(&modifiers);
-        let bash_count = engine
-            .allow_list
-            .iter()
-            .filter(|t| t.as_str() == "ExecCommand")
-            .count();
-        assert_eq!(bash_count, 1, "ExecCommand should appear exactly once");
-        assert!(engine.allow_list.contains(&"Read".to_string()));
-    }
-
-    #[test]
-    fn tc_6_24_none_modifiers_skipped() {
-        let mut engine = make_engine("original", vec![]);
-        engine.apply_context_modifiers(&[None, None]);
-        assert_eq!(engine.model, "original");
-        assert!(engine.current_reasoning_effort.is_none());
-    }
-
-    #[test]
-    fn tc_6_25_empty_modifiers_no_change() {
-        let mut engine = make_engine("current-model", vec![]);
-        engine.apply_context_modifiers(&[]);
-        assert_eq!(engine.model, "current-model");
-        assert!(engine.allow_list.is_empty());
-    }
-
-    #[test]
-    fn tc_6_26_none_model_does_not_overwrite() {
-        let mut engine = make_engine("current-model", vec![]);
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            allowed_tools: vec!["ExecCommand".to_string()],
-            ..Default::default()
-        })]);
-        assert_eq!(engine.model, "current-model");
-        assert!(engine.allow_list.contains(&"ExecCommand".to_string()));
-    }
-
-    #[test]
-    fn tc_6_27_multiple_modifiers_stacked() {
-        let mut engine = make_engine("initial", vec![]);
-        let modifiers = vec![
-            Some(ContextModifier {
-                model: Some("model-a".to_string()),
-                allowed_tools: vec!["ExecCommand".to_string()],
-                ..Default::default()
-            }),
-            Some(ContextModifier {
-                model: Some("model-b".to_string()),
-                allowed_tools: vec!["Read".to_string()],
-                ..Default::default()
-            }),
-        ];
-        engine.apply_context_modifiers(&modifiers);
-        assert_eq!(engine.model, "model-b", "last model wins");
-        assert!(engine.allow_list.contains(&"ExecCommand".to_string()));
-        assert!(engine.allow_list.contains(&"Read".to_string()));
-    }
-
-    #[test]
-    fn tc_6_28_modifier_applied_after_tool_execution_not_during() {
-        let mut engine = make_engine("original", vec![]);
-        let model_before = engine.model.clone();
-        let modifiers = vec![Some(ContextModifier {
-            model: Some("new-model".to_string()),
-            ..Default::default()
-        })];
-        assert_eq!(engine.model, model_before);
-        engine.apply_context_modifiers(&modifiers);
-        assert_eq!(engine.model, "new-model");
-        assert_eq!(model_before, "original");
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Phase 2 tests — run_compaction()
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests_compact {
-    use std::sync::{Arc, Mutex};
-
-    use aion_config::compact::CompactConfig;
-    use aion_providers::error::ProviderError;
-    use aion_providers::provider::LlmProvider;
-    use aion_tools::registry::ToolRegistry;
-    use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::message::{ContentBlock, Message, Role};
-    use serde_json::json;
-
-    use crate::compact::state::CompactState;
-    use crate::confirm::ToolConfirmer;
-    use crate::output::OutputSink;
-
-    struct NullOutput;
-    impl OutputSink for NullOutput {
-        fn emit_text_delta(&self, _: &str, _: &str) {}
-        fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
-        fn emit_stream_start(&self, _: &str) {}
-        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
-        fn emit_error(&self, _: &str) {}
-        fn emit_info(&self, _: &str) {}
-    }
-
-    #[derive(Default)]
-    struct RecordingOutput {
-        tool_results: Mutex<Vec<(String, String, bool, String)>>,
-    }
-
-    impl OutputSink for RecordingOutput {
-        fn emit_text_delta(&self, _: &str, _: &str) {}
-        fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
-        fn emit_tool_result(&self, tool_use_id: &str, name: &str, is_error: bool, content: &str) {
-            self.tool_results.lock().unwrap().push((
-                tool_use_id.to_string(),
-                name.to_string(),
-                is_error,
-                content.to_string(),
-            ));
-        }
-        fn emit_stream_start(&self, _: &str) {}
-        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
-        fn emit_error(&self, _: &str) {}
-        fn emit_info(&self, _: &str) {}
-    }
-
-    struct NullProvider;
-    #[async_trait::async_trait]
-    impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
-            let (_tx, rx) = tokio::sync::mpsc::channel(1);
-            Ok(rx)
-        }
-    }
-
-    fn make_compact_engine(
-        compact_config: CompactConfig,
-        compact_state: CompactState,
-        messages: Vec<Message>,
-    ) -> super::AgentEngine {
-        make_compact_engine_with_output(
-            compact_config,
-            compact_state,
-            messages,
-            Arc::new(NullOutput),
-        )
-    }
-
-    fn make_compact_engine_with_output(
-        compact_config: CompactConfig,
-        compact_state: CompactState,
-        messages: Vec<Message>,
-        output: Arc<dyn OutputSink>,
-    ) -> super::AgentEngine {
-        super::AgentEngine {
-            provider: Arc::new(NullProvider),
-            tools: ToolRegistry::new(),
-            messages,
-            system_prompt: String::new(),
-            model: "test-model".to_string(),
-            max_tokens: 4096,
-            max_turns_per_run: Some(10),
-            max_tool_call_malformed_turns: 3,
-            max_tool_call_failure_turns: 3,
-            total_usage: Default::default(),
-            thinking: None,
-            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
-            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
-            hooks: None,
-            session_manager: None,
-            current_session: None,
-            output,
-            current_msg_id: String::new(),
-            approval_manager: None,
-            protocol_writer: None,
-            allow_list: vec![],
-            current_reasoning_effort: None,
-            compact_config,
-            compact_state,
-            plan_state: Default::default(),
-            plan_active_flag: None,
-            cache_detector: super::CacheBreakDetector::new(),
-            compaction_level: aion_compact::CompactionLevel::default(),
-            toon_enabled: false,
-            commands: crate::commands::default_registry(),
-        }
-    }
-
-    fn tool_use_msg(id: &str, name: &str) -> Message {
-        Message::new(
-            Role::Assistant,
-            vec![ContentBlock::ToolUse {
-                id: id.to_string(),
-                name: name.to_string(),
-                input: json!({}),
-                extra: None,
-            }],
-        )
-    }
-
-    fn tool_use_msg_with_two_calls(first_id: &str, second_id: &str) -> Message {
-        Message::new(
-            Role::Assistant,
-            vec![
-                ContentBlock::ToolUse {
-                    id: first_id.to_string(),
-                    name: "Read".to_string(),
-                    input: json!({}),
-                    extra: None,
-                },
-                ContentBlock::ToolUse {
-                    id: second_id.to_string(),
-                    name: "ExecCommand".to_string(),
-                    input: json!({}),
-                    extra: None,
-                },
-            ],
-        )
-    }
-
-    fn tool_result_msg(id: &str, content: &str) -> Message {
-        Message::new(
-            Role::User,
-            vec![ContentBlock::ToolResult {
-                tool_use_id: id.to_string(),
-                content: content.to_string(),
-                is_error: false,
-            }],
-        )
-    }
-
-    #[test]
-    fn abort_current_turn_closes_pending_tool_uses() {
-        let output = Arc::new(RecordingOutput::default());
-        let mut engine = make_compact_engine_with_output(
-            CompactConfig::default(),
-            CompactState::new(),
-            vec![
-                Message::new(
-                    Role::User,
-                    vec![ContentBlock::Text {
-                        text: "run tools".to_string(),
-                    }],
-                ),
-                tool_use_msg_with_two_calls("call_read", "call_bash"),
-            ],
-            output.clone(),
-        );
-
-        engine.abort_current_turn("Tool execution canceled by user");
-
-        let last = engine.messages.last().expect("synthetic result message");
-        assert_eq!(last.role, Role::User);
-        assert_eq!(last.content.len(), 2);
-        assert!(
-            matches!(&last.content[0], ContentBlock::ToolResult { tool_use_id, content, is_error }
-                if tool_use_id == "call_read" && content == "Tool execution canceled by user" && *is_error)
-        );
-        assert!(
-            matches!(&last.content[1], ContentBlock::ToolResult { tool_use_id, content, is_error }
-                if tool_use_id == "call_bash" && content == "Tool execution canceled by user" && *is_error)
-        );
-
-        let emitted = output.tool_results.lock().unwrap();
-        assert_eq!(emitted.len(), 2);
-        assert_eq!(
-            emitted[0],
-            (
-                "call_read".into(),
-                "Read".into(),
-                true,
-                "Tool execution canceled by user".into()
-            )
-        );
-        assert_eq!(
-            emitted[1],
-            (
-                "call_bash".into(),
-                "ExecCommand".into(),
-                true,
-                "Tool execution canceled by user".into()
-            )
-        );
-    }
-
-    // -- Emergency check fires when at limit --
-
-    #[tokio::test]
-    async fn emergency_fires_when_at_limit() {
-        let config = CompactConfig {
-            context_window: 200_000,
-            emergency_buffer: 3_000,
-            ..Default::default()
-        };
-        let mut state = CompactState::new();
-        state.last_input_tokens = 198_000; // >= 197k limit
-
-        let mut engine = make_compact_engine(config, state, vec![]);
-        let result = engine.run_compaction().await;
-
-        match result {
-            Err(super::AgentError::ContextTooLong {
-                input_tokens,
-                limit,
-            }) => {
-                assert_eq!(input_tokens, 198_000);
-                assert_eq!(limit, 197_000);
-            }
-            other => panic!("expected ContextTooLong, got: {:?}", other),
-        }
-    }
-
-    // -- Emergency does not fire when below limit --
-
-    #[tokio::test]
-    async fn emergency_silent_below_limit() {
-        let config = CompactConfig::default();
-        let mut state = CompactState::new();
-        state.last_input_tokens = 190_000; // below 197k
-
-        let mut engine = make_compact_engine(config, state, vec![]);
-        assert!(engine.run_compaction().await.is_ok());
-    }
-
-    // -- Microcompact runs when count trigger fires --
-
-    #[tokio::test]
-    async fn microcompact_clears_old_results() {
-        // 12 tool results with keep_recent=3 (threshold=6) → should clear 9
-        let mut messages = Vec::new();
-        for i in 0..12 {
-            let id = format!("t{i}");
-            messages.push(tool_use_msg(&id, "Read"));
-            messages.push(tool_result_msg(&id, &format!("data-{i}")));
-        }
-
-        let config = CompactConfig {
-            micro_keep_recent: 3,
-            ..Default::default()
-        };
-        let state = CompactState::new();
-
-        let mut engine = make_compact_engine(config, state, messages);
-        engine.run_compaction().await.unwrap();
-
-        // Last 3 tool results should be preserved
-        let cleared_count = engine
-            .messages
-            .iter()
-            .flat_map(|m| &m.content)
-            .filter(|b| {
-                matches!(b, ContentBlock::ToolResult { content, .. } if content == "[Tool result cleared]")
-            })
-            .count();
-
-        assert_eq!(cleared_count, 9);
-    }
-
-    // -- Disabled config skips micro and auto but not emergency --
-
-    #[tokio::test]
-    async fn disabled_config_skips_micro_auto() {
-        let mut messages = Vec::new();
-        for i in 0..12 {
-            let id = format!("t{i}");
-            messages.push(tool_use_msg(&id, "Read"));
-            messages.push(tool_result_msg(&id, &format!("data-{i}")));
-        }
-
-        let config = CompactConfig {
-            enabled: false,
-            micro_keep_recent: 3,
-            ..Default::default()
-        };
-        let state = CompactState::new();
-
-        let mut engine = make_compact_engine(config, state, messages);
-        engine.run_compaction().await.unwrap();
-
-        // Nothing should be cleared (microcompact skipped)
-        let cleared_count = engine
-            .messages
-            .iter()
-            .flat_map(|m| &m.content)
-            .filter(|b| {
-                matches!(b, ContentBlock::ToolResult { content, .. } if content == "[Tool result cleared]")
-            })
-            .count();
-
-        assert_eq!(
-            cleared_count, 0,
-            "microcompact should be skipped when disabled"
-        );
-    }
-
-    #[tokio::test]
-    async fn disabled_config_still_fires_emergency() {
-        let config = CompactConfig {
-            enabled: false,
-            context_window: 200_000,
-            emergency_buffer: 3_000,
-            ..Default::default()
-        };
-        let mut state = CompactState::new();
-        state.last_input_tokens = 198_000;
-
-        let mut engine = make_compact_engine(config, state, vec![]);
-        let result = engine.run_compaction().await;
-
-        assert!(
-            matches!(result, Err(super::AgentError::ContextTooLong { .. })),
-            "emergency should fire even when disabled"
-        );
-    }
-
-    // -- Zero tokens on first turn does not trigger anything --
-
-    #[tokio::test]
-    async fn first_turn_zero_tokens_no_compaction() {
-        let config = CompactConfig::default();
-        let state = CompactState::new(); // last_input_tokens = 0
-
-        let mut engine = make_compact_engine(config, state, vec![]);
-        assert!(engine.run_compaction().await.is_ok());
-        assert_eq!(engine.compact_state.last_input_tokens, 0);
-    }
-
-    // -- Circuit broken prevents autocompact, emergency still fires --
-
-    #[tokio::test]
-    async fn circuit_broken_skips_auto_but_emergency_fires() {
-        let config = CompactConfig {
-            context_window: 200_000,
-            emergency_buffer: 3_000,
-            max_failures: 3,
-            ..Default::default()
-        };
-        let mut state = CompactState::new();
-        state.last_input_tokens = 198_000; // triggers both auto and emergency
-        state.consecutive_failures = 3; // circuit broken
-
-        let mut engine = make_compact_engine(config, state, vec![]);
-        let result = engine.run_compaction().await;
-
-        // Auto is skipped due to circuit breaker; emergency fires
-        assert!(matches!(
-            result,
-            Err(super::AgentError::ContextTooLong { .. })
-        ));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Phase 3 tests — plan mode integration in apply_context_modifiers()
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests_plan_mode {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
-
-    use aion_providers::error::ProviderError;
-    use aion_providers::provider::LlmProvider;
-    use aion_tools::registry::ToolRegistry;
-    use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::skill_types::{ContextModifier, PlanModeTransition};
-
-    use crate::compact::state::CompactState;
-    use crate::confirm::ToolConfirmer;
-    use crate::output::OutputSink;
-    use crate::plan::state::PlanState;
-
-    struct NullOutput;
-    impl OutputSink for NullOutput {
-        fn emit_text_delta(&self, _: &str, _: &str) {}
-        fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
-        fn emit_stream_start(&self, _: &str) {}
-        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
-        fn emit_error(&self, _: &str) {}
-        fn emit_info(&self, _: &str) {}
-    }
-
-    struct NullProvider;
-    #[async_trait::async_trait]
-    impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
-            let (_tx, rx) = tokio::sync::mpsc::channel(1);
-            Ok(rx)
-        }
-    }
-
-    fn make_plan_engine(allow_list: Vec<String>) -> super::AgentEngine {
-        let flag = Arc::new(AtomicBool::new(false));
-        super::AgentEngine {
-            provider: Arc::new(NullProvider),
-            tools: ToolRegistry::new(),
-            messages: vec![],
-            system_prompt: String::new(),
-            model: "test-model".to_string(),
-            max_tokens: 4096,
-            max_turns_per_run: Some(10),
-            max_tool_call_malformed_turns: 3,
-            max_tool_call_failure_turns: 3,
-            total_usage: Default::default(),
-            thinking: None,
-            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
-            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
-            hooks: None,
-            session_manager: None,
-            current_session: None,
-            output: Arc::new(NullOutput),
-            current_msg_id: String::new(),
-            approval_manager: None,
-            protocol_writer: None,
-            allow_list,
-            current_reasoning_effort: None,
-            compact_config: aion_config::compact::CompactConfig::default(),
-            compact_state: CompactState::new(),
-            plan_state: PlanState::default(),
-            plan_active_flag: Some(flag),
-            cache_detector: super::CacheBreakDetector::new(),
-            compaction_level: aion_compact::CompactionLevel::default(),
-            toon_enabled: false,
-            commands: crate::commands::default_registry(),
-        }
-    }
-
-    // --- TC-3.5-03: Enter transition activates plan mode ---
-
-    #[test]
-    fn enter_transition_activates_plan_mode() {
-        let mut engine = make_plan_engine(vec!["Read".into(), "ExecCommand".into()]);
-        let modifiers = vec![Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })];
-
-        engine.apply_context_modifiers(&modifiers);
-
-        assert!(engine.plan_state.is_active, "plan mode should be active");
-        assert_eq!(
-            engine.plan_state.pre_plan_allow_list,
-            vec!["Read".to_string(), "ExecCommand".to_string()],
-            "pre_plan_allow_list should capture original allow_list"
-        );
-    }
-
-    // --- TC-3.5-03 supplement: shared flag updated on enter ---
-
-    #[test]
-    fn enter_transition_updates_shared_flag() {
-        let mut engine = make_plan_engine(vec![]);
-        let flag = engine.plan_active_flag.clone().unwrap();
-        assert!(!flag.load(Ordering::Acquire));
-
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })]);
-
-        assert!(flag.load(Ordering::Acquire), "shared flag should be true");
-    }
-
-    // --- TC-3.5-04: Exit transition deactivates plan mode and restores allow_list ---
-
-    #[test]
-    fn exit_transition_deactivates_and_restores() {
-        let mut engine = make_plan_engine(vec!["Read".into(), "ExecCommand".into()]);
-
-        // Enter plan mode first
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })]);
-        assert!(engine.plan_state.is_active);
-
-        // Modify allow_list while in plan mode (simulating a skill adding tools)
-        engine.allow_list.push("NewTool".into());
-
-        // Exit plan mode
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Exit { plan_content: None }),
-            ..Default::default()
-        })]);
-
-        assert!(!engine.plan_state.is_active, "plan mode should be inactive");
-        assert_eq!(
-            engine.allow_list,
-            vec!["Read".to_string(), "ExecCommand".to_string()],
-            "allow_list should be restored to pre-plan state"
-        );
-    }
-
-    // --- TC-3.5-04 supplement: shared flag updated on exit ---
-
-    #[test]
-    fn exit_transition_updates_shared_flag() {
-        let mut engine = make_plan_engine(vec![]);
-        let flag = engine.plan_active_flag.clone().unwrap();
-
-        // Enter
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })]);
-        assert!(flag.load(Ordering::Acquire));
-
-        // Exit
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Exit { plan_content: None }),
-            ..Default::default()
-        })]);
-        assert!(
-            !flag.load(Ordering::Acquire),
-            "shared flag should be false after exit"
-        );
-    }
-
-    // --- TC-3.5-05: No transition does not affect plan state ---
-
-    #[test]
-    fn no_transition_does_not_affect_plan_state() {
-        let mut engine = make_plan_engine(vec![]);
-
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            model: Some("new-model".into()),
-            plan_mode_transition: None,
-            ..Default::default()
-        })]);
-
-        assert_eq!(engine.model, "new-model");
-        assert!(
-            !engine.plan_state.is_active,
-            "plan state should remain inactive"
-        );
-    }
-
-    // --- Enter + other modifiers applied together ---
-
-    #[test]
-    fn enter_with_model_override_both_applied() {
-        let mut engine = make_plan_engine(vec![]);
-
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            model: Some("planning-model".into()),
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })]);
-
-        assert!(engine.plan_state.is_active);
-        assert_eq!(engine.model, "planning-model");
-    }
-
-    // --- No plan_active_flag set does not panic ---
-
-    #[test]
-    fn enter_without_flag_does_not_panic() {
-        let mut engine = make_plan_engine(vec![]);
-        engine.plan_active_flag = None;
-
-        engine.apply_context_modifiers(&[Some(ContextModifier {
-            plan_mode_transition: Some(PlanModeTransition::Enter),
-            ..Default::default()
-        })]);
-
-        assert!(engine.plan_state.is_active);
-    }
-}
-
-#[cfg(test)]
-mod tests_handle_command {
-    use std::sync::{Arc, Mutex};
-
-    use aion_providers::error::ProviderError;
-    use aion_providers::provider::LlmProvider;
-    use aion_tools::registry::ToolRegistry;
-    use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::message::{ContentBlock, Message, Role};
-
-    use crate::compact::state::CompactState;
-    use crate::confirm::ToolConfirmer;
-    use crate::output::OutputSink;
-
-    struct NullOutput;
-    impl OutputSink for NullOutput {
-        fn emit_text_delta(&self, _: &str, _: &str) {}
-        fn emit_thinking(&self, _: &str, _: &str) {}
-        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
-        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
-        fn emit_stream_start(&self, _: &str) {}
-        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
-        fn emit_error(&self, _: &str) {}
-        fn emit_info(&self, _: &str) {}
-    }
-
-    struct NullProvider;
-    #[async_trait::async_trait]
-    impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
-            let (_tx, rx) = tokio::sync::mpsc::channel(1);
-            Ok(rx)
-        }
-    }
-
-    fn make_engine() -> super::AgentEngine {
-        super::AgentEngine {
-            provider: Arc::new(NullProvider),
-            tools: ToolRegistry::new(),
-            messages: vec![],
-            system_prompt: String::new(),
-            model: "test-model".to_string(),
-            max_tokens: 4096,
-            max_turns_per_run: Some(10),
-            max_tool_call_malformed_turns: 3,
-            max_tool_call_failure_turns: 3,
-            total_usage: Default::default(),
-            thinking: None,
-            compat: aion_config::compat::ProviderCompat::anthropic_defaults(),
-            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
-            hooks: None,
-            session_manager: None,
-            current_session: None,
-            output: Arc::new(NullOutput),
-            current_msg_id: String::new(),
-            approval_manager: None,
-            protocol_writer: None,
-            allow_list: vec![],
-            current_reasoning_effort: None,
-            compact_config: aion_config::compact::CompactConfig::default(),
-            compact_state: CompactState::new(),
-            plan_state: Default::default(),
-            plan_active_flag: None,
-            cache_detector: super::CacheBreakDetector::new(),
-            compaction_level: aion_compact::CompactionLevel::default(),
-            toon_enabled: false,
-            commands: crate::commands::default_registry(),
-        }
-    }
-
-    #[tokio::test]
-    async fn handle_command_quit() {
-        let mut engine = make_engine();
-        let result = engine.handle_command("/quit").await;
-        assert!(matches!(
-            result,
-            Some(Ok(crate::commands::CommandResult::Exit))
-        ));
-    }
-
-    #[tokio::test]
-    async fn handle_command_exit_alias() {
-        let mut engine = make_engine();
-        let result = engine.handle_command("/exit").await;
-        assert!(matches!(
-            result,
-            Some(Ok(crate::commands::CommandResult::Exit))
-        ));
-    }
-
-    #[tokio::test]
-    async fn handle_command_unknown() {
-        let mut engine = make_engine();
-        let result = engine.handle_command("/nonexistent").await;
-        assert!(result.is_none());
-    }
-
-    #[tokio::test]
-    async fn handle_command_clear() {
-        let mut engine = make_engine();
-        engine.messages.push(Message::new(
-            Role::User,
-            vec![ContentBlock::Text {
-                text: "hello".to_string(),
-            }],
-        ));
-        assert_eq!(engine.messages.len(), 1);
-
-        let result = engine.handle_command("/clear").await;
-        assert!(matches!(
-            result,
-            Some(Ok(crate::commands::CommandResult::Continue))
-        ));
-        assert!(engine.messages.is_empty());
-        assert_eq!(engine.compact_state.last_input_tokens, 0);
-    }
-
-    #[tokio::test]
-    async fn handle_command_with_args() {
-        let mut engine = make_engine();
-        let result = engine.handle_command("/help compact").await;
-        assert!(matches!(
-            result,
-            Some(Ok(crate::commands::CommandResult::Continue))
-        ));
-    }
-
-    #[tokio::test]
-    async fn handle_command_not_a_command() {
-        let mut engine = make_engine();
-        let result = engine.handle_command("hello world").await;
-        assert!(result.is_none());
-    }
-
-    #[tokio::test]
-    async fn run_intercepts_help_returns_zero_turns() {
-        let mut engine = make_engine();
-        let result = engine.run("/help", "msg-1").await.unwrap();
-        assert_eq!(result.turns, 0);
-        assert_eq!(result.usage.input_tokens, 0);
-    }
-
-    #[tokio::test]
-    async fn run_intercepts_quit_returns_user_aborted() {
-        let mut engine = make_engine();
-        let err = engine.run("/quit", "msg-1").await.unwrap_err();
-        assert!(matches!(err, super::AgentError::UserAborted));
-    }
-
-    #[test]
-    fn slash_command_list_returns_all() {
-        let engine = make_engine();
-        let list = engine.slash_command_list();
-        assert!(list.len() >= 4);
-        let names: Vec<&str> = list.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(names.contains(&"help"));
-        assert!(names.contains(&"compact"));
-        assert!(names.contains(&"clear"));
-        assert!(names.contains(&"quit"));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Refactor unit tests — merge_tool_results() / TurnGuards
-// ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests_loop_helpers {
-    use aion_types::message::{ContentBlock, StopReason, TokenUsage};
-    use serde_json::json;
-
-    use super::{AgentError, merge_tool_results, tool_call_malformed_fingerprint};
-    use crate::stream::StreamOutcome;
-    use crate::tool_call::{DEFAULT_MAX_TOOL_CALL_FAILURE, ToolCallMalformedReason};
-    use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
-
-    fn tool_use(id: &str, name: &str) -> ContentBlock {
-        ContentBlock::ToolUse {
-            id: id.to_string(),
-            name: name.to_string(),
-            input: json!({}),
-            extra: None,
-        }
-    }
-
-    fn executed_result(id: &str) -> ContentBlock {
-        ContentBlock::ToolResult {
-            tool_use_id: id.to_string(),
-            content: format!("ok:{id}"),
-            is_error: false,
-        }
-    }
-
-    /// Mixed malformed + executable calls must re-interleave so each result
-    /// lands at its originating call's index, with executed results consumed
-    /// in order for the non-malformed slots.
-    #[test]
-    fn merge_interleaves_malformed_and_executed_in_call_order() {
-        let calls = vec![
-            tool_use("bad", ""),
-            tool_use("ok1", "Read"),
-            tool_use("ok2", "Glob"),
-        ];
-        let reasons = vec![Some(ToolCallMalformedReason::EmptyFunctionName), None, None];
-        let executed = vec![executed_result("ok1"), executed_result("ok2")];
-        let modifiers = vec![None, None];
-
-        let (results, mods) = merge_tool_results(&calls, &reasons, executed, modifiers);
-
-        assert_eq!(results.len(), 3);
-        // Slot 0: synthetic malformed error result for "bad".
-        assert!(matches!(
-            &results[0],
-            ContentBlock::ToolResult { tool_use_id, is_error: true, .. } if tool_use_id == "bad"
-        ));
-        // Slots 1,2: executed results, consumed in order.
-        assert!(matches!(
-            &results[1],
-            ContentBlock::ToolResult { tool_use_id, is_error: false, .. } if tool_use_id == "ok1"
-        ));
-        assert!(matches!(
-            &results[2],
-            ContentBlock::ToolResult { tool_use_id, is_error: false, .. } if tool_use_id == "ok2"
-        ));
-        assert_eq!(mods.len(), 3);
-    }
-
-    #[test]
-    fn merge_all_malformed_needs_no_executed_results() {
-        let calls = vec![tool_use("bad1", ""), tool_use("bad2", "")];
-        let reasons = vec![
-            Some(ToolCallMalformedReason::EmptyFunctionName),
-            Some(ToolCallMalformedReason::EmptyFunctionName),
-        ];
-
-        let (results, mods) = merge_tool_results(&calls, &reasons, Vec::new(), Vec::new());
-
-        assert_eq!(results.len(), 2);
-        assert!(
-            results
-                .iter()
-                .all(|r| matches!(r, ContentBlock::ToolResult { is_error: true, .. }))
-        );
-        assert!(mods.iter().all(Option::is_none));
-    }
-
-    #[test]
-    fn turn_budget_reached_respects_limit_and_none() {
-        let mut guards = TurnGuards::new(Some(2), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        assert_eq!(guards.turn_budget_reached(), None);
-        guards.record_counted_turn();
-        guards.record_counted_turn();
-        assert_eq!(guards.turn_budget_reached(), Some(2));
-
-        // No limit configured → never reached.
-        let mut unlimited = TurnGuards::new(None, 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        for _ in 0..1_000 {
-            unlimited.record_counted_turn();
-        }
-        assert_eq!(unlimited.turn_budget_reached(), None);
-    }
-
-    #[test]
-    fn after_tool_round_trips_consecutive_tool_call_failure_breaker() {
-        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        // First N-1 tool-call-failure rounds: no stop yet.
-        for _ in 0..DEFAULT_MAX_TOOL_CALL_FAILURE - 1 {
-            assert!(matches!(
-                guards.after_tool_round(None, true),
-                TurnGuardAction::Continue
-            ));
-        }
-        // The Nth consecutive tool-call-failure round trips the breaker.
-        assert!(matches!(
-            guards.after_tool_round(None, true),
-            TurnGuardAction::Stop(AgentError::ToolCallFailures { .. })
-        ));
-    }
-
-    #[test]
-    fn after_tool_round_resets_tool_call_failure_streak_on_success() {
-        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        assert!(matches!(
-            guards.after_tool_round(None, true),
-            TurnGuardAction::Continue
-        ));
-        // A non-error tool round resets the streak.
-        assert!(matches!(
-            guards.after_tool_round(None, false),
-            TurnGuardAction::Continue
-        ));
-        assert_eq!(guards.tool_call_failure_count(), 0);
-        // So a single subsequent tool-call-failure round must not trip the breaker.
-        assert!(matches!(
-            guards.after_tool_round(None, true),
-            TurnGuardAction::Continue
-        ));
-    }
-
-    #[test]
-    fn after_tool_round_requests_finalize_when_budget_is_exhausted() {
-        let mut guards = TurnGuards::new(Some(1), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        guards.record_counted_turn();
-        assert!(matches!(
-            guards.after_tool_round(None, false),
-            TurnGuardAction::Finalize
-        ));
-    }
-
-    #[test]
-    fn after_tool_round_stop_breaker_takes_priority_over_finalize() {
-        let mut guards = TurnGuards::new(Some(1), 1, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        guards.record_counted_turn();
-
-        let calls = vec![tool_use("bad", "")];
-        let reasons = vec![Some(ToolCallMalformedReason::EmptyFunctionName)];
-        let fingerprint = tool_call_malformed_fingerprint(&calls, &reasons);
-
-        assert!(matches!(
-            guards.after_tool_round(fingerprint, false),
-            TurnGuardAction::Stop(AgentError::ToolCallMalformed { count: 1, limit: 1 })
-        ));
-    }
-
-    #[test]
-    fn turn_kind_finalization_has_control_prompt_and_disables_tools() {
-        assert!(TurnKind::Normal.control_prompt().is_none());
-        assert!(!TurnKind::Normal.disable_tools());
-
-        let kind = TurnKind::Finalization(FinalizationReason::TurnBudget);
-        assert!(kind.disable_tools());
-        assert!(
-            kind.control_prompt()
-                .expect("finalization must have a control prompt")
-                .contains("Do not call any more tools")
-        );
-    }
-
-    #[test]
-    fn turn_kind_max_tokens_prompt_names_truncation() {
-        let prompt = TurnKind::Finalization(FinalizationReason::MaxTokens)
-            .control_prompt()
-            .expect("max token continuation must have a prompt");
-
-        assert!(prompt.contains("previous response was cut off"));
-        assert!(prompt.contains("Finish the answer"));
-    }
-
-    #[test]
-    fn turn_kind_empty_final_prompt_requests_visible_answer() {
-        let prompt = TurnKind::Finalization(FinalizationReason::EmptyFinal)
-            .control_prompt()
-            .expect("empty final nudge must have a prompt");
-
-        assert!(prompt.contains("visible answer text"));
-        assert!(prompt.contains("Do not send reasoning only"));
-    }
-
-    fn stream_outcome(
-        assistant_text: &str,
-        stop_reason: StopReason,
-        tool_calls: Vec<ContentBlock>,
-    ) -> StreamOutcome {
-        StreamOutcome {
-            assistant_text: assistant_text.to_string(),
-            thinking_text: String::new(),
-            thinking_signature: None,
-            tool_calls,
-            stop_reason,
-            usage: TokenUsage::default(),
-        }
-    }
-
-    #[test]
-    fn turn_outcome_classifies_tool_round_before_final_text() {
-        let outcome = stream_outcome(
-            "I will inspect this.",
-            StopReason::EndTurn,
-            vec![tool_use("call-1", "Read")],
-        );
-
-        assert!(matches!(
-            TurnOutcome::from_stream(outcome),
-            TurnOutcome::ToolRound(_)
-        ));
-    }
-
-    #[test]
-    fn turn_outcome_classifies_visible_end_turn_as_final() {
-        let outcome = stream_outcome("Done", StopReason::EndTurn, Vec::new());
-
-        assert!(matches!(
-            TurnOutcome::from_stream(outcome),
-            TurnOutcome::Final(_)
-        ));
-    }
-
-    #[test]
-    fn turn_outcome_classifies_max_tokens_as_truncated_even_with_text() {
-        let outcome = stream_outcome(
-            "I will now write the file",
-            StopReason::MaxTokens,
-            Vec::new(),
-        );
-
-        assert!(matches!(
-            TurnOutcome::from_stream(outcome),
-            TurnOutcome::Truncated(_)
-        ));
-    }
-
-    #[test]
-    fn turn_outcome_classifies_empty_end_turn_as_empty_final() {
-        let outcome = stream_outcome("   ", StopReason::EndTurn, Vec::new());
-
-        assert!(matches!(
-            TurnOutcome::from_stream(outcome),
-            TurnOutcome::EmptyFinal(_)
-        ));
-    }
-}
+#[path = "engine_test.rs"]
+mod engine_test;

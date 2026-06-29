@@ -33,10 +33,7 @@ pub async fn execute_shell_commands(
     }
 
     // Execute all commands in parallel
-    let futures: Vec<_> = matches
-        .iter()
-        .map(|m| execute_command(&m.command, cwd))
-        .collect();
+    let futures: Vec<_> = matches.iter().map(|m| execute_command(&m.command, cwd)).collect();
     let outputs: Vec<Result<String, ShellExecutionError>> = join_all(futures).await;
 
     // Pair matches with outputs; fail-fast on first error
@@ -136,8 +133,7 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
     // Track byte ranges already covered by block matches to avoid overlap
     let block_ranges: Vec<(usize, usize)> = matches.iter().map(|m| (m.start, m.end)).collect();
 
-    let overlaps_block =
-        |s: usize, e: usize| -> bool { block_ranges.iter().any(|(bs, be)| s < *be && e > *bs) };
+    let overlaps_block = |s: usize, e: usize| -> bool { block_ranges.iter().any(|(bs, be)| s < *be && e > *bs) };
 
     // Inline line-start: group(1) = full !`cmd`, group(2) = cmd
     for cap in inline_line_start_regex().captures_iter(content) {
@@ -211,10 +207,7 @@ async fn execute_command(command: &str, cwd: &str) -> Result<String, ShellExecut
         let output = if formatted.is_empty() {
             format!("timed out after {}ms", DEFAULT_TIMEOUT.as_millis())
         } else {
-            format!(
-                "timed out after {}ms\n{formatted}",
-                DEFAULT_TIMEOUT.as_millis()
-            )
+            format!("timed out after {}ms\n{formatted}", DEFAULT_TIMEOUT.as_millis())
         };
         return Err(ShellExecutionError::CommandFailed {
             pattern: command.to_owned(),

@@ -53,10 +53,7 @@ fn system_prompt_contains_tool_guidance() {
     );
 
     // 3. Parallel call guidance
-    assert!(
-        prompt.contains("parallel"),
-        "should contain parallel call guidance"
-    );
+    assert!(prompt.contains("parallel"), "should contain parallel call guidance");
 
     // 4. Edit-over-Write preference
     assert!(

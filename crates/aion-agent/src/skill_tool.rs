@@ -35,11 +35,7 @@ pub struct SkillTool {
 }
 
 impl SkillTool {
-    pub fn new(
-        skills: Arc<Vec<SkillMetadata>>,
-        cwd: String,
-        checker: SkillPermissionChecker,
-    ) -> Self {
+    pub fn new(skills: Arc<Vec<SkillMetadata>>, cwd: String, checker: SkillPermissionChecker) -> Self {
         Self {
             skills,
             cwd,
@@ -145,10 +141,7 @@ impl Tool for SkillTool {
             None => {
                 let available = self.available_names();
                 return ToolResult {
-                    content: format!(
-                        "Skill '{}' not found. Available skills: {}",
-                        skill_name, available
-                    ),
+                    content: format!("Skill '{}' not found. Available skills: {}", skill_name, available),
                     is_error: true,
                 };
             }
@@ -180,9 +173,7 @@ impl Tool for SkillTool {
 
         match skill.execution_context {
             ExecutionContext::Inline => {
-                match prepare_inline_content(skill, args, self.session_id.as_deref(), &self.cwd)
-                    .await
-                {
+                match prepare_inline_content(skill, args, self.session_id.as_deref(), &self.cwd).await {
                     Ok(content) => ToolResult {
                         content,
                         is_error: false,
@@ -208,9 +199,7 @@ impl Tool for SkillTool {
                         };
                     }
                 };
-                match execute_fork(skill, args, self.session_id.as_deref(), &self.cwd, spawner)
-                    .await
-                {
+                match execute_fork(skill, args, self.session_id.as_deref(), &self.cwd, spawner).await {
                     Ok(content) => ToolResult {
                         content,
                         is_error: false,
@@ -339,9 +328,7 @@ mod tests {
     #[tokio::test]
     async fn test_args_substituted() {
         let tool = tool_with(vec![make_skill("greet", "Hello $ARGUMENTS!")]);
-        let result = tool
-            .execute(json!({ "skill": "greet", "args": "world" }))
-            .await;
+        let result = tool.execute(json!({ "skill": "greet", "args": "world" })).await;
         assert!(!result.is_error);
         assert_eq!(result.content, "Hello world!");
     }
@@ -479,10 +466,7 @@ mod supplemental_tests {
         let schema = tool.input_schema();
         let required = schema["required"].as_array().unwrap();
         let names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();
-        assert!(
-            names.contains(&"skill"),
-            "schema required must contain 'skill'"
-        );
+        assert!(names.contains(&"skill"), "schema required must contain 'skill'");
     }
 
     #[test]
@@ -490,10 +474,7 @@ mod supplemental_tests {
         let tool = tool_with(vec![]);
         let schema = tool.input_schema();
         // args should be in properties
-        assert!(
-            schema["properties"]["args"].is_object(),
-            "args should be in properties"
-        );
+        assert!(schema["properties"]["args"].is_object(), "args should be in properties");
         // args should NOT be in required
         let required = schema["required"].as_array().unwrap();
         let names: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();
@@ -514,9 +495,7 @@ mod supplemental_tests {
     #[tokio::test]
     async fn tc_13_1_successful_inline_execution() {
         let tool = tool_with(vec![make_skill("my-skill", "Run $ARGUMENTS")]);
-        let result = tool
-            .execute(json!({"skill": "my-skill", "args": "foo"}))
-            .await;
+        let result = tool.execute(json!({"skill": "my-skill", "args": "foo"})).await;
         assert!(!result.is_error);
         assert_eq!(result.content, "Run foo");
     }
@@ -531,10 +510,7 @@ mod supplemental_tests {
 
     #[tokio::test]
     async fn tc_13_3_not_found_error_lists_available_skills() {
-        let tool = tool_with(vec![
-            make_skill("commit", "body"),
-            make_skill("review", "body"),
-        ]);
+        let tool = tool_with(vec![make_skill("commit", "body"), make_skill("review", "body")]);
         let result = tool.execute(json!({"skill": "missing"})).await;
         assert!(result.is_error);
         assert!(result.content.contains("commit"));
@@ -571,9 +547,7 @@ mod supplemental_tests {
         let tool = tool_with(vec![]);
         let result = tool.execute(json!({"args": "foo"})).await;
         assert!(result.is_error);
-        assert!(
-            result.content.to_lowercase().contains("missing") || result.content.contains("skill")
-        );
+        assert!(result.content.to_lowercase().contains("missing") || result.content.contains("skill"));
     }
 
     #[tokio::test]
@@ -581,9 +555,7 @@ mod supplemental_tests {
         let mut skill = make_skill("my-skill", "Run ${AIONRS_SKILL_DIR}/tool.sh $ARGUMENTS[0]");
         skill.skill_root = Some("/my/skill".to_string());
         let tool = tool_with(vec![skill]);
-        let result = tool
-            .execute(json!({"skill": "my-skill", "args": "alpha"}))
-            .await;
+        let result = tool.execute(json!({"skill": "my-skill", "args": "alpha"})).await;
         assert!(!result.is_error);
         // base dir header is prepended, then substitution applied
         assert!(result.content.contains("/my/skill/tool.sh alpha"));
@@ -606,10 +578,7 @@ mod supplemental_tests {
 
     #[test]
     fn tc_14_1_description_is_non_empty() {
-        let tool = tool_with(vec![
-            make_skill("commit", "body"),
-            make_skill("review", "body"),
-        ]);
+        let tool = tool_with(vec![make_skill("commit", "body"), make_skill("review", "body")]);
         assert!(!tool.description().is_empty());
     }
 
@@ -631,9 +600,7 @@ mod supplemental_tests_p6 {
     use serde_json::json;
 
     use aion_skills::permissions::SkillPermissionChecker;
-    use aion_skills::types::{
-        EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
-    };
+    use aion_skills::types::{EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
     use aion_tools::Tool;
 
     use super::SkillTool;
@@ -678,10 +645,7 @@ mod supplemental_tests_p6 {
     #[test]
     fn tc_6_14_skill_not_found_returns_none() {
         let tool = tool_with(vec![base_skill("commit")]);
-        assert!(
-            tool.context_modifier_for(&json!({"skill": "nonexistent"}))
-                .is_none()
-        );
+        assert!(tool.context_modifier_for(&json!({"skill": "nonexistent"})).is_none());
     }
 
     // TC-6.15: input missing skill field → None
@@ -695,10 +659,7 @@ mod supplemental_tests_p6 {
     #[test]
     fn tc_6_16_skill_no_override_returns_none() {
         let tool = tool_with(vec![base_skill("no-override")]);
-        assert!(
-            tool.context_modifier_for(&json!({"skill": "no-override"}))
-                .is_none()
-        );
+        assert!(tool.context_modifier_for(&json!({"skill": "no-override"})).is_none());
     }
 
     // TC-6.17: skill has model override → Some with correct model
@@ -859,11 +820,7 @@ mod permission_tests {
         );
         let result = tool.execute(json!({"skill": "dangerous"})).await;
         assert!(result.is_error);
-        assert!(
-            result.content.contains("denied"),
-            "content: {}",
-            result.content
-        );
+        assert!(result.content.contains("denied"), "content: {}", result.content);
     }
 
     // P5-12: SkillTool returns informative message for a skill that needs approval.
@@ -896,9 +853,7 @@ mod phase7_tests {
 
     use crate::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
     use aion_skills::permissions::SkillPermissionChecker;
-    use aion_skills::types::{
-        EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource,
-    };
+    use aion_skills::types::{EffortLevel, ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
     use aion_tools::Tool;
     use aion_types::message::TokenUsage;
 
@@ -956,11 +911,7 @@ mod phase7_tests {
 
     #[async_trait]
     impl Spawner for MockSpawner {
-        async fn spawn_fork(
-            &self,
-            config: SubAgentConfig,
-            overrides: ForkOverrides,
-        ) -> SubAgentResult {
+        async fn spawn_fork(&self, config: SubAgentConfig, overrides: ForkOverrides) -> SubAgentResult {
             *self.captured_config.lock().unwrap() = Some(config.clone());
             *self.captured_overrides.lock().unwrap() = Some(overrides.clone());
             SubAgentResult {
@@ -1033,10 +984,7 @@ mod phase7_tests {
         }
     }
 
-    fn tool_with_spawner(
-        skills: Vec<SkillMetadata>,
-        spawner: Option<Arc<dyn Spawner>>,
-    ) -> SkillTool {
+    fn tool_with_spawner(skills: Vec<SkillMetadata>, spawner: Option<Arc<dyn Spawner>>) -> SkillTool {
         SkillTool::with_spawner(
             Arc::new(skills),
             "/tmp".to_string(),
@@ -1061,11 +1009,7 @@ mod phase7_tests {
             Some(spawner.clone() as Arc<dyn Spawner>),
         );
         let result = tool.execute(json!({"skill": "inline-skill"})).await;
-        assert!(
-            !result.is_error,
-            "inline skill should succeed: {}",
-            result.content
-        );
+        assert!(!result.is_error, "inline skill should succeed: {}", result.content);
         assert_eq!(result.content, "inline content");
         // spawn_fork should NOT have been called
         assert!(
@@ -1083,11 +1027,7 @@ mod phase7_tests {
             Some(spawner.clone() as Arc<dyn Spawner>),
         );
         let result = tool.execute(json!({"skill": "fork-skill"})).await;
-        assert!(
-            !result.is_error,
-            "fork skill should succeed: {}",
-            result.content
-        );
+        assert!(!result.is_error, "fork skill should succeed: {}", result.content);
         assert_eq!(result.content, "fork result");
         // spawn_fork should have been called exactly once
         assert!(
@@ -1241,11 +1181,7 @@ mod phase11_tests {
 
     use super::SkillTool;
 
-    fn base_skill(
-        name: &str,
-        source: SkillSource,
-        hooks_raw: Option<serde_json::Value>,
-    ) -> SkillMetadata {
+    fn base_skill(name: &str, source: SkillSource, hooks_raw: Option<serde_json::Value>) -> SkillMetadata {
         SkillMetadata {
             name: name.to_string(),
             display_name: None,
@@ -1293,10 +1229,7 @@ mod phase11_tests {
         let skill = base_skill("my-skill", SkillSource::User, Some(valid_hooks_json()));
         let tool = tool_with(vec![skill]);
         let result = tool.skill_hooks_for(&json!({"skill": "my-skill"}));
-        assert!(
-            result.is_some(),
-            "TC-11.40: skill with valid hooks must return Some"
-        );
+        assert!(result.is_some(), "TC-11.40: skill with valid hooks must return Some");
         let config = result.unwrap();
         assert!(
             !config.pre_tool_use.is_empty(),
@@ -1310,10 +1243,7 @@ mod phase11_tests {
         let skill = base_skill("no-hooks", SkillSource::User, None);
         let tool = tool_with(vec![skill]);
         let result = tool.skill_hooks_for(&json!({"skill": "no-hooks"}));
-        assert!(
-            result.is_none(),
-            "TC-11.41: skill without hooks must return None"
-        );
+        assert!(result.is_none(), "TC-11.41: skill without hooks must return None");
     }
 
     // TC-11.42: nonexistent skill name returns None
@@ -1321,10 +1251,7 @@ mod phase11_tests {
     fn tc_11_42_nonexistent_skill_returns_none() {
         let tool = tool_with(vec![]);
         let result = tool.skill_hooks_for(&json!({"skill": "nonexistent"}));
-        assert!(
-            result.is_none(),
-            "TC-11.42: nonexistent skill must return None"
-        );
+        assert!(result.is_none(), "TC-11.42: nonexistent skill must return None");
     }
 
     // TC-11.43: input missing skill field returns None
@@ -1357,9 +1284,6 @@ mod phase11_tests {
         let skill = base_skill("bad-hooks", SkillSource::User, Some(json!([1, 2, 3])));
         let tool = tool_with(vec![skill]);
         let result = tool.skill_hooks_for(&json!({"skill": "bad-hooks"}));
-        assert!(
-            result.is_none(),
-            "TC-11.45: invalid hooks_raw (array) must return None"
-        );
+        assert!(result.is_none(), "TC-11.45: invalid hooks_raw (array) must return None");
     }
 }

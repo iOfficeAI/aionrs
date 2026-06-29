@@ -151,12 +151,7 @@ fn resolve_include_path(raw: &str, base_dir: &Path) -> Option<PathBuf> {
     Some(resolved)
 }
 
-fn expand_includes(
-    content: &str,
-    base_dir: &Path,
-    depth: u8,
-    seen: &mut HashSet<PathBuf>,
-) -> String {
+fn expand_includes(content: &str, base_dir: &Path, depth: u8, seen: &mut HashSet<PathBuf>) -> String {
     let mut result = Vec::new();
     let mut in_code_block = false;
 
@@ -192,12 +187,7 @@ fn expand_includes(
                 }
                 if let Ok(included) = std::fs::read_to_string(&resolved) {
                     seen.insert(canonical);
-                    let expanded = expand_includes(
-                        &included,
-                        resolved.parent().unwrap_or(base_dir),
-                        depth + 1,
-                        seen,
-                    );
+                    let expanded = expand_includes(&included, resolved.parent().unwrap_or(base_dir), depth + 1, seen);
                     result.push(expanded);
                 }
                 continue;

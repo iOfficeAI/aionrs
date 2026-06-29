@@ -21,10 +21,7 @@ fn tc_2_1_default_base_dir_uses_platform_config() {
 
     let base = paths::memory_base_dir();
     // Should return Some (platform provides a config dir in CI/test envs)
-    assert!(
-        base.is_some(),
-        "memory_base_dir should return Some on this platform"
-    );
+    assert!(base.is_some(), "memory_base_dir should return Some on this platform");
     let base = base.unwrap();
     // Should end with "aionrs" (the brand, not "claude")
     assert!(
@@ -81,14 +78,8 @@ fn tc_2_3_auto_memory_dir_structure() {
 
     // Should have the structure: <base>/projects/<sanitized>/memory
     let dir_str = dir.to_string_lossy();
-    assert!(
-        dir_str.starts_with("/base/projects/"),
-        "wrong prefix: {dir_str}"
-    );
-    assert!(
-        dir_str.ends_with("/memory"),
-        "should end with /memory: {dir_str}"
-    );
+    assert!(dir_str.starts_with("/base/projects/"), "wrong prefix: {dir_str}");
+    assert!(dir_str.ends_with("/memory"), "should end with /memory: {dir_str}");
 
     // Sanitized name should not contain `/` (the original separator)
     let sanitized = dir.parent().unwrap().file_name().unwrap().to_string_lossy();
@@ -113,14 +104,8 @@ fn tc_2_3_auto_memory_dir_structure() {
     let dir = dir.unwrap();
 
     let dir_str = dir.to_string_lossy();
-    assert!(
-        dir_str.starts_with("C:\\base\\projects\\"),
-        "wrong prefix: {dir_str}"
-    );
-    assert!(
-        dir_str.ends_with("\\memory"),
-        "should end with \\memory: {dir_str}"
-    );
+    assert!(dir_str.starts_with("C:\\base\\projects\\"), "wrong prefix: {dir_str}");
+    assert!(dir_str.ends_with("\\memory"), "should end with \\memory: {dir_str}");
 
     let sanitized = dir.parent().unwrap().file_name().unwrap().to_string_lossy();
     assert!(
@@ -153,10 +138,7 @@ fn tc_2_5_reject_null_byte() {
     let result = paths::validate_memory_path(&bad_path);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("null"),
-        "error should mention null: {err_msg}"
-    );
+    assert!(err_msg.contains("null"), "error should mention null: {err_msg}");
 }
 
 #[cfg(windows)]
@@ -166,10 +148,7 @@ fn tc_2_5_reject_null_byte() {
     let result = paths::validate_memory_path(&bad_path);
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("null"),
-        "error should mention null: {err_msg}"
-    );
+    assert!(err_msg.contains("null"), "error should mention null: {err_msg}");
 }
 
 // -- TC-2.6: Reject path traversal --------------------------------------------

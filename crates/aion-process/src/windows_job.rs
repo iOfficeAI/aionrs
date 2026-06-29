@@ -4,9 +4,7 @@ use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
 };
-use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject,
-};
+use windows_sys::Win32::System::JobObjects::{AssignProcessToJobObject, CreateJobObjectW, TerminateJobObject};
 use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
 
 pub(crate) struct JobObject {
@@ -17,16 +15,10 @@ unsafe impl Send for JobObject {}
 unsafe impl Sync for JobObject {}
 
 impl JobObject {
-    pub(crate) fn assign_and_resume(
-        child_raw: RawHandle,
-        pid: u32,
-    ) -> std::result::Result<Self, String> {
+    pub(crate) fn assign_and_resume(child_raw: RawHandle, pid: u32) -> std::result::Result<Self, String> {
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if job.is_null() {
-            return Err(format!(
-                "CreateJobObjectW failed: {}",
-                std::io::Error::last_os_error()
-            ));
+            return Err(format!("CreateJobObjectW failed: {}", std::io::Error::last_os_error()));
         }
 
         let this = Self { job };
@@ -83,10 +75,7 @@ fn resume_threads_from_snapshot(snapshot: HANDLE, pid: u32) -> std::result::Resu
 
     let mut ok = unsafe { Thread32First(snapshot, &mut entry) };
     if ok == 0 {
-        return Err(format!(
-            "Thread32First failed: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("Thread32First failed: {}", std::io::Error::last_os_error()));
     }
 
     let mut resumed = 0_u32;

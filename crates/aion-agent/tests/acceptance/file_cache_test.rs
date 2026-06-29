@@ -43,14 +43,8 @@ async fn read_dedup_returns_stub_on_second_read() {
         "first read should contain line-numbered content, got: {}",
         r1.content
     );
-    assert!(
-        r1.content.contains("2\tline two"),
-        "first read should contain line 2"
-    );
-    assert!(
-        r1.content.contains("3\tline three"),
-        "first read should contain line 3"
-    );
+    assert!(r1.content.contains("2\tline two"), "first read should contain line 2");
+    assert!(r1.content.contains("3\tline three"), "first read should contain line 3");
 
     // Second read WITHOUT modifying the file: should return dedup stub.
     let r2 = read_tool.execute(input).await;
@@ -83,11 +77,7 @@ async fn write_then_edit_chain_succeeds() {
             "content": "hello world\n"
         }))
         .await;
-    assert!(
-        !write_result.is_error,
-        "write should succeed: {}",
-        write_result.content
-    );
+    assert!(!write_result.is_error, "write should succeed: {}", write_result.content);
 
     // Immediately edit via EditTool — should NOT get "must Read first" error.
     let edit_result = edit_tool
@@ -105,8 +95,5 @@ async fn write_then_edit_chain_succeeds() {
 
     // Verify file content on disk.
     let content = std::fs::read_to_string(&file_path).unwrap();
-    assert_eq!(
-        content, "goodbye world\n",
-        "file content should reflect the edit"
-    );
+    assert_eq!(content, "goodbye world\n", "file content should reflect the edit");
 }

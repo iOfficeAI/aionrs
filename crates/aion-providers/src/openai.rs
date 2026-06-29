@@ -26,10 +26,7 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl LlmProvider for OpenAIProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.inner.stream(request).await
     }
 }
@@ -95,11 +92,7 @@ impl StreamState {
     }
 }
 
-pub(crate) fn parse_sse_chunk(
-    data: &str,
-    state: &mut StreamState,
-    auto_tool_id: bool,
-) -> Vec<LlmEvent> {
+pub(crate) fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
     let mut events = Vec::new();
 
     let json: Value = match serde_json::from_str(data) {
@@ -109,9 +102,7 @@ pub(crate) fn parse_sse_chunk(
 
     // Extract usage if present
     if let Some(usage) = json.get("usage") {
-        let base_prompt = usage["prompt_tokens"]
-            .as_u64()
-            .unwrap_or(state.input_tokens);
+        let base_prompt = usage["prompt_tokens"].as_u64().unwrap_or(state.input_tokens);
 
         // DeepSeek-style: prompt_cache_hit_tokens is reported separately and
         // prompt_tokens only contains the cache-miss portion.
@@ -119,9 +110,7 @@ pub(crate) fn parse_sse_chunk(
         let cache_hit = usage["prompt_cache_hit_tokens"].as_u64().unwrap_or(0);
 
         state.input_tokens = base_prompt + cache_hit;
-        state.output_tokens = usage["completion_tokens"]
-            .as_u64()
-            .unwrap_or(state.output_tokens);
+        state.output_tokens = usage["completion_tokens"].as_u64().unwrap_or(state.output_tokens);
     }
 
     let Some(choice) = json["choices"].as_array().and_then(|c| c.first()) else {
@@ -181,8 +170,8 @@ pub(crate) fn parse_sse_chunk(
                         } else {
                             tc.id
                         };
-                        let input: Value = serde_json::from_str(&tc.arguments)
-                            .unwrap_or(Value::Object(serde_json::Map::new()));
+                        let input: Value =
+                            serde_json::from_str(&tc.arguments).unwrap_or(Value::Object(serde_json::Map::new()));
                         if tc.name.is_empty() {
                             tracing::warn!(
                                 target: "aion_providers",
@@ -276,7 +265,8 @@ mod tests {
         let mut state = StreamState::new();
 
         // No text delta here, only finish_reason + usage in the same chunk.
-        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}"#;
+        let chunk =
+            r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":8,"completion_tokens":3}}"#;
         let events = parse_sse_chunk(chunk, &mut state, false);
         assert!(
             events.iter().all(|e| !matches!(e, LlmEvent::Done { .. })),
@@ -355,10 +345,7 @@ mod tests {
             .filter(|e| matches!(e, LlmEvent::ToolUse { .. }))
             .collect();
         assert_eq!(tool_events.len(), 1, "tool call should be emitted on stop");
-        if let LlmEvent::ToolUse {
-            id, name, input, ..
-        } = &tool_events[0]
-        {
+        if let LlmEvent::ToolUse { id, name, input, .. } = &tool_events[0] {
             assert_eq!(id, "call_abc123");
             assert_eq!(name, "Skill");
             assert_eq!(input["skill"], "test");
@@ -405,14 +392,10 @@ mod tests {
         // Standard stop without tool calls should still produce EndTurn.
         let mut state = StreamState::new();
 
-        let chunk =
-            r#"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}"#;
+        let chunk = r#"{"choices":[{"delta":{"content":"done"},"finish_reason":"stop","index":0}]}"#;
         let events = parse_sse_chunk(chunk, &mut state, false);
 
-        let text_events: Vec<_> = events
-            .iter()
-            .filter(|e| matches!(e, LlmEvent::TextDelta(_)))
-            .collect();
+        let text_events: Vec<_> = events.iter().filter(|e| matches!(e, LlmEvent::TextDelta(_))).collect();
         assert_eq!(text_events.len(), 1);
 
         let done = state.flush_done().unwrap();
@@ -474,10 +457,7 @@ mod tests {
             .expect("should emit ToolUse event");
 
         if let LlmEvent::ToolUse { id, .. } = tool_use {
-            assert!(
-                id.is_empty(),
-                "id should remain empty when auto_tool_id is disabled"
-            );
+            assert!(id.is_empty(), "id should remain empty when auto_tool_id is disabled");
         }
     }
 }

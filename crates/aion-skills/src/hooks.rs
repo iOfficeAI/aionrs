@@ -135,16 +135,9 @@ fn build_defs(cmds: &[SkillHookCommand], skill_name: &str, event: &str) -> Vec<H
     cmds.iter()
         .enumerate()
         .map(|(idx, cmd)| {
-            let tool_match = cmd
-                .matcher
-                .as_deref()
-                .map(|m| vec![m.to_string()])
-                .unwrap_or_default();
+            let tool_match = cmd.matcher.as_deref().map(|m| vec![m.to_string()]).unwrap_or_default();
 
-            let timeout_ms = cmd
-                .timeout_secs
-                .map(|s| s.saturating_mul(1_000))
-                .unwrap_or(30_000);
+            let timeout_ms = cmd.timeout_secs.map(|s| s.saturating_mul(1_000)).unwrap_or(30_000);
 
             HookDef {
                 name: format!("skill:{}:{}:{}", skill_name, event, idx),
@@ -171,11 +164,7 @@ mod tests {
     // Helpers
     // -----------------------------------------------------------------------
 
-    fn make_cmd(
-        command: &str,
-        matcher: Option<&str>,
-        timeout_secs: Option<u64>,
-    ) -> SkillHookCommand {
+    fn make_cmd(command: &str, matcher: Option<&str>, timeout_secs: Option<u64>) -> SkillHookCommand {
         SkillHookCommand {
             command: command.to_string(),
             matcher: matcher.map(|s| s.to_string()),
@@ -310,8 +299,7 @@ mod tests {
     #[test]
     fn tc_11_12_absent_matcher_is_none() {
         let raw = json!({"PreToolUse": [{"hooks": [{"type": "command", "command": "echo x"}]}]});
-        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
-            .expect("TC-11.12: should return Some");
+        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User).expect("TC-11.12: should return Some");
         assert!(
             config.pre_tool_use[0].matcher.is_none(),
             "TC-11.12: absent matcher should be None"
@@ -323,13 +311,10 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn tc_11_13_present_matcher_preserved() {
-        let raw = json!({"PreToolUse": [{"matcher": "ExecCommand", "hooks": [{"type": "command", "command": "echo x"}]}]});
-        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
-            .expect("TC-11.13: should return Some");
-        assert_eq!(
-            config.pre_tool_use[0].matcher.as_deref(),
-            Some("ExecCommand")
-        );
+        let raw =
+            json!({"PreToolUse": [{"matcher": "ExecCommand", "hooks": [{"type": "command", "command": "echo x"}]}]});
+        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User).expect("TC-11.13: should return Some");
+        assert_eq!(config.pre_tool_use[0].matcher.as_deref(), Some("ExecCommand"));
     }
 
     // -----------------------------------------------------------------------
@@ -338,8 +323,7 @@ mod tests {
     #[test]
     fn tc_11_14_timeout_preserved() {
         let raw = json!({"PreToolUse": [{"hooks": [{"type": "command", "command": "echo x", "timeout": 5}]}]});
-        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
-            .expect("TC-11.14: should return Some");
+        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User).expect("TC-11.14: should return Some");
         assert_eq!(config.pre_tool_use[0].timeout_secs, Some(5));
     }
 
@@ -349,8 +333,7 @@ mod tests {
     #[test]
     fn tc_11_15_absent_timeout_is_none() {
         let raw = json!({"PreToolUse": [{"hooks": [{"type": "command", "command": "echo x"}]}]});
-        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
-            .expect("TC-11.15: should return Some");
+        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User).expect("TC-11.15: should return Some");
         assert!(config.pre_tool_use[0].timeout_secs.is_none());
     }
 
@@ -367,11 +350,7 @@ mod tests {
             SkillSource::Legacy,
         ] {
             let result = parse_skill_hooks(Some(&raw), "skill", source);
-            assert!(
-                result.is_some(),
-                "TC-11.16: source {:?} should return Some",
-                source
-            );
+            assert!(result.is_some(), "TC-11.16: source {:?} should return Some", source);
         }
     }
 
@@ -386,8 +365,8 @@ mod tests {
                 {"type": "prompt", "prompt": "p"}
             ]}]
         });
-        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
-            .expect("TC-11.17: command present → Some");
+        let config =
+            parse_skill_hooks(Some(&raw), "skill", SkillSource::User).expect("TC-11.17: command present → Some");
         assert_eq!(config.pre_tool_use.len(), 1);
         assert_eq!(config.pre_tool_use[0].command, "echo x");
     }
@@ -411,8 +390,8 @@ mod tests {
             "PreToolUse": [{"hooks": [{"type": "command", "command": "echo pre"}]}],
             "PostToolUse": [{"hooks": [{"type": "prompt", "prompt": "p"}]}]
         });
-        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
-            .expect("TC-11.19: pre has command → Some");
+        let config =
+            parse_skill_hooks(Some(&raw), "skill", SkillSource::User).expect("TC-11.19: pre has command → Some");
         assert_eq!(config.pre_tool_use.len(), 1);
         assert_eq!(config.post_tool_use.len(), 0);
     }
@@ -430,10 +409,7 @@ mod tests {
         let result = to_hook_defs(&config, "my-skill");
         assert_eq!(result.pre_tool_use.len(), 1);
         let def = &result.pre_tool_use[0];
-        assert!(
-            def.name.contains("my-skill"),
-            "TC-11.20: name must contain skill name"
-        );
+        assert!(def.name.contains("my-skill"), "TC-11.20: name must contain skill name");
         assert_eq!(def.command, "echo x");
         assert_eq!(def.tool_match, vec!["ExecCommand"]);
         assert_eq!(def.timeout_ms, 5_000);
@@ -451,14 +427,8 @@ mod tests {
         };
         let result = to_hook_defs(&config, "my-skill");
         let def = &result.post_tool_use[0];
-        assert!(
-            def.tool_match.is_empty(),
-            "TC-11.21: None matcher → empty tool_match"
-        );
-        assert_eq!(
-            def.timeout_ms, 30_000,
-            "TC-11.21: absent timeout → 30s default"
-        );
+        assert!(def.tool_match.is_empty(), "TC-11.21: None matcher → empty tool_match");
+        assert_eq!(def.timeout_ms, 30_000, "TC-11.21: absent timeout → 30s default");
     }
 
     // -----------------------------------------------------------------------
@@ -579,8 +549,7 @@ mod tests {
                 {"hooks": [{"type": "command", "command": "echo stop-2"}]}
             ]
         });
-        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User)
-            .expect("TC-11.50: should return Some");
+        let config = parse_skill_hooks(Some(&raw), "skill", SkillSource::User).expect("TC-11.50: should return Some");
         assert_eq!(config.pre_tool_use.len(), 2);
         assert_eq!(config.post_tool_use.len(), 2);
         assert_eq!(config.stop.len(), 2);

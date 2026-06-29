@@ -123,10 +123,7 @@ fn tc_5_6_whitespace_only() {
 
 #[test]
 fn tc_5_7_exactly_200_lines() {
-    let content = (0..200)
-        .map(|i| format!("- line {i}"))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let content = (0..200).map(|i| format!("- line {i}")).collect::<Vec<_>>().join("\n");
 
     let result = index::truncate_index(&content);
     assert!(!result.was_truncated);
@@ -215,11 +212,7 @@ fn tc_5_12_read_empty_file() {
 fn tc_5_13_append_to_existing() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("MEMORY.md");
-    fs::write(
-        &path,
-        "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n",
-    )
-    .unwrap();
+    fs::write(&path, "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n").unwrap();
 
     index::append_index_entry(&path, "My Memory", "my_memory.md", "a test").unwrap();
 
@@ -300,8 +293,7 @@ fn tc_5_16_remove_by_filename() {
 fn tc_5_17_remove_not_found() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("MEMORY.md");
-    let original =
-        "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n- [C](c.md) \u{2014} third\n";
+    let original = "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n- [C](c.md) \u{2014} third\n";
     fs::write(&path, original).unwrap();
 
     index::remove_index_entry(&path, "nonexistent.md").unwrap();

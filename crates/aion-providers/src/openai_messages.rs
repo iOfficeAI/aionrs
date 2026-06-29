@@ -6,11 +6,7 @@ use serde_json::{Value, json};
 
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 
-pub(crate) fn build_messages(
-    messages: &[Message],
-    system: &str,
-    compat: &ProviderCompat,
-) -> Vec<Value> {
+pub(crate) fn build_messages(messages: &[Message], system: &str, compat: &ProviderCompat) -> Vec<Value> {
     let mut result: Vec<Value> = Vec::new();
     let sanitize = compat.sanitize_malformed_tool_calls();
     let auto_tool_id = compat.auto_tool_id();
@@ -33,18 +29,13 @@ pub(crate) fn build_messages(
         match msg.role {
             Role::User => {
                 // Check if this contains tool results
-                let has_tool_results = msg
-                    .content
-                    .iter()
-                    .any(|b| matches!(b, ContentBlock::ToolResult { .. }));
+                let has_tool_results = msg.content.iter().any(|b| matches!(b, ContentBlock::ToolResult { .. }));
 
                 if has_tool_results {
                     // Each tool result becomes a separate "tool" role message
                     for block in &msg.content {
                         if let ContentBlock::ToolResult {
-                            tool_use_id,
-                            content,
-                            ..
+                            tool_use_id, content, ..
                         } = block
                         {
                             if let Some(reasons) = dropped_ids.get_mut(tool_use_id)
@@ -56,9 +47,7 @@ pub(crate) fn build_messages(
                                 .get_mut(tool_use_id)
                                 .and_then(VecDeque::pop_front)
                                 .unwrap_or_else(|| tool_use_id.clone());
-                            if clean_orphan_tool_results
-                                && !available_tool_call_ids.contains(&projected_tool_use_id)
-                            {
+                            if clean_orphan_tool_results && !available_tool_call_ids.contains(&projected_tool_use_id) {
                                 tracing::warn!(
                                     target: "aion_providers",
                                     tool_call_id = %tool_use_id,
@@ -134,22 +123,13 @@ pub(crate) fn build_messages(
                 let mut tool_calls: Vec<Value> = Vec::new();
                 let mut dropped_lines: Vec<String> = Vec::new();
                 for b in &msg.content {
-                    if let ContentBlock::ToolUse {
-                        id,
-                        name,
-                        input,
-                        extra,
-                    } = b
-                    {
+                    if let ContentBlock::ToolUse { id, name, input, extra } = b {
                         if sanitize && name.is_empty() {
                             dropped_ids
                                 .entry(id.clone())
                                 .or_default()
                                 .push_back(DroppedToolCallReason::EmptyName);
-                            dropped_lines.push(format_dropped_tool_call(
-                                DroppedToolCallReason::EmptyName,
-                                input,
-                            ));
+                            dropped_lines.push(format_dropped_tool_call(DroppedToolCallReason::EmptyName, input));
                             tracing::warn!(
                                 target: "aion_providers",
                                 tool_call_id = %id,
@@ -164,10 +144,7 @@ pub(crate) fn build_messages(
                                 .entry(id.clone())
                                 .or_default()
                                 .push_back(DroppedToolCallReason::EmptyId);
-                            dropped_lines.push(format_dropped_tool_call(
-                                DroppedToolCallReason::EmptyId,
-                                input,
-                            ));
+                            dropped_lines.push(format_dropped_tool_call(DroppedToolCallReason::EmptyId, input));
                             tracing::warn!(
                                 target: "aion_providers",
                                 tool_call_id = %id,
@@ -230,9 +207,7 @@ pub(crate) fn build_messages(
             Role::Tool => {
                 for block in &msg.content {
                     if let ContentBlock::ToolResult {
-                        tool_use_id,
-                        content,
-                        ..
+                        tool_use_id, content, ..
                     } = block
                     {
                         if let Some(reasons) = dropped_ids.get_mut(tool_use_id)
@@ -244,9 +219,7 @@ pub(crate) fn build_messages(
                             .get_mut(tool_use_id)
                             .and_then(VecDeque::pop_front)
                             .unwrap_or_else(|| tool_use_id.clone());
-                        if clean_orphan_tool_results
-                            && !available_tool_call_ids.contains(&projected_tool_use_id)
-                        {
+                        if clean_orphan_tool_results && !available_tool_call_ids.contains(&projected_tool_use_id) {
                             tracing::warn!(
                                 target: "aion_providers",
                                 tool_call_id = %tool_use_id,
@@ -360,10 +333,7 @@ fn clean_orphaned_tool_calls(messages: &mut [Value], retain_empty_name_tool_call
                 if retain_empty_name_tool_calls && tc["function"]["name"].as_str() == Some("") {
                     return true;
                 }
-                tc["id"]
-                    .as_str()
-                    .map(|id| answered_ids.contains(id))
-                    .unwrap_or(true)
+                tc["id"].as_str().map(|id| answered_ids.contains(id)).unwrap_or(true)
             });
             if tcs.is_empty() {
                 msg.as_object_mut().unwrap().remove("tool_calls");
@@ -379,9 +349,7 @@ fn clean_orphaned_tool_calls(messages: &mut [Value], retain_empty_name_tool_call
 fn merge_consecutive_assistant(messages: &mut Vec<Value>) {
     let mut i = 0;
     while i + 1 < messages.len() {
-        if messages[i]["role"].as_str() == Some("assistant")
-            && messages[i + 1]["role"].as_str() == Some("assistant")
-        {
+        if messages[i]["role"].as_str() == Some("assistant") && messages[i + 1]["role"].as_str() == Some("assistant") {
             let next = messages.remove(i + 1);
 
             // Merge text content
@@ -399,10 +367,7 @@ fn merge_consecutive_assistant(messages: &mut Vec<Value>) {
             }
 
             // Merge reasoning_content
-            let curr_rc = messages[i]["reasoning_content"]
-                .as_str()
-                .unwrap_or("")
-                .to_string();
+            let curr_rc = messages[i]["reasoning_content"].as_str().unwrap_or("").to_string();
             let next_rc = next["reasoning_content"].as_str().unwrap_or("").to_string();
             let merged_rc = match (curr_rc.is_empty(), next_rc.is_empty()) {
                 (true, true) => String::new(),
@@ -452,18 +417,8 @@ mod tests {
     #[test]
     fn test_merge_assistant_messages_enabled() {
         let messages = vec![
-            Message::new(
-                Role::Assistant,
-                vec![ContentBlock::Text {
-                    text: "hello".into(),
-                }],
-            ),
-            Message::new(
-                Role::Assistant,
-                vec![ContentBlock::Text {
-                    text: " world".into(),
-                }],
-            ),
+            Message::new(Role::Assistant, vec![ContentBlock::Text { text: "hello".into() }]),
+            Message::new(Role::Assistant, vec![ContentBlock::Text { text: " world".into() }]),
         ];
         let result = build_messages(&messages, "", &openai_compat());
         let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
@@ -474,18 +429,8 @@ mod tests {
     #[test]
     fn test_merge_assistant_messages_disabled() {
         let messages = vec![
-            Message::new(
-                Role::Assistant,
-                vec![ContentBlock::Text {
-                    text: "hello".into(),
-                }],
-            ),
-            Message::new(
-                Role::Assistant,
-                vec![ContentBlock::Text {
-                    text: " world".into(),
-                }],
-            ),
+            Message::new(Role::Assistant, vec![ContentBlock::Text { text: "hello".into() }]),
+            Message::new(Role::Assistant, vec![ContentBlock::Text { text: " world".into() }]),
         ];
         let result = build_messages(&messages, "", &no_compat());
         let assistant_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "assistant").collect();
@@ -699,9 +644,11 @@ mod tests {
             }],
         )];
         let result = build_messages(&messages, "", &compat);
-        assert!(result.iter().any(|m| {
-            m["role"] == "tool" && m["tool_call_id"] == "missing" && m["content"] == "orphan"
-        }));
+        assert!(
+            result
+                .iter()
+                .any(|m| { m["role"] == "tool" && m["tool_call_id"] == "missing" && m["content"] == "orphan" })
+        );
     }
 
     #[test]
@@ -891,11 +838,7 @@ mod tests {
         let result = build_messages(&messages, "", &compat);
         let assistant_with_call = result
             .iter()
-            .find(|m| {
-                m["tool_calls"]
-                    .as_array()
-                    .is_some_and(|calls| !calls.is_empty())
-            })
+            .find(|m| m["tool_calls"].as_array().is_some_and(|calls| !calls.is_empty()))
             .unwrap();
         let generated_id = assistant_with_call["tool_calls"][0]["id"].as_str().unwrap();
         let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();
@@ -910,9 +853,7 @@ mod tests {
             Message::new(
                 Role::Assistant,
                 vec![
-                    ContentBlock::Text {
-                        text: "writing".into(),
-                    },
+                    ContentBlock::Text { text: "writing".into() },
                     ContentBlock::ToolUse {
                         id: "call_x".into(),
                         name: "".into(),
@@ -942,12 +883,7 @@ mod tests {
             .map(|a| a.iter().any(|tc| tc["function"]["name"] == ""))
             .unwrap_or(false);
         assert!(!has_empty, "no empty-name tool_call in projection");
-        assert!(
-            assistant["content"]
-                .as_str()
-                .unwrap()
-                .contains("[tool call skipped:")
-        );
+        assert!(assistant["content"].as_str().unwrap().contains("[tool call skipped:"));
         assert!(assistant["content"].as_str().unwrap().contains("writing"));
     }
 
@@ -1056,12 +992,7 @@ mod tests {
         let result = build_messages(&messages, "", &openai_compat());
         assert!(result.iter().all(|m| m["role"] != "tool"));
         let assistant = result.iter().find(|m| m["role"] == "assistant").unwrap();
-        assert!(
-            assistant["content"]
-                .as_str()
-                .unwrap()
-                .contains("[tool call skipped:")
-        );
+        assert!(assistant["content"].as_str().unwrap().contains("[tool call skipped:"));
     }
 
     #[test]

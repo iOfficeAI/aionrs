@@ -28,12 +28,8 @@ impl DroppedToolCallReason {
 
     pub(crate) fn short_placeholder(self) -> &'static str {
         match self {
-            DroppedToolCallReason::EmptyName => {
-                "[tool call skipped: malformed (empty function name).]"
-            }
-            DroppedToolCallReason::EmptyId => {
-                "[tool call skipped: malformed (empty tool call id).]"
-            }
+            DroppedToolCallReason::EmptyName => "[tool call skipped: malformed (empty function name).]",
+            DroppedToolCallReason::EmptyId => "[tool call skipped: malformed (empty tool call id).]",
         }
     }
 }
@@ -42,10 +38,7 @@ impl DroppedToolCallReason {
 /// assistant content during projection. Shared by OpenAI and Anthropic
 /// projection paths so the wording stays identical across providers.
 /// `arguments` is the tool input, truncated to 100 chars on a char boundary.
-pub(crate) fn format_dropped_tool_call(
-    reason: DroppedToolCallReason,
-    input: &serde_json::Value,
-) -> String {
+pub(crate) fn format_dropped_tool_call(reason: DroppedToolCallReason, input: &serde_json::Value) -> String {
     let raw = serde_json::to_string(input).unwrap_or_default();
     let args = truncate_chars(&raw, 100);
     format!(

@@ -41,9 +41,7 @@ fn configure_command(_command: &mut Command) {}
 
 #[cfg(windows)]
 fn attach_child(child: &mut Child) -> Result<ChildContainment> {
-    let pid = child
-        .id()
-        .ok_or_else(|| Error::other("spawned child has no pid"))?;
+    let pid = child.id().ok_or_else(|| Error::other("spawned child has no pid"))?;
     let raw_handle = child
         .raw_handle()
         .ok_or_else(|| Error::other("spawned child has no raw handle"))?;
@@ -60,11 +58,7 @@ fn attach_child(_child: &mut Child) -> Result<ChildContainment> {
 }
 
 #[cfg(unix)]
-fn terminate_child(
-    child: &mut Child,
-    child_id: Option<u32>,
-    _containment: &ChildContainment,
-) -> Result<()> {
+fn terminate_child(child: &mut Child, child_id: Option<u32>, _containment: &ChildContainment) -> Result<()> {
     if let Some(target) = child_id.and_then(group_kill_target) {
         let rc = unsafe { libc::kill(target, libc::SIGKILL) };
         if rc == 0 {
@@ -83,20 +77,12 @@ fn terminate_child(
 }
 
 #[cfg(windows)]
-fn terminate_child(
-    _child: &mut Child,
-    _child_id: Option<u32>,
-    containment: &ChildContainment,
-) -> Result<()> {
+fn terminate_child(_child: &mut Child, _child_id: Option<u32>, containment: &ChildContainment) -> Result<()> {
     containment.job.terminate()
 }
 
 #[cfg(not(any(unix, windows)))]
-fn terminate_child(
-    child: &mut Child,
-    _child_id: Option<u32>,
-    _containment: &ChildContainment,
-) -> Result<()> {
+fn terminate_child(child: &mut Child, _child_id: Option<u32>, _containment: &ChildContainment) -> Result<()> {
     child.start_kill()
 }
 

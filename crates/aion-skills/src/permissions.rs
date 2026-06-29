@@ -202,11 +202,7 @@ mod tests {
     fn p5_5_deny_over_allow() {
         let mut skill = make_skill("commit");
         skill.hooks_raw = Some(serde_json::json!({}));
-        let checker = SkillPermissionChecker::new(
-            vec!["commit".to_string()],
-            vec!["commit".to_string()],
-            false,
-        );
+        let checker = SkillPermissionChecker::new(vec!["commit".to_string()], vec!["commit".to_string()], false);
         assert_eq!(checker.check(&skill), SkillPermission::Deny);
     }
 
@@ -241,11 +237,7 @@ mod tests {
     fn p5_9_no_match_with_hooks_ask() {
         let mut skill = make_skill("unknown");
         skill.hooks_raw = Some(serde_json::json!({}));
-        let checker = SkillPermissionChecker::new(
-            vec!["other".to_string()],
-            vec!["other".to_string()],
-            false,
-        );
+        let checker = SkillPermissionChecker::new(vec!["other".to_string()], vec!["other".to_string()], false);
         assert!(matches!(checker.check(&skill), SkillPermission::Ask { .. }));
     }
 
@@ -292,10 +284,7 @@ mod tests {
         // Unsafe skill (has hooks) → Ask
         let mut unsafe_skill = make_skill("unsafe");
         unsafe_skill.hooks_raw = Some(serde_json::json!({}));
-        assert!(matches!(
-            checker.check(&unsafe_skill),
-            SkillPermission::Ask { .. }
-        ));
+        assert!(matches!(checker.check(&unsafe_skill), SkillPermission::Ask { .. }));
     }
 
     // Reason string mentions hooks
@@ -305,10 +294,7 @@ mod tests {
         skill.hooks_raw = Some(serde_json::json!({}));
         let checker = SkillPermissionChecker::new(vec![], vec![], false);
         if let SkillPermission::Ask { reason } = checker.check(&skill) {
-            assert!(
-                reason.contains("hooks"),
-                "reason should mention hooks: {reason}"
-            );
+            assert!(reason.contains("hooks"), "reason should mention hooks: {reason}");
         } else {
             panic!("expected Ask");
         }

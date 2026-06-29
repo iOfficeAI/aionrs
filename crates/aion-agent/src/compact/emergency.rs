@@ -10,8 +10,7 @@
 use aion_config::compact::CompactConfig;
 
 /// User-facing message shown when the emergency limit is hit.
-pub const EMERGENCY_USER_MESSAGE: &str =
-    "Context window nearly full. Please use /compact or start a new conversation.";
+pub const EMERGENCY_USER_MESSAGE: &str = "Context window nearly full. Please use /compact or start a new conversation.";
 
 /// Check whether the last observed input token count has reached the
 /// emergency blocking limit.
@@ -24,9 +23,7 @@ pub const EMERGENCY_USER_MESSAGE: &str =
 /// This check is independent of `CompactConfig.enabled`; the emergency
 /// safety net is always active.
 pub fn is_at_emergency_limit(last_input_tokens: u64, config: &CompactConfig) -> bool {
-    let limit = config
-        .context_window
-        .saturating_sub(config.emergency_buffer);
+    let limit = config.context_window.saturating_sub(config.emergency_buffer);
     last_input_tokens as usize >= limit
 }
 

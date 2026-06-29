@@ -41,9 +41,7 @@ pub(crate) enum ProjectionError {
         count: usize,
         max: usize,
     },
-    #[error(
-        "{provider} request body is {bytes} bytes, exceeding configured limit {max_bytes} bytes"
-    )]
+    #[error("{provider} request body is {bytes} bytes, exceeding configured limit {max_bytes} bytes")]
     BodyLimitExceeded {
         provider: WireProvider,
         bytes: usize,
@@ -123,10 +121,10 @@ impl AnthropicWireProjector {
                     }
                 }
             }
-            if let Some(last) = tools.last_mut().filter(|_| {
-                params.cache_enabled
-                    && tool_wire_shape == ResolvedToolWireShape::AnthropicInputSchema
-            }) {
+            if let Some(last) = tools
+                .last_mut()
+                .filter(|_| params.cache_enabled && tool_wire_shape == ResolvedToolWireShape::AnthropicInputSchema)
+            {
                 last["cache_control"] = json!({ "type": "ephemeral" });
             }
             body["tools"] = json!(tools);
@@ -152,10 +150,7 @@ impl OpenAiProjector {
         resolve_tool_wire_shape(compat, ResolvedToolWireShape::OpenAiFunction)
     }
 
-    pub(crate) fn project(
-        request: &LlmRequest,
-        compat: &ProviderCompat,
-    ) -> Result<Value, ProjectionError> {
+    pub(crate) fn project(request: &LlmRequest, compat: &ProviderCompat) -> Result<Value, ProjectionError> {
         let max_tokens_field = compat.max_tokens_field();
 
         let mut body = json!({
@@ -217,10 +212,7 @@ impl ResolvedToolWireShape {
     }
 }
 
-fn resolve_tool_wire_shape(
-    compat: &ProviderCompat,
-    native: ResolvedToolWireShape,
-) -> ResolvedToolWireShape {
+fn resolve_tool_wire_shape(compat: &ProviderCompat, native: ResolvedToolWireShape) -> ResolvedToolWireShape {
     match compat.tool_wire_shape() {
         ToolWireShape::Native => native,
         ToolWireShape::OpenAiFunction => ResolvedToolWireShape::OpenAiFunction,
@@ -271,10 +263,7 @@ fn tool_description_and_schema(tool: &ToolDef) -> (String, Value) {
             })),
         )
     } else {
-        (
-            tool.description.clone(),
-            legalize_json_schema(&tool.input_schema),
-        )
+        (tool.description.clone(), legalize_json_schema(&tool.input_schema))
     }
 }
 
@@ -297,15 +286,14 @@ pub(crate) fn classify_tools_wire_shape_mismatch(
     }
 
     let lower = body_text.to_ascii_lowercase();
-    let expected_shape = if lower.contains("body.tools[0].function")
-        && (lower.contains("missing") || lower.contains("required"))
-    {
-        Some(ResolvedToolWireShape::OpenAiFunction)
-    } else if lower.contains("input tag function does not match expected custom") {
-        Some(ResolvedToolWireShape::AnthropicInputSchema)
-    } else {
-        None
-    }?;
+    let expected_shape =
+        if lower.contains("body.tools[0].function") && (lower.contains("missing") || lower.contains("required")) {
+            Some(ResolvedToolWireShape::OpenAiFunction)
+        } else if lower.contains("input tag function does not match expected custom") {
+            Some(ResolvedToolWireShape::AnthropicInputSchema)
+        } else {
+            None
+        }?;
 
     Some(format!(
         "tools wire shape mismatch: configured tool_wire_shape resolved to {}; upstream appears to expect {}; upstream error: {}",
@@ -474,12 +462,7 @@ mod tests {
 
     #[test]
     fn test_anthropic_wire_params_shape_anthropic_body() {
-        let request = test_request(
-            test_tools(),
-            Some(ThinkingConfig::Enabled {
-                budget_tokens: 4096,
-            }),
-        );
+        let request = test_request(test_tools(), Some(ThinkingConfig::Enabled { budget_tokens: 4096 }));
 
         let body = AnthropicWireProjector::project(
             &request,
@@ -651,16 +634,13 @@ mod tests {
             sanitize_schema: false,
         };
 
-        let unsanitized = AnthropicWireProjector::project(&request, &compat, params)
-            .expect("request body projection should succeed");
+        let unsanitized =
+            AnthropicWireProjector::project(&request, &compat, params).expect("request body projection should succeed");
         assert_eq!(
             unsanitized["tools"][0]["input_schema"],
             legalize_json_schema(&request.tools[0].input_schema)
         );
-        assert_eq!(
-            unsanitized["tools"][0]["input_schema"]["additionalProperties"],
-            false
-        );
+        assert_eq!(unsanitized["tools"][0]["input_schema"]["additionalProperties"], false);
 
         let sanitized = AnthropicWireProjector::project(
             &request,
@@ -708,10 +688,7 @@ mod tests {
 
         let schema = &body["tools"][0]["input_schema"];
         assert_eq!(schema["type"], "object");
-        assert_eq!(
-            schema["$schema"],
-            "https://json-schema.org/draft/2020-12/schema"
-        );
+        assert_eq!(schema["$schema"], "https://json-schema.org/draft/2020-12/schema");
         assert!(schema["properties"].as_object().unwrap().is_empty());
         assert!(schema.get("additionalProperties").is_none());
     }
@@ -722,8 +699,7 @@ mod tests {
         let mut compat = ProviderCompat::openai_defaults();
         compat.transport.max_tokens_field = Some("max_completion_tokens".to_string());
 
-        let body = OpenAiProjector::project(&request, &compat)
-            .expect("request body projection should succeed");
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
 
         assert_eq!(body["max_completion_tokens"], 8192);
         assert!(body.get("max_tokens").is_none());
@@ -753,8 +729,7 @@ mod tests {
         let mut compat = ProviderCompat::openai_defaults();
         compat.transport.include_stream_options = Some(false);
 
-        let body = OpenAiProjector::project(&request, &compat)
-            .expect("request body projection should succeed");
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
 
         assert!(body.get("stream_options").is_none());
     }
@@ -765,8 +740,7 @@ mod tests {
         let mut compat = ProviderCompat::openai_defaults();
         compat.tools.emit_tools = Some(false);
 
-        let body = OpenAiProjector::project(&request, &compat)
-            .expect("request body projection should succeed");
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
 
         assert!(body.get("tools").is_none());
         assert_eq!(request.tools.len(), 2);
@@ -781,8 +755,7 @@ mod tests {
         let mut compat = ProviderCompat::openai_defaults();
         compat.reasoning.supports_effort = Some(false);
 
-        let body = OpenAiProjector::project(&request, &compat)
-            .expect("request body projection should succeed");
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
 
         assert!(body.get("reasoning_effort").is_none());
     }
@@ -855,8 +828,7 @@ mod tests {
             serde_json::from_value(json!({"tool_wire_shape": "anthropic_input_schema"})).unwrap();
         let compat = ProviderCompat::merge(ProviderCompat::openai_defaults(), user_compat);
 
-        let body = OpenAiProjector::project(&request, &compat)
-            .expect("request body projection should succeed");
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
 
         assert_eq!(body["tools"][0]["name"], "read");
         assert!(body["tools"][0].get("input_schema").is_some());
@@ -889,15 +861,11 @@ mod tests {
         let mut compat = ProviderCompat::openai_defaults();
         compat.tools.max_tool_count = Some(512);
 
-        let error = OpenAiProjector::project(&request, &compat)
-            .expect_err("tool count over the configured limit should fail");
+        let error =
+            OpenAiProjector::project(&request, &compat).expect_err("tool count over the configured limit should fail");
 
         match error {
-            ProjectionError::ToolLimitExceeded {
-                provider,
-                count,
-                max,
-            } => {
+            ProjectionError::ToolLimitExceeded { provider, count, max } => {
                 assert_eq!(provider, WireProvider::OpenAi);
                 assert_eq!(count, 513);
                 assert_eq!(max, 512);

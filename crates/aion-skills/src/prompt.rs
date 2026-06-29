@@ -13,9 +13,7 @@ const MIN_DESC_LENGTH: usize = 20;
 /// Calculate character budget from context window size.
 pub fn get_char_budget(context_window_tokens: Option<usize>) -> usize {
     match context_window_tokens {
-        Some(tokens) => {
-            ((tokens as f64) * (CHARS_PER_TOKEN as f64) * SKILL_BUDGET_CONTEXT_PERCENT) as usize
-        }
+        Some(tokens) => ((tokens as f64) * (CHARS_PER_TOKEN as f64) * SKILL_BUDGET_CONTEXT_PERCENT) as usize,
         None => DEFAULT_CHAR_BUDGET,
     }
 }
@@ -57,10 +55,7 @@ pub fn format_skill_entry(skill: &SkillMetadata) -> String {
 /// 1. Full mode: all skills with full descriptions
 /// 2. Truncated mode: bundled skills full, non-bundled descriptions trimmed
 /// 3. Minimal mode: bundled skills full, non-bundled names only
-pub fn format_skills_within_budget(
-    skills: &[SkillMetadata],
-    context_window_tokens: Option<usize>,
-) -> String {
+pub fn format_skills_within_budget(skills: &[SkillMetadata], context_window_tokens: Option<usize>) -> String {
     if skills.is_empty() {
         return String::new();
     }
@@ -282,10 +277,7 @@ mod tests {
         let wtu = "b".repeat(100);
         let skill = make_skill("s", &desc, Some(&wtu), false, false);
         let result = format_skill_description(&skill);
-        assert!(
-            result.ends_with('\u{2026}'),
-            "should be truncated with ellipsis"
-        );
+        assert!(result.ends_with('\u{2026}'), "should be truncated with ellipsis");
     }
 
     #[test]
@@ -322,10 +314,7 @@ mod tests {
     #[test]
     fn test_format_skill_entry_with_when_to_use() {
         let skill = make_skill("my-skill", "Does things", Some("When needed"), false, false);
-        assert_eq!(
-            format_skill_entry(&skill),
-            "- my-skill: Does things - When needed"
-        );
+        assert_eq!(format_skill_entry(&skill), "- my-skill: Does things - When needed");
     }
 
     #[test]
@@ -333,14 +322,8 @@ mod tests {
         let desc = "a".repeat(300);
         let skill = make_skill("x", &desc, None, false, false);
         let result = format_skill_entry(&skill);
-        assert!(
-            result.starts_with("- x: "),
-            "entry should start with '- x: '"
-        );
-        assert!(
-            result.contains('\u{2026}'),
-            "long description should be truncated"
-        );
+        assert!(result.starts_with("- x: "), "entry should start with '- x: '");
+        assert!(result.contains('\u{2026}'), "long description should be truncated");
     }
 
     #[test]
@@ -369,10 +352,7 @@ mod tests {
         assert!(result.contains("- skill-a: Desc A"));
         assert!(result.contains("- skill-b: Desc B"));
         assert!(result.contains("- skill-c: Desc C"));
-        assert!(
-            !result.contains('\u{2026}'),
-            "full mode should not truncate"
-        );
+        assert!(!result.contains('\u{2026}'), "full mode should not truncate");
     }
 
     #[test]
@@ -477,15 +457,7 @@ mod tests {
     fn test_format_skills_within_budget_only_bundled_skills() {
         // All bundled: even if over budget, all are shown full (no non-bundled to degrade)
         let skills: Vec<SkillMetadata> = (0..3)
-            .map(|i| {
-                make_skill(
-                    &format!("bundled-{i}"),
-                    &format!("Desc {i}"),
-                    None,
-                    true,
-                    false,
-                )
-            })
+            .map(|i| make_skill(&format!("bundled-{i}"), &format!("Desc {i}"), None, true, false))
             .collect();
         let result = format_skills_within_budget(&skills, Some(1)); // tiny budget
         for i in 0..3 {
@@ -517,10 +489,7 @@ mod tests {
             "CJK description should be truncated to <= {} chars",
             MAX_LISTING_DESC_CHARS
         );
-        assert!(
-            result.ends_with('…'),
-            "truncated CJK result should end with ellipsis"
-        );
+        assert!(result.ends_with('…'), "truncated CJK result should end with ellipsis");
     }
 
     #[test]
@@ -534,10 +503,7 @@ mod tests {
             "mixed CJK/ASCII description should be truncated to <= {} chars",
             MAX_LISTING_DESC_CHARS
         );
-        assert!(
-            result.ends_with('…'),
-            "truncated mixed result should end with ellipsis"
-        );
+        assert!(result.ends_with('…'), "truncated mixed result should end with ellipsis");
     }
 
     #[test]
@@ -546,15 +512,7 @@ mod tests {
         // budget = 10_000 * 4 * 0.01 = 400 chars; each CJK desc is 200 chars → triggers truncation
         let bundled = make_skill("bundled", "Bundled desc", None, true, false);
         let non_bundled: Vec<SkillMetadata> = (0..3)
-            .map(|i| {
-                make_skill(
-                    &format!("nb-{i}"),
-                    &"中文描述".repeat(50),
-                    None,
-                    false,
-                    false,
-                )
-            })
+            .map(|i| make_skill(&format!("nb-{i}"), &"中文描述".repeat(50), None, false, false))
             .collect();
 
         let mut skills = vec![bundled];
@@ -566,9 +524,6 @@ mod tests {
             result.contains('…') || !result.is_empty(),
             "result should be non-empty and handle CJK without panic"
         );
-        assert!(
-            result.contains("bundled"),
-            "bundled skill must appear in result"
-        );
+        assert!(result.contains("bundled"), "bundled skill must appear in result");
     }
 }

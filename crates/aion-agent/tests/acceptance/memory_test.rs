@@ -101,13 +101,7 @@ fn memory_full_lifecycle() {
 
     // -- Phase 2: Add the entry to the MEMORY.md index ------------------------
 
-    append_index_entry(
-        &index_path,
-        "Project status",
-        &entry_filename,
-        "current sprint goals",
-    )
-    .unwrap();
+    append_index_entry(&index_path, "Project status", &entry_filename, "current sprint goals").unwrap();
 
     let index_content = std::fs::read_to_string(&index_path).unwrap();
     assert!(
@@ -149,10 +143,7 @@ fn memory_full_lifecycle() {
     // -- Phase 4: Delete the memory file --------------------------------------
 
     delete_memory(&entry_path).unwrap();
-    assert!(
-        !entry_path.exists(),
-        "memory file should be removed from disk"
-    );
+    assert!(!entry_path.exists(), "memory file should be removed from disk");
 
     // -- Phase 5: Remove the entry from the MEMORY.md index -------------------
 

@@ -203,9 +203,7 @@ mod tests {
         };
         // assert
         match &block {
-            ContentBlock::ToolUse {
-                id, name, input, ..
-            } => {
+            ContentBlock::ToolUse { id, name, input, .. } => {
                 assert_eq!(id, "call_1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");
@@ -281,10 +279,7 @@ mod tests {
         .unwrap();
 
         match block {
-            ContentBlock::Thinking {
-                thinking,
-                signature,
-            } => {
+            ContentBlock::Thinking { thinking, signature } => {
                 assert_eq!(thinking, "reasoning");
                 assert!(signature.is_none());
             }
@@ -378,12 +373,7 @@ mod tests {
     #[test]
     fn test_message_now_has_timestamp() {
         let before = Utc::now();
-        let msg = Message::now(
-            Role::User,
-            vec![ContentBlock::Text {
-                text: "hi".to_string(),
-            }],
-        );
+        let msg = Message::now(Role::User, vec![ContentBlock::Text { text: "hi".to_string() }]);
         let after = Utc::now();
         let ts = msg.timestamp.expect("Message::now should set timestamp");
         assert!(ts >= before && ts <= after);
@@ -414,12 +404,7 @@ mod tests {
 
     #[test]
     fn test_message_new_skips_timestamp_in_json() {
-        let msg = Message::new(
-            Role::User,
-            vec![ContentBlock::Text {
-                text: "hi".to_string(),
-            }],
-        );
+        let msg = Message::new(Role::User, vec![ContentBlock::Text { text: "hi".to_string() }]);
         let json = serde_json::to_string(&msg).unwrap();
         assert!(
             !json.contains("timestamp"),

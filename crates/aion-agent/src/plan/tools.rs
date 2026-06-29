@@ -141,8 +141,7 @@ impl Tool for ExitPlanModeTool {
     async fn execute(&self, _input: Value) -> ToolResult {
         if !self.plan_active.load(Ordering::Acquire) {
             return ToolResult {
-                content: "Not in plan mode. Use EnterPlanMode to enter plan mode first."
-                    .to_string(),
+                content: "Not in plan mode. Use EnterPlanMode to enter plan mode first.".to_string(),
                 is_error: true,
             };
         }

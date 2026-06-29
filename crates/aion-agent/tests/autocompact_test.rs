@@ -14,9 +14,7 @@ use tokio::sync::mpsc;
 use aion_agent::compact::auto::{
     CompactError, autocompact, extract_compact_metadata, is_compact_boundary, should_autocompact,
 };
-use aion_agent::compact::prompt::{
-    build_compact_prompt, build_summary_content, format_compact_summary,
-};
+use aion_agent::compact::prompt::{build_compact_prompt, build_summary_content, format_compact_summary};
 use aion_agent::compact::state::CompactState;
 use aion_config::compact::CompactConfig;
 use aion_providers::{LlmProvider, ProviderError};
@@ -61,10 +59,7 @@ impl MockProvider {
 
 #[async_trait]
 impl LlmProvider for MockProvider {
-    async fn stream(
-        &self,
-        _request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, _request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let response = self
             .responses
             .lock()
@@ -99,11 +94,7 @@ fn text_msg(role: Role, content: &str) -> Message {
 fn sample_conversation(n: usize) -> Vec<Message> {
     (0..n)
         .map(|i| {
-            let role = if i % 2 == 0 {
-                Role::User
-            } else {
-                Role::Assistant
-            };
+            let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
             text_msg(role, &format!("message-{i}"))
         })
         .collect()
@@ -334,9 +325,7 @@ async fn tc_2_4_17_failure_increments_counter() {
 async fn tc_2_4_18_ptl_retry_succeeds() {
     let provider = MockProvider::new(vec![
         // First attempt: prompt too long
-        Err(ProviderError::PromptTooLong(
-            "prompt exceeds limit".to_string(),
-        )),
+        Err(ProviderError::PromptTooLong("prompt exceeds limit".to_string())),
         // Second attempt (after truncation): success
         Ok(vec![
             LlmEvent::TextDelta("<summary>retried summary</summary>".to_string()),
@@ -392,8 +381,7 @@ async fn tc_2_4_19_ptl_retry_exhausted() {
 #[tokio::test]
 async fn tc_2_4_20_ptl_retry_truncates_messages() {
     // Track the request message count on each attempt
-    let request_counts: std::sync::Arc<Mutex<Vec<usize>>> =
-        std::sync::Arc::new(Mutex::new(Vec::new()));
+    let request_counts: std::sync::Arc<Mutex<Vec<usize>>> = std::sync::Arc::new(Mutex::new(Vec::new()));
     let counts_clone = request_counts.clone();
 
     // Custom mock that records message counts
@@ -404,10 +392,7 @@ async fn tc_2_4_20_ptl_retry_truncates_messages() {
 
     #[async_trait]
     impl LlmProvider for CountingProvider {
-        async fn stream(
-            &self,
-            request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
             // Scope the lock so the MutexGuard is dropped before the await
             let current_attempt = {
                 let mut attempt = self.attempt.lock().unwrap();
@@ -423,11 +408,9 @@ async fn tc_2_4_20_ptl_retry_truncates_messages() {
 
             // Second attempt: succeed
             let (tx, rx) = mpsc::channel(2);
-            tx.send(LlmEvent::TextDelta(
-                "<summary>truncated summary</summary>".to_string(),
-            ))
-            .await
-            .ok();
+            tx.send(LlmEvent::TextDelta("<summary>truncated summary</summary>".to_string()))
+                .await
+                .ok();
             tx.send(LlmEvent::Done {
                 stop_reason: StopReason::EndTurn,
                 usage: TokenUsage::default(),

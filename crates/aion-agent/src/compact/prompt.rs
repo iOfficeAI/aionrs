@@ -4,8 +4,7 @@
 //! post-compact message construction.
 
 /// System prompt used for the compact LLM call.
-pub const COMPACT_SYSTEM_PROMPT: &str =
-    "You are a helpful AI assistant tasked with summarizing conversations.";
+pub const COMPACT_SYSTEM_PROMPT: &str = "You are a helpful AI assistant tasked with summarizing conversations.";
 
 /// Maximum output tokens for the compact LLM call.
 pub const COMPACT_MAX_OUTPUT_TOKENS: u32 = 20_000;
@@ -145,11 +144,7 @@ fn extract_tag_content<'a>(text: &'a str, tag: &str) -> Option<&'a str> {
     let start = text.find(&open)? + open.len();
     let end = text.find(&close)?;
 
-    if start <= end {
-        Some(&text[start..end])
-    } else {
-        None
-    }
+    if start <= end { Some(&text[start..end]) } else { None }
 }
 
 /// Collapse consecutive blank lines into a single blank line.
@@ -204,8 +199,7 @@ mod tests {
 
     #[test]
     fn strips_analysis_extracts_summary() {
-        let raw =
-            "<analysis>thinking about things</analysis>\n<summary>the actual result</summary>";
+        let raw = "<analysis>thinking about things</analysis>\n<summary>the actual result</summary>";
         assert_eq!(format_compact_summary(raw), "Summary:\nthe actual result");
     }
 
@@ -223,8 +217,7 @@ mod tests {
 
     #[test]
     fn handles_multiline_summary() {
-        let raw =
-            "<analysis>analysis\nwith lines</analysis>\n<summary>\nLine 1\nLine 2\n</summary>";
+        let raw = "<analysis>analysis\nwith lines</analysis>\n<summary>\nLine 1\nLine 2\n</summary>";
         let result = format_compact_summary(raw);
         assert!(result.starts_with("Summary:\n"));
         assert!(result.contains("Line 1"));

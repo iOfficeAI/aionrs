@@ -8,9 +8,7 @@
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod bundled_supplemental_tests {
-    use crate::bundled::{
-        BundledSkillDefinition, clear_bundled_skills, get_bundled_skills, register_bundled_skill,
-    };
+    use crate::bundled::{BundledSkillDefinition, clear_bundled_skills, get_bundled_skills, register_bundled_skill};
     use crate::loader::load_all_skills;
     use crate::types::SkillSource;
     use serial_test::serial;
@@ -76,11 +74,7 @@ mod bundled_supplemental_tests {
         let result = load_all_skills(tmp.path(), &[tmp.path().to_path_buf()], false, None).await;
 
         let matches: Vec<_> = result.iter().filter(|s| s.name == "shared-name").collect();
-        assert_eq!(
-            matches.len(),
-            1,
-            "deduplication should leave exactly one 'shared-name'"
-        );
+        assert_eq!(matches.len(), 1, "deduplication should leave exactly one 'shared-name'");
         assert_eq!(
             matches[0].source,
             SkillSource::Bundled,

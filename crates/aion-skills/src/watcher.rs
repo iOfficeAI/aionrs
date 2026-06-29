@@ -215,10 +215,7 @@ fn should_ignore(event: &Event) -> bool {
     // on the watched directory itself upon watcher registration, and also when
     // a hidden file is written (the parent directory appears "created" again).
     // Directory creation is never a skill-relevant change — skills are files.
-    if matches!(
-        event.kind,
-        EventKind::Create(notify::event::CreateKind::Folder)
-    ) {
+    if matches!(event.kind, EventKind::Create(notify::event::CreateKind::Folder)) {
         return true;
     }
 
@@ -286,10 +283,7 @@ mod tests {
             EventKind::Create(CreateKind::File),
             vec![PathBuf::from("/skills/SKILL.md")],
         );
-        assert!(
-            !should_ignore(&ev),
-            "Create on visible file should NOT be ignored"
-        );
+        assert!(!should_ignore(&ev), "Create on visible file should NOT be ignored");
     }
 
     // -----------------------------------------------------------------------
@@ -302,10 +296,7 @@ mod tests {
             EventKind::Modify(ModifyKind::Any),
             vec![PathBuf::from("/home/user/skills/SKILL.md")],
         );
-        assert!(
-            !should_ignore(&ev),
-            "Modify(Any) on visible file should NOT be ignored"
-        );
+        assert!(!should_ignore(&ev), "Modify(Any) on visible file should NOT be ignored");
     }
 
     // -----------------------------------------------------------------------
@@ -336,10 +327,7 @@ mod tests {
             EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
             vec![PathBuf::from("/skills/SKILL.md")],
         );
-        assert!(
-            should_ignore(&ev),
-            "Modify(Metadata(Any)) should be ignored"
-        );
+        assert!(should_ignore(&ev), "Modify(Metadata(Any)) should be ignored");
     }
 
     // -----------------------------------------------------------------------
@@ -352,10 +340,7 @@ mod tests {
             EventKind::Remove(RemoveKind::File),
             vec![PathBuf::from("/skills/SKILL.md")],
         );
-        assert!(
-            !should_ignore(&ev),
-            "Remove on visible file should NOT be ignored"
-        );
+        assert!(!should_ignore(&ev), "Remove on visible file should NOT be ignored");
     }
 
     // -----------------------------------------------------------------------
@@ -364,10 +349,7 @@ mod tests {
 
     #[test]
     fn wb05_should_ignore_hidden_filename() {
-        let ev = make_event(
-            EventKind::Create(CreateKind::File),
-            vec![PathBuf::from("/skills/.swp")],
-        );
+        let ev = make_event(EventKind::Create(CreateKind::File), vec![PathBuf::from("/skills/.swp")]);
         assert!(should_ignore(&ev), ".swp hidden file should be ignored");
     }
 
@@ -508,10 +490,7 @@ mod tests {
 
             // dir exists but watcher is None → skip silently → Ok
             let result = watcher.watch_directory(dir.path());
-            assert!(
-                result.is_ok(),
-                "watch_directory after stop() should return Ok"
-            );
+            assert!(result.is_ok(), "watch_directory after stop() should return Ok");
         });
     }
 
@@ -560,11 +539,7 @@ mod tests {
 
         assert_eq!(watcher.watched_dirs().len(), 1);
         watcher.stop();
-        assert_eq!(
-            watcher.watched_dirs().len(),
-            0,
-            "should be empty after stop()"
-        );
+        assert_eq!(watcher.watched_dirs().len(), 0, "should be empty after stop()");
     }
 
     // -----------------------------------------------------------------------

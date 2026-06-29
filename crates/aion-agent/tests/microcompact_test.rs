@@ -4,9 +4,7 @@
 //! They treat `should_microcompact` and `microcompact` as opaque functions
 //! and validate observable behaviour only (inputs → outputs).
 
-use aion_agent::compact::micro::{
-    CLEARED_TOOL_RESULT, MicrocompactResult, microcompact, should_microcompact,
-};
+use aion_agent::compact::micro::{CLEARED_TOOL_RESULT, MicrocompactResult, microcompact, should_microcompact};
 use aion_config::compact::CompactConfig;
 use aion_types::message::{ContentBlock, Message, Role};
 use chrono::{Duration, Utc};

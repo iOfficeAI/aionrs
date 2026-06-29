@@ -121,10 +121,7 @@ impl Tool for ExecCommandTool {
         let mut command_builder = shell_command_builder(&shell, command, false);
         command_builder.current_dir(&cwd);
 
-        let result = CommandRunner::new(command_builder)
-            .timeout(timeout)
-            .run()
-            .await;
+        let result = CommandRunner::new(command_builder).timeout(timeout).run().await;
 
         match result {
             Ok(result) if result.timed_out => ToolResult {
@@ -211,19 +208,14 @@ mod tests {
 
         let result = tool.execute(input).await;
 
-        assert!(
-            result.is_error,
-            "timeout should be an error: {}",
-            result.content
-        );
+        assert!(result.is_error, "timeout should be an error: {}", result.content);
         assert!(
             result.content.contains("Command timed out after 1500ms"),
             "timeout message missing: {}",
             result.content
         );
         assert!(
-            result.content.contains("STDOUT:\n")
-                && result.content.contains("aion_stdout_before_timeout"),
+            result.content.contains("STDOUT:\n") && result.content.contains("aion_stdout_before_timeout"),
             "stdout emitted before timeout should be preserved, got: {}",
             result.content
         );
@@ -233,8 +225,7 @@ mod tests {
     async fn execute_timeout_preserves_stderr_emitted_before_timeout() {
         let tool = ExecCommandTool::new(std::env::temp_dir());
         #[cfg(windows)]
-        let cmd =
-            "[Console]::Error.WriteLine('aion_stderr_before_timeout'); Start-Sleep -Seconds 5";
+        let cmd = "[Console]::Error.WriteLine('aion_stderr_before_timeout'); Start-Sleep -Seconds 5";
         #[cfg(not(windows))]
         let cmd = "printf 'aion_stderr_before_timeout\\n' >&2; sleep 5";
         let input = json!({
@@ -244,19 +235,14 @@ mod tests {
 
         let result = tool.execute(input).await;
 
-        assert!(
-            result.is_error,
-            "timeout should be an error: {}",
-            result.content
-        );
+        assert!(result.is_error, "timeout should be an error: {}", result.content);
         assert!(
             result.content.contains("Command timed out after 1500ms"),
             "timeout message missing: {}",
             result.content
         );
         assert!(
-            result.content.contains("STDERR:\n")
-                && result.content.contains("aion_stderr_before_timeout"),
+            result.content.contains("STDERR:\n") && result.content.contains("aion_stderr_before_timeout"),
             "stderr emitted before timeout should be preserved, got: {}",
             result.content
         );
@@ -276,11 +262,7 @@ mod tests {
 
         let result = tool.execute(input).await;
 
-        assert!(
-            result.is_error,
-            "timeout should be an error: {}",
-            result.content
-        );
+        assert!(result.is_error, "timeout should be an error: {}", result.content);
         assert!(
             result.content.contains("Command timed out after 1500ms"),
             "timeout message missing: {}",
@@ -311,8 +293,7 @@ mod tests {
 
         assert!(!result.is_error, "unexpected error: {}", result.content);
         assert!(
-            result.content.contains("STDOUT:\n")
-                && result.content.contains("aion_powershell_stdout_probe"),
+            result.content.contains("STDOUT:\n") && result.content.contains("aion_powershell_stdout_probe"),
             "PowerShell stdout should be preserved, got: {}",
             result.content
         );
@@ -350,8 +331,7 @@ mod tests {
 
         assert!(!result.is_error, "unexpected error: {}", result.content);
         assert!(
-            result.content.contains("STDOUT:\n")
-                && result.content.contains("aion_cmd_stdout_probe"),
+            result.content.contains("STDOUT:\n") && result.content.contains("aion_cmd_stdout_probe"),
             "cmd stdout should be preserved, got: {}",
             result.content
         );

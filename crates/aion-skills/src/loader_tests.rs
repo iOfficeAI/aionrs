@@ -64,16 +64,8 @@ fn test_deduplicate_removes_duplicates() {
     let canonical = std::fs::canonicalize(&file).unwrap();
 
     let fm = crate::types::FrontmatterData::default();
-    let make_meta = || {
-        crate::frontmatter::parse_skill_fields(
-            &fm,
-            "",
-            "test",
-            SkillSource::User,
-            LoadedFrom::Skills,
-            None,
-        )
-    };
+    let make_meta =
+        || crate::frontmatter::parse_skill_fields(&fm, "", "test", SkillSource::User, LoadedFrom::Skills, None);
 
     let skills = vec![
         LoadedSkill {
@@ -99,16 +91,8 @@ fn test_deduplicate_different_paths_preserved() {
     fs::write(&file2, "").unwrap();
 
     let fm = crate::types::FrontmatterData::default();
-    let make_meta = || {
-        crate::frontmatter::parse_skill_fields(
-            &fm,
-            "",
-            "test",
-            SkillSource::User,
-            LoadedFrom::Skills,
-            None,
-        )
-    };
+    let make_meta =
+        || crate::frontmatter::parse_skill_fields(&fm, "", "test", SkillSource::User, LoadedFrom::Skills, None);
 
     let skills = vec![
         LoadedSkill {
@@ -144,11 +128,7 @@ async fn test_load_skills_from_dir_basic() {
 #[tokio::test]
 async fn test_load_skills_from_dir_nested_namespace() {
     let tmp = TempDir::new().unwrap();
-    write_skill(
-        tmp.path(),
-        "db/migrate/SKILL.md",
-        "---\ndescription: Migrate DB\n---\n",
-    );
+    write_skill(tmp.path(), "db/migrate/SKILL.md", "---\ndescription: Migrate DB\n---\n");
 
     let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
     assert_eq!(skills.len(), 1);
@@ -162,10 +142,7 @@ async fn test_load_skills_from_dir_case_sensitive_skill_md() {
     write_skill(tmp.path(), "my-skill/skill.md", "---\n---\n# Body\n");
 
     let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
-    assert!(
-        skills.is_empty(),
-        "skill.md (lowercase) should not be loaded"
-    );
+    assert!(skills.is_empty(), "skill.md (lowercase) should not be loaded");
 }
 
 #[tokio::test]
@@ -177,12 +154,7 @@ async fn test_load_skills_from_dir_empty_dir() {
 
 #[tokio::test]
 async fn test_load_skills_from_dir_nonexistent_silently_skipped() {
-    let skills = load_skills_from_dir(
-        Path::new("/nonexistent/path"),
-        SkillSource::User,
-        LoadedFrom::Skills,
-    )
-    .await;
+    let skills = load_skills_from_dir(Path::new("/nonexistent/path"), SkillSource::User, LoadedFrom::Skills).await;
     assert!(skills.is_empty());
 }
 
@@ -191,18 +163,11 @@ async fn test_load_skills_from_dir_nonexistent_silently_skipped() {
 #[tokio::test]
 async fn test_load_commands_directory_format() {
     let tmp = TempDir::new().unwrap();
-    write_skill(
-        tmp.path(),
-        "my-cmd/SKILL.md",
-        "---\ndescription: A command\n---\n",
-    );
+    write_skill(tmp.path(), "my-cmd/SKILL.md", "---\ndescription: A command\n---\n");
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::User).await;
     assert_eq!(skills.len(), 1);
-    assert_eq!(
-        skills[0].metadata.loaded_from,
-        LoadedFrom::CommandsDeprecated
-    );
+    assert_eq!(skills[0].metadata.loaded_from, LoadedFrom::CommandsDeprecated);
 }
 
 #[tokio::test]
@@ -212,10 +177,7 @@ async fn test_load_commands_flat_format() {
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::User).await;
     assert_eq!(skills.len(), 1);
-    assert_eq!(
-        skills[0].metadata.loaded_from,
-        LoadedFrom::CommandsDeprecated
-    );
+    assert_eq!(skills[0].metadata.loaded_from, LoadedFrom::CommandsDeprecated);
 }
 
 #[tokio::test]
@@ -227,17 +189,10 @@ async fn test_load_commands_dir_format_takes_precedence_over_flat() {
         "my-cmd/SKILL.md",
         "---\ndescription: Directory version\n---\n",
     );
-    write_skill(
-        tmp.path(),
-        "my-cmd.md",
-        "---\ndescription: Flat version\n---\n",
-    );
+    write_skill(tmp.path(), "my-cmd.md", "---\ndescription: Flat version\n---\n");
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::User).await;
-    let descriptions: Vec<_> = skills
-        .iter()
-        .map(|s| s.metadata.description.as_str())
-        .collect();
+    let descriptions: Vec<_> = skills.iter().map(|s| s.metadata.description.as_str()).collect();
     assert!(
         descriptions.contains(&"Directory version"),
         "directory format should be loaded"
@@ -251,11 +206,7 @@ async fn test_load_commands_dir_format_takes_precedence_over_flat() {
 #[tokio::test]
 async fn test_load_commands_nested_flat() {
     let tmp = TempDir::new().unwrap();
-    write_skill(
-        tmp.path(),
-        "db/migrate.md",
-        "---\ndescription: DB migrate\n---\n",
-    );
+    write_skill(tmp.path(), "db/migrate.md", "---\ndescription: DB migrate\n---\n");
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::User).await;
     assert_eq!(skills.len(), 1);
@@ -272,13 +223,7 @@ async fn test_load_all_skills_bare_mode() {
     fs::create_dir_all(&skills_dir).unwrap();
     write_skill(&skills_dir, "my-skill/SKILL.md", "---\n---\n");
 
-    let result = load_all_skills(
-        Path::new("/nonexistent"),
-        &[tmp.path().to_owned()],
-        true,
-        None,
-    )
-    .await;
+    let result = load_all_skills(Path::new("/nonexistent"), &[tmp.path().to_owned()], true, None).await;
     assert_eq!(result.len(), 1);
 }
 

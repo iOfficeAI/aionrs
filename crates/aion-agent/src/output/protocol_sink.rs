@@ -17,13 +17,7 @@ impl ProtocolSink {
     }
 
     /// Emit the ready event at session start
-    pub fn emit_ready(
-        &self,
-        compat: &ProviderCompat,
-        has_mcp: bool,
-        session_id: Option<String>,
-        current_mode: &str,
-    ) {
+    pub fn emit_ready(&self, compat: &ProviderCompat, has_mcp: bool, session_id: Option<String>, current_mode: &str) {
         let _ = self.writer.emit(&ProtocolEvent::Ready {
             version: env!("CARGO_PKG_VERSION").to_string(),
             session_id,
@@ -43,11 +37,7 @@ impl ProtocolSink {
         &self.writer
     }
 
-    fn build_capabilities(
-        compat: &ProviderCompat,
-        has_mcp: bool,
-        current_mode: &str,
-    ) -> Capabilities {
+    fn build_capabilities(compat: &ProviderCompat, has_mcp: bool, current_mode: &str) -> Capabilities {
         Capabilities {
             tool_approval: true,
             thinking: compat.supports_thinking(),

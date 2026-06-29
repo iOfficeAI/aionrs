@@ -88,33 +88,20 @@ async fn test_anthropic_stream_text_response() {
 
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(text_sse_body("Hello, world!"), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(text_sse_body("Hello, world!"), "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = AnthropicProvider::new(
-        "test-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
     let request = minimal_request();
 
     // Act
-    let rx = provider
-        .stream(&request)
-        .await
-        .expect("stream should succeed");
+    let rx = provider.stream(&request).await.expect("stream should succeed");
     let events = collect_events(rx).await;
 
     // Assert: at least one TextDelta and exactly one Done
-    let text_deltas: Vec<&LlmEvent> = events
-        .iter()
-        .filter(|e| matches!(e, LlmEvent::TextDelta(_)))
-        .collect();
+    let text_deltas: Vec<&LlmEvent> = events.iter().filter(|e| matches!(e, LlmEvent::TextDelta(_))).collect();
     assert!(!text_deltas.is_empty(), "expected at least one TextDelta");
 
     match &text_deltas[0] {
@@ -122,10 +109,7 @@ async fn test_anthropic_stream_text_response() {
         _ => panic!("expected TextDelta"),
     }
 
-    let done_events: Vec<&LlmEvent> = events
-        .iter()
-        .filter(|e| matches!(e, LlmEvent::Done { .. }))
-        .collect();
+    let done_events: Vec<&LlmEvent> = events.iter().filter(|e| matches!(e, LlmEvent::Done { .. })).collect();
     assert_eq!(done_events.len(), 1, "expected exactly one Done event");
 
     match done_events[0] {
@@ -170,19 +154,12 @@ data: {\"type\":\"message_stop\"}\n\n";
         .mount(&server)
         .await;
 
-    let provider = AnthropicProvider::new(
-        "test-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
     let request = minimal_request();
 
     // Act
-    let rx = provider
-        .stream(&request)
-        .await
-        .expect("stream should succeed");
+    let rx = provider.stream(&request).await.expect("stream should succeed");
     let events = collect_events(rx).await;
 
     // Assert: one ToolUse event with correct fields
@@ -193,9 +170,7 @@ data: {\"type\":\"message_stop\"}\n\n";
     assert_eq!(tool_events.len(), 1, "expected exactly one ToolUse event");
 
     match tool_events[0] {
-        LlmEvent::ToolUse {
-            id, name, input, ..
-        } => {
+        LlmEvent::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "toolu_abc");
             assert_eq!(name, "Read");
             assert_eq!(input["file_path"], "/tmp/test");
@@ -204,10 +179,7 @@ data: {\"type\":\"message_stop\"}\n\n";
     }
 
     // Done event should reflect tool_use stop reason
-    let done_events: Vec<&LlmEvent> = events
-        .iter()
-        .filter(|e| matches!(e, LlmEvent::Done { .. }))
-        .collect();
+    let done_events: Vec<&LlmEvent> = events.iter().filter(|e| matches!(e, LlmEvent::Done { .. })).collect();
     assert_eq!(done_events.len(), 1);
     match done_events[0] {
         LlmEvent::Done { stop_reason, .. } => {
@@ -254,22 +226,13 @@ data: {\"type\":\"message_stop\"}\n\n";
 
     // Enable thinking in the request
     let mut request = minimal_request();
-    request.thinking = Some(ThinkingConfig::Enabled {
-        budget_tokens: 5000,
-    });
+    request.thinking = Some(ThinkingConfig::Enabled { budget_tokens: 5000 });
 
-    let provider = AnthropicProvider::new(
-        "test-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
 
     // Act
-    let rx = provider
-        .stream(&request)
-        .await
-        .expect("stream should succeed");
+    let rx = provider.stream(&request).await.expect("stream should succeed");
     let events = collect_events(rx).await;
 
     // Assert: ThinkingDelta event present with expected content
@@ -277,10 +240,7 @@ data: {\"type\":\"message_stop\"}\n\n";
         .iter()
         .filter(|e| matches!(e, LlmEvent::ThinkingDelta(_)))
         .collect();
-    assert!(
-        !thinking_events.is_empty(),
-        "expected at least one ThinkingDelta"
-    );
+    assert!(!thinking_events.is_empty(), "expected at least one ThinkingDelta");
 
     match thinking_events[0] {
         LlmEvent::ThinkingDelta(text) => assert_eq!(text, "Let me think..."),
@@ -288,10 +248,7 @@ data: {\"type\":\"message_stop\"}\n\n";
     }
 
     // TextDelta should also be present
-    let text_events: Vec<&LlmEvent> = events
-        .iter()
-        .filter(|e| matches!(e, LlmEvent::TextDelta(_)))
-        .collect();
+    let text_events: Vec<&LlmEvent> = events.iter().filter(|e| matches!(e, LlmEvent::TextDelta(_))).collect();
     assert!(
         !text_events.is_empty(),
         "expected at least one TextDelta after thinking"
@@ -307,8 +264,7 @@ data: {\"type\":\"message_stop\"}\n\n";
 async fn test_anthropic_auth_error() {
     let server = MockServer::start().await;
 
-    let error_body =
-        r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#;
+    let error_body = r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#;
 
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
@@ -316,12 +272,8 @@ async fn test_anthropic_auth_error() {
         .mount(&server)
         .await;
 
-    let provider = AnthropicProvider::new(
-        "bad-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("bad-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -347,19 +299,16 @@ async fn test_aio_140_anthropic_tools_wire_shape_mismatch_error_is_readable_and_
 
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
-        .respond_with(ResponseTemplate::new(400).set_body_string(
-            r#"{"error":{"message":"Missing required parameter: body.tools[0].function"}}"#,
-        ))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_string(r#"{"error":{"message":"Missing required parameter: body.tools[0].function"}}"#),
+        )
         .expect(1)
         .mount(&server)
         .await;
 
-    let provider = AnthropicProvider::new(
-        "test-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
     let result = provider.stream(&minimal_request_with_tool()).await;
 
     server.verify().await;
@@ -392,18 +341,16 @@ async fn test_anthropic_rate_limit_retryable() {
 
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
-        .respond_with(ResponseTemplate::new(429).set_body_string(
-            r#"{"type":"error","error":{"type":"rate_limit_error","message":"rate limit exceeded"}}"#,
-        ))
+        .respond_with(
+            ResponseTemplate::new(429).set_body_string(
+                r#"{"type":"error","error":{"type":"rate_limit_error","message":"rate limit exceeded"}}"#,
+            ),
+        )
         .mount(&server)
         .await;
 
-    let provider = AnthropicProvider::new(
-        "test-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
     let request = minimal_request();
 
     // Act
@@ -436,19 +383,13 @@ async fn test_anthropic_request_headers() {
         .and(header("x-api-key", "my-secret-key"))
         .and(header("anthropic-version", "2023-06-01"))
         .and(header("content-type", "application/json"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(text_sse_body("ok"), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(text_sse_body("ok"), "text/event-stream"))
         .expect(1) // exactly one matching request must arrive
         .mount(&server)
         .await;
 
-    let provider = AnthropicProvider::new(
-        "my-secret-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("my-secret-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
     let request = minimal_request();
 
     // Act — should succeed because the headers are correct
@@ -478,20 +419,14 @@ async fn test_anthropic_prompt_caching_header() {
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
         .and(header("anthropic-beta", "prompt-caching-2024-07-31"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(text_sse_body("cached"), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(text_sse_body("cached"), "text/event-stream"))
         .expect(1)
         .mount(&server)
         .await;
 
     // with_cache(true) — default, but explicit here for clarity
-    let provider = AnthropicProvider::new(
-        "test-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(true);
+    let provider =
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(true);
     let request = minimal_request();
 
     let result = provider.stream(&request).await;
@@ -519,18 +454,12 @@ async fn test_anthropic_no_prompt_caching_header_when_disabled() {
     // We then confirm via received_requests that the header is absent.
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(text_sse_body("no cache"), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(text_sse_body("no cache"), "text/event-stream"))
         .mount(&server)
         .await;
 
-    let provider = AnthropicProvider::new(
-        "test-api-key",
-        &server.uri(),
-        ProviderCompat::anthropic_defaults(),
-    )
-    .with_cache(false);
+    let provider =
+        AnthropicProvider::new("test-api-key", &server.uri(), ProviderCompat::anthropic_defaults()).with_cache(false);
     let request = minimal_request();
 
     let result = provider.stream(&request).await;

@@ -31,20 +31,14 @@ impl ComposedProvider {
 
 #[async_trait]
 impl LlmProvider for ComposedProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let (body, tool_wire_shape) = self.transport.project_body(request, &self.compat)?;
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
-        let projected_request = self.transport.build_projected_request(
-            &request.model,
-            body,
-            &self.compat,
-            tool_wire_shape,
-        )?;
+        let projected_request =
+            self.transport
+                .build_projected_request(&request.model, body, &self.compat, tool_wire_shape)?;
         let transport = self.transport.clone();
         let send = move || {
             let transport = transport.clone();
@@ -259,9 +253,7 @@ mod tests {
         let request = golden_req(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "go".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "go".to_string() }],
             )],
             sample_tools(),
         );
@@ -307,12 +299,7 @@ mod tests {
     fn golden_openai_with_thinking() {
         let provider = openai_provider(ProviderCompat::openai_defaults());
         let messages = vec![
-            Message::new(
-                Role::User,
-                vec![ContentBlock::Text {
-                    text: "q1".to_string(),
-                }],
-            ),
+            Message::new(Role::User, vec![ContentBlock::Text { text: "q1".to_string() }]),
             Message::new(
                 Role::Assistant,
                 vec![
@@ -325,12 +312,7 @@ mod tests {
                     },
                 ],
             ),
-            Message::new(
-                Role::User,
-                vec![ContentBlock::Text {
-                    text: "q2".to_string(),
-                }],
-            ),
+            Message::new(Role::User, vec![ContentBlock::Text { text: "q2".to_string() }]),
         ];
         assert_openai_json_snapshot!(
             "openai_with_thinking",
@@ -346,9 +328,7 @@ mod tests {
         let mut request = golden_req(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "hi".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "hi".to_string() }],
             )],
             vec![],
         );
@@ -369,9 +349,7 @@ mod tests {
         let request = golden_req(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "hi".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "hi".to_string() }],
             )],
             vec![],
         );
@@ -393,9 +371,7 @@ mod tests {
         let mut request = golden_req(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "hi".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "hi".to_string() }],
             )],
             sample_tools(),
         );
@@ -430,10 +406,7 @@ mod tests {
             compat,
         );
 
-        let mut rx = provider
-            .stream(&test_request())
-            .await
-            .expect("stream should start");
+        let mut rx = provider.stream(&test_request()).await.expect("stream should start");
 
         assert!(matches!(
             rx.recv().await,

@@ -4,8 +4,7 @@
 use async_trait::async_trait;
 use aws_credential_types::Credentials;
 use aws_sigv4::http_request::{
-    self as sigv4_http, PayloadChecksumKind, SignableBody, SignableRequest, SignatureLocation,
-    SigningSettings,
+    self as sigv4_http, PayloadChecksumKind, SignableBody, SignableRequest, SignatureLocation, SigningSettings,
 };
 use aws_sigv4::sign::v4::SigningParams;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
@@ -19,9 +18,7 @@ use aion_config::config::BedrockConfig;
 use aion_types::llm::{LlmEvent, LlmRequest};
 
 use crate::composed::ComposedProvider;
-use crate::projector::{
-    ResolvedToolWireShape, WireParams, WireProvider, classify_tools_wire_shape_mismatch,
-};
+use crate::projector::{ResolvedToolWireShape, WireParams, WireProvider, classify_tools_wire_shape_mismatch};
 use crate::transport::{BedrockTransport, ProjectedHttpRequest, ProviderTransport};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
@@ -31,12 +28,7 @@ pub struct BedrockProvider {
 }
 
 impl BedrockProvider {
-    pub fn new(
-        region: &str,
-        credentials: AwsCredentials,
-        cache_enabled: bool,
-        compat: ProviderCompat,
-    ) -> Self {
+    pub fn new(region: &str, credentials: AwsCredentials, cache_enabled: bool, compat: ProviderCompat) -> Self {
         let transport_state = BedrockTransportState::new(region, credentials, cache_enabled);
         let transport = ProviderTransport::Bedrock(BedrockTransport {
             inner: transport_state.clone(),
@@ -54,10 +46,7 @@ impl BedrockProvider {
 
 #[async_trait]
 impl LlmProvider for BedrockProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.inner.stream(request).await
     }
 }
@@ -167,9 +156,7 @@ impl BedrockTransportState {
                 thread::scope(|s| {
                     s.spawn(|| {
                         Runtime::new()
-                            .map_err(|e| {
-                                ProviderError::Connection(format!("Runtime error: {}", e))
-                            })?
+                            .map_err(|e| ProviderError::Connection(format!("Runtime error: {}", e)))?
                             .block_on(resolve)
                     })
                     .join()
@@ -213,18 +200,12 @@ impl BedrockTransportState {
             .filter_map(|(name, value)| value.to_str().ok().map(|v| (name.as_str(), v)))
             .collect();
 
-        let signable_request = SignableRequest::new(
-            method,
-            url,
-            header_pairs.into_iter(),
-            SignableBody::Bytes(body),
-        )
-        .map_err(|e| ProviderError::Connection(format!("Signable request error: {}", e)))?;
+        let signable_request = SignableRequest::new(method, url, header_pairs.into_iter(), SignableBody::Bytes(body))
+            .map_err(|e| ProviderError::Connection(format!("Signable request error: {}", e)))?;
 
-        let (signing_instructions, _signature) =
-            sigv4_http::sign(signable_request, &signing_params.into())
-                .map_err(|e| ProviderError::Connection(format!("SigV4 signing error: {}", e)))?
-                .into_parts();
+        let (signing_instructions, _signature) = sigv4_http::sign(signable_request, &signing_params.into())
+            .map_err(|e| ProviderError::Connection(format!("SigV4 signing error: {}", e)))?
+            .into_parts();
 
         let mut signed_headers = headers.clone();
         for (name, value) in signing_instructions.headers() {
@@ -246,16 +227,15 @@ impl BedrockTransportState {
         _compat: &ProviderCompat,
         tool_wire_shape: ResolvedToolWireShape,
     ) -> Result<ProjectedHttpRequest, ProviderError> {
-        let body_bytes = serde_json::to_vec(&body)
-            .map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))?;
+        let body_bytes =
+            serde_json::to_vec(&body).map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))?;
         let credentials = self.resolve_credentials()?;
         let url = self.build_url(model);
 
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
-        let signed_headers =
-            self.sign_request("POST", &url, &headers, &body_bytes, &credentials)?;
+        let signed_headers = self.sign_request("POST", &url, &headers, &body_bytes, &credentials)?;
 
         Ok(ProjectedHttpRequest {
             url,
@@ -266,10 +246,7 @@ impl BedrockTransportState {
         })
     }
 
-    pub(crate) async fn send(
-        &self,
-        request: ProjectedHttpRequest,
-    ) -> Result<reqwest::Response, ProviderError> {
+    pub(crate) async fn send(&self, request: ProjectedHttpRequest) -> Result<reqwest::Response, ProviderError> {
         let ProjectedHttpRequest {
             url,
             headers,
@@ -278,30 +255,18 @@ impl BedrockTransportState {
             ..
         } = request;
         let body_bytes = body_bytes.ok_or_else(|| {
-            ProviderError::Connection(
-                "Bedrock projected request missing signed request body bytes".to_string(),
-            )
+            ProviderError::Connection("Bedrock projected request missing signed request body bytes".to_string())
         })?;
 
-        let response = self
-            .client
-            .post(&url)
-            .headers(headers)
-            .body(body_bytes)
-            .send()
-            .await?;
+        let response = self.client.post(&url).headers(headers).body(body_bytes).send().await?;
 
         let status = response.status();
         if !status.is_success() {
             let body_text = response.text().await.unwrap_or_default();
             if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 5000,
-                });
+                return Err(ProviderError::RateLimited { retry_after_ms: 5000 });
             }
-            if let Some(message) =
-                classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape)
-            {
+            if let Some(message) = classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape) {
                 return Err(ProviderError::Api {
                     status: status.as_u16(),
                     message,
@@ -447,9 +412,7 @@ mod tests {
         let r = bedrock_req(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "go".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "go".to_string() }],
             )],
             bedrock_tools(),
         );

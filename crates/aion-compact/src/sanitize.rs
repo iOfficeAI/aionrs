@@ -51,10 +51,7 @@ pub fn merge_blank_lines(text: &str) -> String {
 }
 
 pub fn trim_trailing_whitespace(text: &str) -> String {
-    text.lines()
-        .map(|line| line.trim_end())
-        .collect::<Vec<_>>()
-        .join("\n")
+    text.lines().map(|line| line.trim_end()).collect::<Vec<_>>().join("\n")
 }
 
 pub fn sanitize(text: &str) -> String {
@@ -108,10 +105,7 @@ mod tests {
     #[test]
     fn collapse_cr_preserves_crlf_line_content() {
         let input = "Exit code: 0\nSTDOUT:\nmessage\r\nSTDERR:";
-        assert_eq!(
-            collapse_cr_lines(input),
-            "Exit code: 0\nSTDOUT:\nmessage\nSTDERR:"
-        );
+        assert_eq!(collapse_cr_lines(input), "Exit code: 0\nSTDOUT:\nmessage\nSTDERR:");
     }
 
     #[test]

@@ -76,10 +76,7 @@ async fn tc_ax_01_multi_feature_collaboration() {
     // First read: full content
     let r1 = read_tool.execute(input.clone()).await;
     assert!(!r1.is_error, "first read should succeed");
-    assert!(
-        r1.content.contains("line one"),
-        "first read should return file content"
-    );
+    assert!(r1.content.contains("line one"), "first read should return file content");
 
     // Second read: dedup stub (file unchanged)
     let r2 = read_tool.execute(input).await;

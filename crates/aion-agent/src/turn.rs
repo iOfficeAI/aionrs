@@ -1,8 +1,6 @@
 use crate::error::AgentError;
 use crate::stream::StreamOutcome;
-use crate::tool_call::{
-    ToolCallFailureTracker, ToolCallMalformedFingerprint, ToolCallMalformedTracker,
-};
+use crate::tool_call::{ToolCallFailureTracker, ToolCallMalformedFingerprint, ToolCallMalformedTracker};
 use aion_types::message::StopReason;
 
 pub(crate) enum TurnOutcome {
@@ -19,9 +17,7 @@ impl TurnOutcome {
         }
 
         match outcome.stop_reason {
-            StopReason::EndTurn if !outcome.assistant_text.trim().is_empty() => {
-                Self::Final(outcome)
-            }
+            StopReason::EndTurn if !outcome.assistant_text.trim().is_empty() => Self::Final(outcome),
             StopReason::MaxTokens => Self::Truncated(outcome),
             _ => Self::EmptyFinal(outcome),
         }
@@ -49,9 +45,9 @@ impl TurnKind {
     pub(crate) fn control_prompt(self) -> Option<&'static str> {
         match self {
             Self::Normal => None,
-            Self::Finalization(FinalizationReason::TurnBudget) => Some(
-                "Do not call any more tools. Use the tool results already provided and give the final answer now.",
-            ),
+            Self::Finalization(FinalizationReason::TurnBudget) => {
+                Some("Do not call any more tools. Use the tool results already provided and give the final answer now.")
+            }
             Self::Finalization(FinalizationReason::MaxTokens) => Some(
                 "The previous response was cut off by the token limit. Finish the answer now. Do not call any tools.",
             ),
@@ -137,9 +133,7 @@ impl TurnGuards {
         tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,
         tool_call_failure_round: bool,
     ) -> TurnGuardAction {
-        let malformed_count = self
-            .tool_call_malformed
-            .observe(tool_call_malformed_fingerprint);
+        let malformed_count = self.tool_call_malformed.observe(tool_call_malformed_fingerprint);
         if self.tool_call_malformed.is_limit_exceeded() {
             tracing::warn!(
                 target: "aion_agent",

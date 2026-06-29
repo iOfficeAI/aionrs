@@ -7,8 +7,7 @@ use crate::bundled;
 use crate::frontmatter::{parse_frontmatter, parse_skill_fields};
 use crate::mcp::load_mcp_skills;
 use crate::paths::{
-    additional_skills_dirs, project_commands_dirs, project_skills_dirs, user_commands_dir,
-    user_skills_dir,
+    additional_skills_dirs, project_commands_dirs, project_skills_dirs, user_commands_dir, user_skills_dir,
 };
 use crate::types::{LoadedFrom, SkillMetadata, SkillSource};
 use aion_mcp::manager::McpManager;
@@ -191,9 +190,7 @@ fn collect_skill_md<'a>(
                 // exact case-sensitive name comparison (important on case-insensitive
                 // filesystems like macOS APFS).
                 if let Some(skill_file) = find_exact_file(&path, "SKILL.md").await {
-                    if let Some(skill) =
-                        load_skill_file(&skill_file, base_dir, &path, source, loaded_from).await
-                    {
+                    if let Some(skill) = load_skill_file(&skill_file, base_dir, &path, source, loaded_from).await {
                         results.push(skill);
                     }
                 } else {
@@ -255,14 +252,8 @@ fn collect_commands<'a>(
                 // case-insensitive filesystems (e.g., macOS APFS).
                 if let Some(skill_file) = find_exact_file(&path, "SKILL.md").await {
                     // Directory format — load it
-                    if let Some(skill) = load_skill_file(
-                        &skill_file,
-                        base_dir,
-                        &path,
-                        source,
-                        LoadedFrom::CommandsDeprecated,
-                    )
-                    .await
+                    if let Some(skill) =
+                        load_skill_file(&skill_file, base_dir, &path, source, LoadedFrom::CommandsDeprecated).await
                     {
                         let name = path
                             .file_name()
@@ -300,14 +291,8 @@ fn collect_commands<'a>(
 
                 // The "skill directory" for flat files is their parent dir + stem
                 let pseudo_dir = path.parent().unwrap_or(base_dir).join(&stem);
-                if let Some(skill) = load_skill_file(
-                    &path,
-                    base_dir,
-                    &pseudo_dir,
-                    source,
-                    LoadedFrom::CommandsDeprecated,
-                )
-                .await
+                if let Some(skill) =
+                    load_skill_file(&path, base_dir, &pseudo_dir, source, LoadedFrom::CommandsDeprecated).await
                 {
                     results.push(skill);
                 }

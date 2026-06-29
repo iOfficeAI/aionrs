@@ -14,11 +14,7 @@ impl SlashCommand for HelpCommand {
         "List available commands"
     }
 
-    async fn execute(
-        &self,
-        ctx: &mut CommandContext<'_>,
-        _args: &str,
-    ) -> anyhow::Result<CommandResult> {
+    async fn execute(&self, ctx: &mut CommandContext<'_>, _args: &str) -> anyhow::Result<CommandResult> {
         let mut entries: Vec<(&str, &str)> = ctx
             .registry
             .all()
@@ -81,10 +77,7 @@ mod tests {
     struct NullProvider;
     #[async_trait::async_trait]
     impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }

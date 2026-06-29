@@ -16,11 +16,7 @@ impl SlashCommand for CompactCommand {
         "Compress conversation context"
     }
 
-    async fn execute(
-        &self,
-        ctx: &mut CommandContext<'_>,
-        _args: &str,
-    ) -> anyhow::Result<CommandResult> {
+    async fn execute(&self, ctx: &mut CommandContext<'_>, _args: &str) -> anyhow::Result<CommandResult> {
         if ctx.messages.len() <= 2 {
             ctx.output.emit_info("Context is already compact");
             return Ok(CommandResult::Continue);
@@ -57,8 +53,7 @@ impl SlashCommand for CompactCommand {
                             *text = format!(
                                 "{}\n{}",
                                 auto::BOUNDARY_PREFIX,
-                                serde_json::to_string(&metadata)
-                                    .expect("metadata serialization cannot fail")
+                                serde_json::to_string(&metadata).expect("metadata serialization cannot fail")
                             );
                         }
                     }
@@ -95,10 +90,7 @@ mod tests {
     struct NullProvider;
     #[async_trait::async_trait]
     impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }
@@ -109,10 +101,7 @@ mod tests {
         let provider: Arc<dyn LlmProvider> = Arc::new(NullProvider);
         let registry = CommandRegistry::new();
         let output = NullSink;
-        let mut messages = vec![Message::new(
-            Role::User,
-            vec![ContentBlock::Text { text: "hi".into() }],
-        )];
+        let mut messages = vec![Message::new(Role::User, vec![ContentBlock::Text { text: "hi".into() }])];
         let mut state = CompactState::new();
         let config = aion_config::compact::CompactConfig::default();
 
@@ -139,11 +128,7 @@ mod tests {
         let output = NullSink;
         let mut messages: Vec<Message> = (0..10)
             .map(|i| {
-                let role = if i % 2 == 0 {
-                    Role::User
-                } else {
-                    Role::Assistant
-                };
+                let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
                 Message::new(
                     role,
                     vec![ContentBlock::Text {

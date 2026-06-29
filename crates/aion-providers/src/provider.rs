@@ -16,8 +16,7 @@ use crate::vertex;
 /// Unified interface for LLM API providers
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
-    async fn stream(&self, request: &LlmRequest)
-    -> Result<mpsc::Receiver<LlmEvent>, ProviderError>;
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError>;
 }
 
 /// Create a provider from resolved config
@@ -29,11 +28,7 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
             anthropic::AnthropicProvider::new(&config.api_key, &config.base_url, compat)
                 .with_cache(config.prompt_caching),
         ),
-        ProviderType::OpenAI => Arc::new(openai::OpenAIProvider::new(
-            &config.api_key,
-            &config.base_url,
-            compat,
-        )),
+        ProviderType::OpenAI => Arc::new(openai::OpenAIProvider::new(&config.api_key, &config.base_url, compat)),
         ProviderType::Bedrock => {
             let bc = config.bedrock.clone().unwrap_or_default();
             let region = bc
@@ -53,10 +48,7 @@ pub fn create_provider(config: &Config) -> Arc<dyn LlmProvider> {
         ProviderType::Vertex => {
             let vc = config.vertex.clone().unwrap_or_default();
             let project_id = vc.project_id.clone().unwrap_or_default();
-            let region = vc
-                .region
-                .clone()
-                .unwrap_or_else(|| "us-central1".to_string());
+            let region = vc.region.clone().unwrap_or_else(|| "us-central1".to_string());
             let auth = vertex::auth_from_config(&vc);
             Arc::new(vertex::VertexProvider::new(
                 &project_id,
@@ -87,56 +79,55 @@ mod tests {
     use super::create_provider;
 
     fn config_for(provider: ProviderType) -> Config {
-        let (provider_label, api_key, base_url, model, prompt_caching, compat, bedrock, vertex) =
-            match provider {
-                ProviderType::Anthropic => (
-                    "anthropic",
-                    "test-anthropic-key",
-                    "https://api.anthropic.com",
-                    "claude-sonnet-4-20250514",
-                    true,
-                    ProviderCompat::anthropic_defaults(),
-                    None,
-                    None,
-                ),
-                ProviderType::OpenAI => (
-                    "openai",
-                    "test-openai-key",
-                    "https://api.openai.com",
-                    "gpt-4o",
-                    false,
-                    ProviderCompat::openai_defaults(),
-                    None,
-                    None,
-                ),
-                ProviderType::Bedrock => (
-                    "bedrock",
-                    "",
-                    "",
-                    "anthropic.claude-sonnet-4-20250514-v1:0",
-                    true,
-                    ProviderCompat::bedrock_defaults(),
-                    Some(BedrockConfig {
-                        region: Some("us-east-1".to_string()),
-                        ..Default::default()
-                    }),
-                    None,
-                ),
-                ProviderType::Vertex => (
-                    "vertex",
-                    "",
-                    "",
-                    "claude-sonnet-4@20250514",
-                    true,
-                    ProviderCompat::anthropic_defaults(),
-                    None,
-                    Some(VertexConfig {
-                        project_id: Some("test-project".to_string()),
-                        region: Some("us-central1".to_string()),
-                        ..Default::default()
-                    }),
-                ),
-            };
+        let (provider_label, api_key, base_url, model, prompt_caching, compat, bedrock, vertex) = match provider {
+            ProviderType::Anthropic => (
+                "anthropic",
+                "test-anthropic-key",
+                "https://api.anthropic.com",
+                "claude-sonnet-4-20250514",
+                true,
+                ProviderCompat::anthropic_defaults(),
+                None,
+                None,
+            ),
+            ProviderType::OpenAI => (
+                "openai",
+                "test-openai-key",
+                "https://api.openai.com",
+                "gpt-4o",
+                false,
+                ProviderCompat::openai_defaults(),
+                None,
+                None,
+            ),
+            ProviderType::Bedrock => (
+                "bedrock",
+                "",
+                "",
+                "anthropic.claude-sonnet-4-20250514-v1:0",
+                true,
+                ProviderCompat::bedrock_defaults(),
+                Some(BedrockConfig {
+                    region: Some("us-east-1".to_string()),
+                    ..Default::default()
+                }),
+                None,
+            ),
+            ProviderType::Vertex => (
+                "vertex",
+                "",
+                "",
+                "claude-sonnet-4@20250514",
+                true,
+                ProviderCompat::anthropic_defaults(),
+                None,
+                Some(VertexConfig {
+                    project_id: Some("test-project".to_string()),
+                    region: Some("us-central1".to_string()),
+                    ..Default::default()
+                }),
+            ),
+        };
 
         Config {
             provider_label: provider_label.to_string(),

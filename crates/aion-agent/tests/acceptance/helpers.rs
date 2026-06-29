@@ -11,17 +11,12 @@ use aion_mcp::config::McpConfig;
 
 /// Returns the OpenAI API key if set and non-empty.
 pub fn openai_api_key() -> Option<String> {
-    std::env::var("OPENAI_API_KEY")
-        .ok()
-        .filter(|k| !k.is_empty())
+    std::env::var("OPENAI_API_KEY").ok().filter(|k| !k.is_empty())
 }
 
 /// Returns true when AWS Bedrock is configured for use.
 pub fn bedrock_configured() -> bool {
-    let has_profile = std::env::var("AWS_PROFILE")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .is_some();
+    let has_profile = std::env::var("AWS_PROFILE").ok().filter(|v| !v.is_empty()).is_some();
     let bedrock_flag = std::env::var("CLAUDE_CODE_USE_BEDROCK")
         .ok()
         .filter(|v| v == "1")

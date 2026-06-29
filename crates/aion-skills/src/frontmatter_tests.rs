@@ -4,8 +4,7 @@
 
 use super::*;
 use crate::types::{
-    BoolOrString, EffortLevel, ExecutionContext, FrontmatterData, LoadedFrom, SkillSource,
-    StringOrNumber, StringOrVec,
+    BoolOrString, EffortLevel, ExecutionContext, FrontmatterData, LoadedFrom, SkillSource, StringOrNumber, StringOrVec,
 };
 
 // -----------------------------------------------------------------------
@@ -102,20 +101,14 @@ fn tc_1_10_hooks_field_preserved() {
 fn tc_2_3_square_bracket_in_value() {
     let input = "---\nargument-hint: [optional]\n---\nbody";
     let parsed = parse_frontmatter(input);
-    assert_eq!(
-        parsed.frontmatter.argument_hint.as_deref(),
-        Some("[optional]")
-    );
+    assert_eq!(parsed.frontmatter.argument_hint.as_deref(), Some("[optional]"));
 }
 
 #[test]
 fn tc_2_4_asterisk_in_value() {
     let input = "---\ndescription: Match *.rs files\n---\nbody";
     let parsed = parse_frontmatter(input);
-    assert_eq!(
-        parsed.frontmatter.description.as_deref(),
-        Some("Match *.rs files")
-    );
+    assert_eq!(parsed.frontmatter.description.as_deref(), Some("Match *.rs files"));
 }
 
 #[test]
@@ -152,17 +145,13 @@ fn tc_2_7_both_passes_fail_returns_empty_frontmatter() {
 
 #[test]
 fn tc_2_8_multiple_special_char_fields() {
-    let input =
-        "---\ndescription: Handle {a} and [b] patterns\nargument-hint: <file> [options]\n---\n";
+    let input = "---\ndescription: Handle {a} and [b] patterns\nargument-hint: <file> [options]\n---\n";
     let parsed = parse_frontmatter(input);
     assert_eq!(
         parsed.frontmatter.description.as_deref(),
         Some("Handle {a} and [b] patterns")
     );
-    assert_eq!(
-        parsed.frontmatter.argument_hint.as_deref(),
-        Some("<file> [options]")
-    );
+    assert_eq!(parsed.frontmatter.argument_hint.as_deref(), Some("<file> [options]"));
 }
 
 // -----------------------------------------------------------------------
@@ -287,14 +276,7 @@ fn tc_4_8_has_user_specified_description_true_when_frontmatter_has_it() {
         description: Some("User provided".into()),
         ..Default::default()
     };
-    let meta = parse_skill_fields(
-        &fm,
-        "# Title",
-        "x",
-        SkillSource::User,
-        LoadedFrom::Skills,
-        None,
-    );
+    let meta = parse_skill_fields(&fm, "# Title", "x", SkillSource::User, LoadedFrom::Skills, None);
     assert!(meta.has_user_specified_description);
     assert_eq!(meta.description, "User provided");
 }
@@ -346,14 +328,7 @@ fn tc_4_14_execution_context_defaults_to_inline() {
 #[test]
 fn tc_4_17_source_and_loaded_from_passed_through() {
     let fm = FrontmatterData::default();
-    let meta = parse_skill_fields(
-        &fm,
-        "",
-        "x",
-        SkillSource::Project,
-        LoadedFrom::CommandsDeprecated,
-        None,
-    );
+    let meta = parse_skill_fields(&fm, "", "x", SkillSource::Project, LoadedFrom::CommandsDeprecated, None);
     assert_eq!(meta.source, SkillSource::Project);
     assert_eq!(meta.loaded_from, LoadedFrom::CommandsDeprecated);
 }
@@ -369,10 +344,7 @@ fn tc_4_18_skill_root_passed_through() {
         LoadedFrom::Skills,
         Some("/home/user/.claude/skills"),
     );
-    assert_eq!(
-        meta.skill_root.as_deref(),
-        Some("/home/user/.claude/skills")
-    );
+    assert_eq!(meta.skill_root.as_deref(), Some("/home/user/.claude/skills"));
 }
 
 #[test]
@@ -391,22 +363,10 @@ fn tc_4_19_disable_model_invocation_mapping() {
 
 #[test]
 fn tc_5_5_effort_number_mapping() {
-    assert_eq!(
-        parse_effort(&Some(StringOrNumber::Num(3))),
-        Some(EffortLevel::Max)
-    );
-    assert_eq!(
-        parse_effort(&Some(StringOrNumber::Num(0))),
-        Some(EffortLevel::Low)
-    );
-    assert_eq!(
-        parse_effort(&Some(StringOrNumber::Num(1))),
-        Some(EffortLevel::Medium)
-    );
-    assert_eq!(
-        parse_effort(&Some(StringOrNumber::Num(2))),
-        Some(EffortLevel::High)
-    );
+    assert_eq!(parse_effort(&Some(StringOrNumber::Num(3))), Some(EffortLevel::Max));
+    assert_eq!(parse_effort(&Some(StringOrNumber::Num(0))), Some(EffortLevel::Low));
+    assert_eq!(parse_effort(&Some(StringOrNumber::Num(1))), Some(EffortLevel::Medium));
+    assert_eq!(parse_effort(&Some(StringOrNumber::Num(2))), Some(EffortLevel::High));
 }
 
 #[test]
@@ -636,10 +596,7 @@ argument-hint: <file> [options]
         parsed.frontmatter.description.as_deref(),
         Some("Handle {input} and [output] patterns")
     );
-    assert_eq!(
-        parsed.frontmatter.argument_hint.as_deref(),
-        Some("<file> [options]")
-    );
+    assert_eq!(parsed.frontmatter.argument_hint.as_deref(), Some("<file> [options]"));
 }
 
 #[test]
@@ -658,8 +615,5 @@ fn tc_12_3_legacy_commands_loaded_from() {
     );
     assert_eq!(meta.loaded_from, LoadedFrom::CommandsDeprecated);
     assert_eq!(meta.source, SkillSource::Legacy);
-    assert_eq!(
-        meta.skill_root.as_deref(),
-        Some("/project/.claude/commands")
-    );
+    assert_eq!(meta.skill_root.as_deref(), Some("/project/.claude/commands"));
 }

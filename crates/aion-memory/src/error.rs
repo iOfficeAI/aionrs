@@ -9,10 +9,7 @@ pub enum MemoryError {
 
     /// YAML frontmatter failed to parse.
     #[error("failed to parse frontmatter in {path}: {source}")]
-    FrontmatterParse {
-        path: PathBuf,
-        source: serde_yaml::Error,
-    },
+    FrontmatterParse { path: PathBuf, source: serde_yaml::Error },
 
     /// Memory path failed security validation.
     #[error("path validation failed: {0}")]
@@ -45,14 +42,8 @@ mod tests {
     fn path_validation_display() {
         let err = MemoryError::PathValidation("relative path".into());
         let msg = err.to_string();
-        assert!(
-            msg.contains("relative path"),
-            "should contain reason: {msg}"
-        );
-        assert!(
-            msg.contains("validation"),
-            "should mention validation: {msg}"
-        );
+        assert!(msg.contains("relative path"), "should contain reason: {msg}");
+        assert!(msg.contains("validation"), "should mention validation: {msg}");
     }
 
     #[test]
@@ -65,9 +56,6 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(msg.contains("/tmp/test.md"), "should contain path: {msg}");
-        assert!(
-            msg.contains("frontmatter"),
-            "should mention frontmatter: {msg}"
-        );
+        assert!(msg.contains("frontmatter"), "should mention frontmatter: {msg}");
     }
 }

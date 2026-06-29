@@ -11,14 +11,7 @@ fn write_skill(dir: &Path, rel_path: &str, content: &str) {
 
 fn make_loaded_skill(path: PathBuf, name: &str) -> LoadedSkill {
     let fm = FrontmatterData::default();
-    let metadata = crate::frontmatter::parse_skill_fields(
-        &fm,
-        "",
-        name,
-        SkillSource::User,
-        LoadedFrom::Skills,
-        None,
-    );
+    let metadata = crate::frontmatter::parse_skill_fields(&fm, "", name, SkillSource::User, LoadedFrom::Skills, None);
     LoadedSkill {
         metadata,
         resolved_path: path,
@@ -115,11 +108,7 @@ async fn tc_8_x_full_frontmatter_parsed() {
 #[tokio::test]
 async fn tc_8_x_no_frontmatter_description_from_body() {
     let tmp = TempDir::new().unwrap();
-    write_skill(
-        tmp.path(),
-        "my-skill/SKILL.md",
-        "# My Title\nDoes things.\n",
-    );
+    write_skill(tmp.path(), "my-skill/SKILL.md", "# My Title\nDoes things.\n");
 
     let skills = load_skills_from_dir(tmp.path(), SkillSource::User, LoadedFrom::Skills).await;
     assert_eq!(skills.len(), 1);
@@ -145,11 +134,7 @@ async fn tc_9_2_flat_md_name_without_extension() {
 #[tokio::test]
 async fn tc_9_3_nested_flat_format_namespace() {
     let tmp = TempDir::new().unwrap();
-    write_skill(
-        tmp.path(),
-        "db/migrate.md",
-        "---\ndescription: DB migrate\n---\n",
-    );
+    write_skill(tmp.path(), "db/migrate.md", "---\ndescription: DB migrate\n---\n");
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::User).await;
     assert_eq!(skills.len(), 1);
@@ -177,29 +162,18 @@ async fn tc_9_6_empty_commands_dir() {
 
 #[tokio::test]
 async fn tc_9_7_nonexistent_commands_dir_no_panic() {
-    let skills = load_skills_from_commands_dir(
-        Path::new("/nonexistent/commands/dir/xyz"),
-        SkillSource::User,
-    )
-    .await;
+    let skills = load_skills_from_commands_dir(Path::new("/nonexistent/commands/dir/xyz"), SkillSource::User).await;
     assert!(skills.is_empty());
 }
 
 #[tokio::test]
 async fn tc_9_1_commands_directory_format_loaded_from_deprecated() {
     let tmp = TempDir::new().unwrap();
-    write_skill(
-        tmp.path(),
-        "my-cmd/SKILL.md",
-        "---\ndescription: A command\n---\n",
-    );
+    write_skill(tmp.path(), "my-cmd/SKILL.md", "---\ndescription: A command\n---\n");
 
     let skills = load_skills_from_commands_dir(tmp.path(), SkillSource::Project).await;
     assert_eq!(skills.len(), 1);
-    assert_eq!(
-        skills[0].metadata.loaded_from,
-        LoadedFrom::CommandsDeprecated
-    );
+    assert_eq!(skills[0].metadata.loaded_from, LoadedFrom::CommandsDeprecated);
     assert_eq!(skills[0].metadata.source, SkillSource::Project);
 }
 
@@ -236,22 +210,10 @@ fn tc_10_2_deduplicate_first_occurrence_wins() {
 
     // Two LoadedSkill with the same path but different names (first should win)
     let fm = FrontmatterData::default();
-    let meta_first = crate::frontmatter::parse_skill_fields(
-        &fm,
-        "",
-        "first-name",
-        SkillSource::User,
-        LoadedFrom::Skills,
-        None,
-    );
-    let meta_second = crate::frontmatter::parse_skill_fields(
-        &fm,
-        "",
-        "second-name",
-        SkillSource::User,
-        LoadedFrom::Skills,
-        None,
-    );
+    let meta_first =
+        crate::frontmatter::parse_skill_fields(&fm, "", "first-name", SkillSource::User, LoadedFrom::Skills, None);
+    let meta_second =
+        crate::frontmatter::parse_skill_fields(&fm, "", "second-name", SkillSource::User, LoadedFrom::Skills, None);
 
     let skills = vec![
         LoadedSkill {
@@ -422,7 +384,7 @@ fn tc_wb_deduplicate_by_name_first_wins() {
     };
 
     let skills = vec![
-        make_meta("my-skill", SkillSource::User), // first — should win
+        make_meta("my-skill", SkillSource::User),    // first — should win
         make_meta("my-skill", SkillSource::Project), // second — should be removed
         make_meta("other-skill", SkillSource::User),
     ];
@@ -449,16 +411,8 @@ fn tc_wb_deduplicate_by_name_empty() {
 fn tc_wb_deduplicate_by_name_all_unique() {
     // [白盒] no duplicates — all preserved in order
     let fm = FrontmatterData::default();
-    let make_meta = |name: &str| {
-        crate::frontmatter::parse_skill_fields(
-            &fm,
-            "",
-            name,
-            SkillSource::User,
-            LoadedFrom::Skills,
-            None,
-        )
-    };
+    let make_meta =
+        |name: &str| crate::frontmatter::parse_skill_fields(&fm, "", name, SkillSource::User, LoadedFrom::Skills, None);
 
     let skills = vec![make_meta("a"), make_meta("b"), make_meta("c")];
     let result = deduplicate_by_name(skills);
@@ -472,24 +426,12 @@ fn tc_wb_deduplicate_by_name_all_unique() {
 fn tc_wb_deduplicate_by_name_case_sensitive() {
     // [白盒] name matching is case-sensitive — "Skill" and "skill" are different
     let fm = FrontmatterData::default();
-    let make_meta = |name: &str| {
-        crate::frontmatter::parse_skill_fields(
-            &fm,
-            "",
-            name,
-            SkillSource::User,
-            LoadedFrom::Skills,
-            None,
-        )
-    };
+    let make_meta =
+        |name: &str| crate::frontmatter::parse_skill_fields(&fm, "", name, SkillSource::User, LoadedFrom::Skills, None);
 
     let skills = vec![make_meta("Skill"), make_meta("skill")];
     let result = deduplicate_by_name(skills);
-    assert_eq!(
-        result.len(),
-        2,
-        "case-sensitive: 'Skill' and 'skill' are distinct"
-    );
+    assert_eq!(result.len(), 2, "case-sensitive: 'Skill' and 'skill' are distinct");
 }
 
 // -----------------------------------------------------------------------
@@ -504,11 +446,7 @@ async fn tc_4_5_mcp_manager_none_returns_no_mcp_skills() {
     fs::create_dir(root.join(".git")).unwrap();
     let skills_dir = root.join(".aionrs").join("skills");
     fs::create_dir_all(&skills_dir).unwrap();
-    write_skill(
-        &skills_dir,
-        "local-skill/SKILL.md",
-        "---\ndescription: local\n---\n",
-    );
+    write_skill(&skills_dir, "local-skill/SKILL.md", "---\ndescription: local\n---\n");
 
     let result = load_all_skills(root, &[], false, None).await;
     let names: Vec<_> = result.iter().map(|s| s.name.as_str()).collect();

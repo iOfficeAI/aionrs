@@ -120,24 +120,17 @@ pub fn validate_memory_path(path: &Path) -> Result<PathBuf> {
 
     // Count only Normal segments (skip Prefix, RootDir) so the threshold is
     // consistent across platforms: Unix `/a` → 1 Normal, Windows `C:\a` → 1 Normal.
-    let depth = path
-        .components()
-        .filter(|c| matches!(c, Component::Normal(_)))
-        .count();
+    let depth = path.components().filter(|c| matches!(c, Component::Normal(_))).count();
     if depth < 2 {
         return Err(MemoryError::PathValidation("path is too short".into()));
     }
 
     if path_str.contains('\0') {
-        return Err(MemoryError::PathValidation(
-            "path contains null byte".into(),
-        ));
+        return Err(MemoryError::PathValidation("path contains null byte".into()));
     }
 
     if contains_traversal(&path_str) {
-        return Err(MemoryError::PathValidation(
-            "path contains traversal (..)".into(),
-        ));
+        return Err(MemoryError::PathValidation("path contains traversal (..)".into()));
     }
 
     Ok(normalize_lexical(path))
@@ -344,10 +337,7 @@ mod tests {
     #[test]
     fn entrypoint_appends_memory_md() {
         let dir = Path::new("/base/memory");
-        assert_eq!(
-            memory_entrypoint(dir),
-            PathBuf::from("/base/memory/MEMORY.md")
-        );
+        assert_eq!(memory_entrypoint(dir), PathBuf::from("/base/memory/MEMORY.md"));
     }
 
     // -- is_memory_path -------------------------------------------------------
@@ -457,10 +447,7 @@ mod tests {
         // SAFETY: #[serial(env)] ensures no concurrent env mutation.
         unsafe { std::env::set_var(key, "/base") };
         let dir = auto_memory_dir(Path::new("/home/user/project")).unwrap();
-        assert_eq!(
-            dir,
-            PathBuf::from("/base/projects/-home-user-project/memory")
-        );
+        assert_eq!(dir, PathBuf::from("/base/projects/-home-user-project/memory"));
 
         restore_env(key, original);
     }

@@ -175,10 +175,7 @@ fn tc_3_4_08_plan_file_path_format() {
 #[test]
 fn tc_3_4_09_no_bb_brand_in_instructions() {
     let text = plan_mode_instructions();
-    assert!(
-        !text.contains("Claude"),
-        "instructions should not contain Claude brand"
-    );
+    assert!(!text.contains("Claude"), "instructions should not contain Claude brand");
     assert!(
         !text.contains("claude"),
         "instructions should not contain lowercase claude"
@@ -199,7 +196,8 @@ fn write_then_read_roundtrip() {
     let dir = tmp.path().join("plans");
     let path = plan_file_path(&dir, "test-session");
 
-    let content = "# Implementation Plan\n\n## Context\nRefactor auth module\n\n## Files\n- src/auth.rs\n- src/middleware.rs";
+    let content =
+        "# Implementation Plan\n\n## Context\nRefactor auth module\n\n## Files\n- src/auth.rs\n- src/middleware.rs";
     write_plan(&path, content).unwrap();
 
     let result = read_plan(&path).unwrap();
@@ -229,9 +227,7 @@ fn plan_instructions_appear_after_memory_before_skills() {
         false,
     );
 
-    let memory_pos = result
-        .find("auto memory")
-        .expect("memory section should be present");
+    let memory_pos = result.find("auto memory").expect("memory section should be present");
     let plan_pos = result
         .find("# Plan Mode")
         .expect("plan mode instructions should be present");

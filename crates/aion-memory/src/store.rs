@@ -118,16 +118,9 @@ pub fn format_memory_manifest(headers: &[MemoryHeader]) -> String {
     let mut lines = Vec::with_capacity(headers.len());
 
     for h in headers {
-        let type_tag = h
-            .memory_type
-            .map(|t| format!("[{}] ", t))
-            .unwrap_or_default();
+        let type_tag = h.memory_type.map(|t| format!("[{}] ", t)).unwrap_or_default();
         let ts = h.mtime.format("%Y-%m-%dT%H:%M:%S").to_string();
-        let desc = h
-            .description
-            .as_deref()
-            .map(|d| format!(": {d}"))
-            .unwrap_or_default();
+        let desc = h.description.as_deref().map(|d| format!(": {d}")).unwrap_or_default();
 
         lines.push(format!("- {type_tag}{} ({ts}){desc}", h.filename));
     }
@@ -200,10 +193,7 @@ fn parse_frontmatter(raw: &str, path: Option<&Path>) -> (MemoryFrontmatter, Stri
 
     let yaml_str = &after_newline[..close_pos];
     let body_start = search_offset + FRONTMATTER_DELIM.len();
-    let body = after_newline
-        .get(body_start..)
-        .unwrap_or("")
-        .trim_start_matches('\n');
+    let body = after_newline.get(body_start..).unwrap_or("").trim_start_matches('\n');
 
     // Parse YAML
     let frontmatter = match serde_yaml::from_str::<MemoryFrontmatter>(yaml_str) {
@@ -229,10 +219,7 @@ fn serialize_entry(entry: &MemoryEntry) -> String {
     // serde_yaml adds a trailing newline; trim it for consistent formatting
     let yaml = yaml.trim_end();
 
-    format!(
-        "{FRONTMATTER_DELIM}\n{yaml}\n{FRONTMATTER_DELIM}\n\n{}",
-        entry.content
-    )
+    format!("{FRONTMATTER_DELIM}\n{yaml}\n{FRONTMATTER_DELIM}\n\n{}", entry.content)
 }
 
 // ---------------------------------------------------------------------------
@@ -612,10 +599,7 @@ mod tests {
             memory_type: Some(MemoryType::User),
         }];
         let manifest = format_memory_manifest(&headers);
-        assert_eq!(
-            manifest,
-            "- [user] user_role.md (2026-04-10T12:00:00): User role info"
-        );
+        assert_eq!(manifest, "- [user] user_role.md (2026-04-10T12:00:00): User role info");
     }
 
     #[test]
@@ -649,14 +633,8 @@ mod tests {
 
         let read_back = read_memory(&path).unwrap();
         assert_eq!(read_back.frontmatter.name, entry.frontmatter.name);
-        assert_eq!(
-            read_back.frontmatter.description,
-            entry.frontmatter.description
-        );
-        assert_eq!(
-            read_back.frontmatter.memory_type,
-            entry.frontmatter.memory_type
-        );
+        assert_eq!(read_back.frontmatter.description, entry.frontmatter.description);
+        assert_eq!(read_back.frontmatter.memory_type, entry.frontmatter.memory_type);
         assert_eq!(read_back.content, entry.content);
     }
 

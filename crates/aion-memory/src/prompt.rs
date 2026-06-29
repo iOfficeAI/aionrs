@@ -455,14 +455,8 @@ mod tests {
     fn instructions_no_bb_brand() {
         let lines = build_memory_instructions(Path::new("/test/memory"));
         let joined = lines.join("\n");
-        assert!(
-            !joined.contains("~/.claude"),
-            "should not reference bb config path"
-        );
-        assert!(
-            !joined.contains("CLAUDE.md"),
-            "should not reference bb config file"
-        );
+        assert!(!joined.contains("~/.claude"), "should not reference bb config path");
+        assert!(!joined.contains("CLAUDE.md"), "should not reference bb config file");
     }
 
     // -- memory_type_descriptions --------------------------------------------
@@ -489,11 +483,7 @@ mod tests {
         let mem_dir = tmp.path().join("memory");
         std::fs::create_dir_all(&mem_dir).unwrap();
         let index_path = mem_dir.join(ENTRYPOINT_NAME);
-        std::fs::write(
-            &index_path,
-            "- [Role](user_role.md) \u{2014} user role info\n",
-        )
-        .unwrap();
+        std::fs::write(&index_path, "- [Role](user_role.md) \u{2014} user role info\n").unwrap();
 
         let result = build_memory_prompt(&mem_dir);
         assert!(result.contains("user_role.md"));
@@ -566,10 +556,7 @@ mod tests {
     #[test]
     fn minimal_prompt_contains_compact_rules() {
         let result = build_memory_prompt_minimal(Path::new("/test/memory"));
-        assert!(
-            result.contains("Memory types:"),
-            "should list memory types compactly"
-        );
+        assert!(result.contains("Memory types:"), "should list memory types compactly");
         assert!(
             result.contains("MEMORY.md is the index"),
             "should mention MEMORY.md role"
@@ -676,10 +663,7 @@ mod tests {
                 !text.contains("~/.config/aionrs"),
                 "should not hardcode platform-specific path"
             );
-            assert!(
-                !text.contains("~/.claude"),
-                "should not contain bb brand path"
-            );
+            assert!(!text.contains("~/.claude"), "should not contain bb brand path");
         }
     }
 }

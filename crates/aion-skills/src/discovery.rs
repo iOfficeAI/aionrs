@@ -53,11 +53,7 @@ impl RuntimeDiscovery {
     /// skills closer to the file take precedence when names conflict.
     ///
     /// Aligns with TypeScript `discoverSkillDirsForPaths` L861-915.
-    pub async fn discover_dirs_for_paths(
-        &mut self,
-        file_paths: &[&str],
-        cwd: &str,
-    ) -> Vec<PathBuf> {
+    pub async fn discover_dirs_for_paths(&mut self, file_paths: &[&str], cwd: &str) -> Vec<PathBuf> {
         // Normalise cwd: strip trailing separator to avoid prefix-match false positives
         let resolved_cwd = cwd.trim_end_matches(std::path::MAIN_SEPARATOR);
         let cwd_with_sep = format!("{}{}", resolved_cwd, std::path::MAIN_SEPARATOR);

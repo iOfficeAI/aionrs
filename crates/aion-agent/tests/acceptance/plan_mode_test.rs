@@ -83,10 +83,7 @@ fn tc_a3_01_plan_mode_tool_filtering() {
     registry.register(Box::new(CategoryMockTool::new("Write", ToolCategory::Edit)));
 
     // Exec category tool
-    registry.register(Box::new(CategoryMockTool::new(
-        "ExecCommand",
-        ToolCategory::Exec,
-    )));
+    registry.register(Box::new(CategoryMockTool::new("ExecCommand", ToolCategory::Exec)));
 
     // --- Normal mode: all tools except ExitPlanMode ---
     let normal_defs = registry.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode");
@@ -96,14 +93,8 @@ fn tc_a3_01_plan_mode_tool_filtering() {
         !normal_names.contains(&"ExitPlanMode"),
         "ExitPlanMode should be excluded in normal mode"
     );
-    assert!(
-        normal_names.contains(&"Read"),
-        "Read should be present in normal mode"
-    );
-    assert!(
-        normal_names.contains(&"Grep"),
-        "Grep should be present in normal mode"
-    );
+    assert!(normal_names.contains(&"Read"), "Read should be present in normal mode");
+    assert!(normal_names.contains(&"Grep"), "Grep should be present in normal mode");
     assert!(
         normal_names.contains(&"Write"),
         "Write should be present in normal mode"
@@ -118,9 +109,8 @@ fn tc_a3_01_plan_mode_tool_filtering() {
     );
 
     // --- Plan mode: only Info tools, excluding EnterPlanMode ---
-    let plan_defs = registry.to_tool_defs_filtered(|t| {
-        t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
-    });
+    let plan_defs =
+        registry.to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode");
     let plan_names: Vec<&str> = plan_defs.iter().map(|d| d.name.as_str()).collect();
 
     // Info tools should be present

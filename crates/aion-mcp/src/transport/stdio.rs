@@ -19,11 +19,7 @@ pub struct StdioTransport {
 
 impl StdioTransport {
     /// Spawn a child process and return the transport
-    pub async fn spawn(
-        command: &str,
-        args: &[String],
-        env: &HashMap<String, String>,
-    ) -> Result<Self, McpError> {
+    pub async fn spawn(command: &str, args: &[String], env: &HashMap<String, String>) -> Result<Self, McpError> {
         let mut cmd = tokio::process::Command::new(command);
         cmd.kill_on_drop(true)
             .args(args)
@@ -60,8 +56,8 @@ impl StdioTransport {
 
     /// Send a JSON-RPC message (request or notification) via stdin
     async fn send(&self, req: &JsonRpcRequest) -> Result<(), McpError> {
-        let json = serde_json::to_string(req)
-            .map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
+        let json =
+            serde_json::to_string(req).map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
 
         let mut stdin = self.stdin.lock().await;
         stdin
@@ -99,10 +95,7 @@ impl StdioTransport {
             let trimmed = line.trim();
             if !trimmed.is_empty() {
                 let response: JsonRpcResponse = serde_json::from_str(trimmed).map_err(|e| {
-                    McpError::Transport(format!(
-                        "Failed to parse JSON-RPC response: {} — raw: {}",
-                        e, trimmed
-                    ))
+                    McpError::Transport(format!("Failed to parse JSON-RPC response: {} — raw: {}", e, trimmed))
                 })?;
                 return Ok(response);
             }

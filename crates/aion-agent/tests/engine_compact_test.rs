@@ -54,10 +54,7 @@ impl CompactMockProvider {
 
 #[async_trait]
 impl LlmProvider for CompactMockProvider {
-    async fn stream(
-        &self,
-        _request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, _request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         *self.call_count.lock().unwrap() += 1;
         let events = self.turns.lock().unwrap().pop_front().unwrap_or_else(|| {
             vec![LlmEvent::Done {
@@ -118,13 +115,7 @@ async fn tc_2_6_01_first_turn_no_compaction() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider.clone(),
-        config,
-        registry,
-        output,
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
     let result = engine.run("Hi", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Hello");
@@ -169,27 +160,14 @@ async fn tc_2_6_03_emergency_returns_error() {
     config.compact.emergency_buffer = 3_000;
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "result",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider.clone(),
-        config,
-        registry,
-        output,
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
     let err = engine.run("Do something", "msg-1").await.unwrap_err();
 
     match err {
-        AgentError::ContextTooLong {
-            input_tokens,
-            limit,
-        } => {
+        AgentError::ContextTooLong { input_tokens, limit } => {
             assert_eq!(input_tokens, 198_000);
             assert_eq!(limit, 197_000);
         }
@@ -236,20 +214,10 @@ async fn tc_2_6_04_autocompact_then_continue() {
     config.compact = CompactConfig::default();
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "result",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider.clone(),
-        config,
-        registry,
-        output,
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Start work", "msg-1")
         .await
@@ -286,11 +254,7 @@ async fn tc_2_6_05_session_save_after_compact() {
     let compact_summary = summary_turn("<summary>Session summary</summary>");
     let turn2 = text_turn("After compact", 10_000);
 
-    let provider = Arc::new(CompactMockProvider::new(vec![
-        turn1,
-        compact_summary,
-        turn2,
-    ]));
+    let provider = Arc::new(CompactMockProvider::new(vec![turn1, compact_summary, turn2]));
 
     let mut config = test_config();
     config.compact = CompactConfig::default();
@@ -298,18 +262,11 @@ async fn tc_2_6_05_session_save_after_compact() {
     config.session.directory = dir.path().to_string_lossy().into_owned();
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "result",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
-    engine
-        .init_session("test", "/tmp", None)
-        .expect("init session");
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    engine.init_session("test", "/tmp", None).expect("init session");
 
     engine.run("Start", "msg-1").await.expect("should succeed");
 
@@ -333,10 +290,7 @@ async fn tc_2_6_05_session_save_after_compact() {
             matches!(b, aion_types::message::ContentBlock::Text { text } if text.contains("[Conversation compacted]"))
         })
     });
-    assert!(
-        has_boundary,
-        "session should contain compact boundary marker"
-    );
+    assert!(has_boundary, "session should contain compact boundary marker");
 }
 
 // ── TC-2.6-06: Disabled skips all except emergency ─────────────────────────
@@ -356,13 +310,7 @@ async fn tc_2_6_06_disabled_skips_micro_auto() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider.clone(),
-        config,
-        registry,
-        output,
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider.clone(), config, registry, output, std::env::temp_dir());
     let result = engine.run("Hi", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Normal response");
@@ -389,10 +337,7 @@ async fn tc_2_6_06b_disabled_still_fires_emergency() {
         },
     ];
 
-    let provider = Arc::new(CompactMockProvider::new(vec![
-        turn1,
-        text_turn("unreachable", 0),
-    ]));
+    let provider = Arc::new(CompactMockProvider::new(vec![turn1, text_turn("unreachable", 0)]));
 
     let mut config = test_config();
     config.compact.enabled = false;
@@ -400,15 +345,10 @@ async fn tc_2_6_06b_disabled_still_fires_emergency() {
     config.compact.emergency_buffer = 3_000;
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "result",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let err = engine.run("Go", "msg-1").await.unwrap_err();
 
     assert!(
@@ -445,15 +385,10 @@ async fn tc_2_6_07_input_tokens_tracked() {
 
     let config = test_config();
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "result",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Work", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.turns, 2);
@@ -471,8 +406,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
     // microcompact already cleared old tool results before autocompact
     // was invoked.
 
-    let captured: Arc<Mutex<Option<Vec<aion_types::message::Message>>>> =
-        Arc::new(Mutex::new(None));
+    let captured: Arc<Mutex<Option<Vec<aion_types::message::Message>>>> = Arc::new(Mutex::new(None));
     let capture_ref = captured.clone();
 
     struct OrderProvider {
@@ -482,10 +416,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
 
     #[async_trait]
     impl LlmProvider for OrderProvider {
-        async fn stream(
-            &self,
-            request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
             let is_compact = request.tools.is_empty();
 
             if is_compact {
@@ -585,15 +516,10 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
     config.max_turns = Some(20);
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "tool output data",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "tool output data", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Start", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Done after compact");
@@ -643,10 +569,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
 
     #[async_trait]
     impl LlmProvider for CoopProvider {
-        async fn stream(
-            &self,
-            request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
             let is_compact = request.tools.is_empty();
 
             if is_compact {
@@ -741,15 +664,10 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
     config.max_turns = Some(20);
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "tool output data",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "tool output data", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Work", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "After cooperative compact");
@@ -783,10 +701,7 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
 
     #[async_trait]
     impl LlmProvider for CircuitBreakerProvider {
-        async fn stream(
-            &self,
-            request: &LlmRequest,
-        ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
             let idx = {
                 let mut i = self.call_index.lock().unwrap();
                 let v = *i;
@@ -864,15 +779,10 @@ async fn tc_2_6_e2e_03_circuit_breaker_stops_retries() {
     config.max_turns = Some(10);
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(common::MockTool::new(
-        "mock_tool",
-        "result",
-        false,
-    )));
+    registry.register(Box::new(common::MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Work", "msg-1").await.expect("should succeed");
 
     assert_eq!(result.text, "Final");

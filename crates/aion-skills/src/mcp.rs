@@ -163,10 +163,7 @@ mod tests {
     }
 
     fn make_list_response(uris: Vec<&str>) -> serde_json::Value {
-        let resources: Vec<_> = uris
-            .into_iter()
-            .map(|u| serde_json::json!({"uri": u}))
-            .collect();
+        let resources: Vec<_> = uris.into_iter().map(|u| serde_json::json!({"uri": u})).collect();
         serde_json::json!({"resources": resources})
     }
 
@@ -183,19 +180,13 @@ mod tests {
     #[test]
     fn tc_wb_uri_simple() {
         // [白盒] skill://my-skill → server:my-skill
-        assert_eq!(
-            uri_to_skill_name("my-server", "skill://my-skill"),
-            "my-server:my-skill"
-        );
+        assert_eq!(uri_to_skill_name("my-server", "skill://my-skill"), "my-server:my-skill");
     }
 
     #[test]
     fn tc_wb_uri_nested_one_slash() {
         // [白盒] TC-3.4: skill://db/migrate → server:db:migrate
-        assert_eq!(
-            uri_to_skill_name("demo", "skill://db/migrate"),
-            "demo:db:migrate"
-        );
+        assert_eq!(uri_to_skill_name("demo", "skill://db/migrate"), "demo:db:migrate");
     }
 
     #[test]
@@ -209,10 +200,7 @@ mod tests {
         // [白盒] strip_prefix returns uri unchanged when prefix not present;
         // then replace('/', ':') is applied to the entire uri including "://"
         // so "tool://something" → "tool:::something" after replace
-        assert_eq!(
-            uri_to_skill_name("srv", "tool://something"),
-            "srv:tool:::something"
-        );
+        assert_eq!(uri_to_skill_name("srv", "tool://something"), "srv:tool:::something");
     }
 
     #[test]
@@ -249,8 +237,7 @@ mod tests {
     #[tokio::test]
     async fn tc_3_2_uri_filter_skips_non_skill_uris() {
         // [黑盒] TC-3.2: only skill:// URIs processed — tool:// and file:// are skipped
-        let list_resp =
-            make_list_response(vec!["skill://valid-skill", "tool://other", "file://doc.md"]);
+        let list_resp = make_list_response(vec!["skill://valid-skill", "tool://other", "file://doc.md"]);
         let read_resp = make_read_response("---\ndescription: Valid\n---\n");
 
         let manager = McpManager::new_for_test(vec![(
@@ -319,9 +306,8 @@ mod tests {
     async fn tc_3_8_frontmatter_parsed() {
         // [黑盒] TC-3.8: frontmatter fields properly parsed from MCP skill content
         let list_resp = make_list_response(vec!["skill://test-skill"]);
-        let read_resp = make_read_response(
-            "---\ndescription: Test skill description\nallowed-tools: ExecCommand\n---\n# Test\n",
-        );
+        let read_resp =
+            make_read_response("---\ndescription: Test skill description\nallowed-tools: ExecCommand\n---\n# Test\n");
 
         let manager = McpManager::new_for_test(vec![(
             "srv",
@@ -408,11 +394,7 @@ mod tests {
 
         let results = load_mcp_skills(&manager).await;
         // At least one skill from server-ok; server-fail's error is ignored
-        assert!(
-            results
-                .iter()
-                .any(|r| r.metadata.name == "server-ok:ok-skill")
-        );
+        assert!(results.iter().any(|r| r.metadata.name == "server-ok:ok-skill"));
     }
 
     #[tokio::test]
@@ -438,11 +420,7 @@ mod tests {
         let read_b2 = make_read_response("---\ndescription: Z\n---\n");
 
         let manager = McpManager::new_for_test(vec![
-            (
-                "server-a",
-                true,
-                Box::new(MockTransport::new(vec![list_a, read_a])),
-            ),
+            ("server-a", true, Box::new(MockTransport::new(vec![list_a, read_a]))),
             (
                 "server-b",
                 true,

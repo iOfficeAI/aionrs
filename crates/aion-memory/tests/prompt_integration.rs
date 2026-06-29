@@ -6,9 +6,7 @@
 use std::fs;
 use std::path::Path;
 
-use aion_memory::prompt::{
-    build_memory_instructions, build_memory_prompt, memory_type_descriptions,
-};
+use aion_memory::prompt::{build_memory_instructions, build_memory_prompt, memory_type_descriptions};
 
 // ---------------------------------------------------------------------------
 // TC-6.1: Complete prompt contains all required sections
@@ -55,10 +53,7 @@ fn tc_6_1_prompt_contains_all_required_parts() {
     );
 
     // MEMORY.md content or empty-state message
-    assert!(
-        prompt.contains("MEMORY.md"),
-        "should reference MEMORY.md entrypoint"
-    );
+    assert!(prompt.contains("MEMORY.md"), "should reference MEMORY.md entrypoint");
 }
 
 // ---------------------------------------------------------------------------
@@ -167,11 +162,7 @@ fn tc_6_5_no_bb_brand_in_prompt() {
     let tmp = tempfile::tempdir().unwrap();
     let mem_dir = tmp.path().join("memory");
     fs::create_dir_all(&mem_dir).unwrap();
-    fs::write(
-        mem_dir.join("MEMORY.md"),
-        "- [Test](test.md) \u{2014} entry\n",
-    )
-    .unwrap();
+    fs::write(mem_dir.join("MEMORY.md"), "- [Test](test.md) \u{2014} entry\n").unwrap();
 
     let prompt = build_memory_prompt(&mem_dir);
 
@@ -179,10 +170,7 @@ fn tc_6_5_no_bb_brand_in_prompt() {
         !prompt.contains("~/.claude"),
         "prompt must not contain bb brand path ~/.claude"
     );
-    assert!(
-        !prompt.contains("CLAUDE.md"),
-        "prompt must not reference CLAUDE.md"
-    );
+    assert!(!prompt.contains("CLAUDE.md"), "prompt must not reference CLAUDE.md");
     // Allow "claude" in lowercase only in non-brand contexts (e.g. general English).
     // The key check is no bb-specific identifiers.
 }
@@ -311,14 +299,8 @@ fn prompt_sections_appear_in_correct_order() {
         ("## What NOT to save", prompt.find("## What NOT to save")),
         ("## How to save", prompt.find("## How to save")),
         ("## When to access", prompt.find("## When to access")),
-        (
-            "## Before recommending",
-            prompt.find("## Before recommending"),
-        ),
-        (
-            "## Memory and other forms",
-            prompt.find("## Memory and other forms"),
-        ),
+        ("## Before recommending", prompt.find("## Before recommending")),
+        ("## Memory and other forms", prompt.find("## Memory and other forms")),
         ("## MEMORY.md", prompt.find("## MEMORY.md")),
     ];
 

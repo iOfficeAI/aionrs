@@ -164,10 +164,7 @@ impl VcrLayer {
     /// Save the cassette to disk (only in record mode)
     pub fn save(&self) -> anyhow::Result<()> {
         if let VcrMode::Record(path) = &self.mode {
-            let cassette = self
-                .cassette
-                .lock()
-                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let cassette = self.cassette.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
             if cassette.interactions.is_empty() {
                 return Ok(()); // nothing to save

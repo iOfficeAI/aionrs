@@ -25,16 +25,9 @@ pub struct CacheStats {
 /// Diagnostic result after comparing two consecutive turns.
 #[derive(Debug, Clone)]
 pub enum CacheDiagnostic {
-    Healthy {
-        hit_rate: f64,
-    },
-    PartialMiss {
-        hit_rate: f64,
-        cause: CacheBreakCause,
-    },
-    FullMiss {
-        cause: CacheBreakCause,
-    },
+    Healthy { hit_rate: f64 },
+    PartialMiss { hit_rate: f64, cause: CacheBreakCause },
+    FullMiss { cause: CacheBreakCause },
 }
 
 /// What caused a cache break.

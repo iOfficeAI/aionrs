@@ -37,7 +37,7 @@ pub async fn execute_tool_calls(
     tool_calls: &[ContentBlock],
     confirmer: &Arc<Mutex<ToolConfirmer>>,
     mut hooks: Option<&mut HookEngine>,
-    compaction_level: aion_compact::CompactionLevel,
+    compaction_level: aion_compact::CompactLevel,
     toon_enabled: bool,
 ) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
@@ -62,9 +62,7 @@ pub async fn execute_tool_calls(
             let hooks_shared: Option<&HookEngine> = hooks.as_deref();
             let futures: Vec<_> = approved
                 .iter()
-                .map(|call| {
-                    execute_single(registry, call, hooks_shared, compaction_level, toon_enabled)
-                })
+                .map(|call| execute_single(registry, call, hooks_shared, compaction_level, toon_enabled))
                 .collect();
             let batch_results = futures::future::join_all(futures).await;
             for (block, modifier) in batch_results {
@@ -84,14 +82,8 @@ pub async fn execute_tool_calls(
                         let modifier;
                         {
                             let hooks_shared: Option<&HookEngine> = hooks.as_deref();
-                            (block, modifier) = execute_single(
-                                registry,
-                                call,
-                                hooks_shared,
-                                compaction_level,
-                                toon_enabled,
-                            )
-                            .await;
+                            (block, modifier) =
+                                execute_single(registry, call, hooks_shared, compaction_level, toon_enabled).await;
                         }
                         // Merge skill hooks after a successful sequential execution.
                         if !block_is_error(&block) {
@@ -119,10 +111,7 @@ fn confirm_call(
     confirmer: &Arc<Mutex<ToolConfirmer>>,
     call: &ContentBlock,
 ) -> Result<Option<ContentBlock>, ExecutionControl> {
-    let ContentBlock::ToolUse {
-        id, name, input, ..
-    } = call
-    else {
+    let ContentBlock::ToolUse { id, name, input, .. } = call else {
         return Ok(None);
     };
 
@@ -147,13 +136,10 @@ async fn execute_single(
     registry: &ToolRegistry,
     call: &ContentBlock,
     hooks: Option<&HookEngine>,
-    compaction_level: aion_compact::CompactionLevel,
+    compaction_level: aion_compact::CompactLevel,
     toon_enabled: bool,
 ) -> (ContentBlock, Option<ContextModifier>) {
-    let ContentBlock::ToolUse {
-        id, name, input, ..
-    } = call
-    else {
+    let ContentBlock::ToolUse { id, name, input, .. } = call else {
         unreachable!("execute_single called with non-ToolUse block")
     };
 
@@ -214,9 +200,7 @@ async fn execute_single(
 
     // Run post-tool-use hooks
     if let Some(hook_engine) = hooks {
-        let messages = hook_engine
-            .run_post_tool_use(name, input, &result.content)
-            .await;
+        let messages = hook_engine.run_post_tool_use(name, input, &result.content).await;
         for msg in messages {
             tracing::info!(target: "aion_agent", hook_message = %msg, "post-tool-use hook output");
         }
@@ -246,17 +230,14 @@ pub async fn execute_tool_calls_with_approval(
     auto_approve: bool,
     allow_list: &[String],
     mut hooks: Option<&mut HookEngine>,
-    compaction_level: aion_compact::CompactionLevel,
+    compaction_level: aion_compact::CompactLevel,
     toon_enabled: bool,
 ) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
     let mut modifiers = Vec::new();
 
     for call in tool_calls {
-        let ContentBlock::ToolUse {
-            id, name, input, ..
-        } = call
-        else {
+        let ContentBlock::ToolUse { id, name, input, .. } = call else {
             continue;
         };
 
@@ -318,15 +299,11 @@ pub async fn execute_tool_calls_with_approval(
         let modifier;
         {
             let hooks_shared: Option<&HookEngine> = hooks.as_deref();
-            (result, modifier) =
-                execute_single(registry, call, hooks_shared, compaction_level, toon_enabled).await;
+            (result, modifier) = execute_single(registry, call, hooks_shared, compaction_level, toon_enabled).await;
         }
 
         // Emit tool_result event
-        if let ContentBlock::ToolResult {
-            content, is_error, ..
-        } = &result
-        {
+        if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             let status = if *is_error {
                 ToolStatus::Error
             } else {
@@ -373,11 +350,7 @@ fn merge_skill_hooks_into(engine: &mut HookEngine, registry: &ToolRegistry, call
     }
 }
 
-fn maybe_merge_skill_hooks(
-    registry: &ToolRegistry,
-    call: &ContentBlock,
-    hooks: Option<&mut HookEngine>,
-) {
+fn maybe_merge_skill_hooks(registry: &ToolRegistry, call: &ContentBlock, hooks: Option<&mut HookEngine>) {
     if let Some(engine) = hooks {
         merge_skill_hooks_into(engine, registry, call);
     }
@@ -393,11 +366,7 @@ fn block_is_error(block: &ContentBlock) -> bool {
 /// If required fields are all present (or the schema has none), the original
 /// error is returned unchanged — the failure is a runtime issue, not a
 /// missing-schema problem.
-fn maybe_append_deferred_hint(
-    original_error: &str,
-    schema: serde_json::Value,
-    input: &serde_json::Value,
-) -> String {
+fn maybe_append_deferred_hint(original_error: &str, schema: serde_json::Value, input: &serde_json::Value) -> String {
     let missing: Vec<&str> = schema["required"]
         .as_array()
         .map(|arr| {
@@ -430,12 +399,7 @@ fn truncate_result(content: &str, max_chars: usize) -> String {
         .nth(half)
         .map(|(i, _)| i)
         .unwrap_or(content.len());
-    let tail_start = content
-        .char_indices()
-        .rev()
-        .nth(half - 1)
-        .map(|(i, _)| i)
-        .unwrap_or(0);
+    let tail_start = content.char_indices().rev().nth(half - 1).map(|(i, _)| i).unwrap_or(0);
     let head = &content[..head_end];
     let tail = &content[tail_start..];
     format!(
@@ -713,18 +677,8 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let (result, _) = execute_single(
-            &registry,
-            &call,
-            None,
-            aion_compact::CompactionLevel::Off,
-            false,
-        )
-        .await;
-        if let ContentBlock::ToolResult {
-            content, is_error, ..
-        } = &result
-        {
+        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             assert!(is_error);
             assert!(content.contains("Missing or invalid 'tasks' array"));
             assert!(content.contains("ToolSearch"));
@@ -743,18 +697,8 @@ mod tests {
             input: json!({"tasks": "not_an_array"}),
             extra: None,
         };
-        let (result, _) = execute_single(
-            &registry,
-            &call,
-            None,
-            aion_compact::CompactionLevel::Off,
-            false,
-        )
-        .await;
-        if let ContentBlock::ToolResult {
-            content, is_error, ..
-        } = &result
-        {
+        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             // Tool succeeds because input.get("tasks") is Some
             assert!(!is_error);
             assert!(!content.contains("ToolSearch"));
@@ -772,18 +716,8 @@ mod tests {
             input: json!({"tasks": [{"name": "t1", "prompt": "do x"}]}),
             extra: None,
         };
-        let (result, _) = execute_single(
-            &registry,
-            &call,
-            None,
-            aion_compact::CompactionLevel::Off,
-            false,
-        )
-        .await;
-        if let ContentBlock::ToolResult {
-            content, is_error, ..
-        } = &result
-        {
+        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             assert!(!is_error);
             assert_eq!(content, "ok");
         } else {
@@ -800,18 +734,8 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let (result, _) = execute_single(
-            &registry,
-            &call,
-            None,
-            aion_compact::CompactionLevel::Off,
-            false,
-        )
-        .await;
-        if let ContentBlock::ToolResult {
-            content, is_error, ..
-        } = &result
-        {
+        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             assert!(is_error);
             assert!(content.contains("Missing cmd"));
             assert!(!content.contains("ToolSearch"));

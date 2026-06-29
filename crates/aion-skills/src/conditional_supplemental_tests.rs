@@ -193,10 +193,7 @@ mod conditional_supplemental_tests {
             make_conditional_skill("b", vec!["tests/**/*.rs"]),
         ]);
 
-        let mut activated = mgr.activate_for_paths(
-            &["/project/src/lib.rs", "/project/tests/test_main.rs"],
-            "/project",
-        );
+        let mut activated = mgr.activate_for_paths(&["/project/src/lib.rs", "/project/tests/test_main.rs"], "/project");
         activated.sort();
         assert_eq!(activated, vec!["a", "b"]);
         assert!(mgr.get_activated("a").is_some());
@@ -288,10 +285,7 @@ mod conditional_supplemental_tests {
     #[test]
     fn tc18_glob_src_double_star_ts() {
         let mut mgr = ConditionalSkillManager::new();
-        mgr.partition_skills(vec![make_conditional_skill(
-            "ts-skill",
-            vec!["src/**/*.ts"],
-        )]);
+        mgr.partition_skills(vec![make_conditional_skill("ts-skill", vec!["src/**/*.ts"])]);
 
         let activated = mgr.activate_for_paths(&["/app/src/components/Button.ts"], "/app");
         assert_eq!(activated, vec!["ts-skill"]);

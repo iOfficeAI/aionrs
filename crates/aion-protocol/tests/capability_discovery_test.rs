@@ -22,12 +22,7 @@ fn capabilities_serialize_with_all_fields() {
     assert_eq!(parsed["type"], "ready");
     assert_eq!(parsed["capabilities"]["thinking"], true);
     assert_eq!(parsed["capabilities"]["effort"], false);
-    assert!(
-        parsed["capabilities"]["effort_levels"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
+    assert!(parsed["capabilities"]["effort_levels"].as_array().unwrap().is_empty());
     assert_eq!(parsed["capabilities"]["modes"].as_array().unwrap().len(), 3);
     assert_eq!(parsed["capabilities"]["current_mode"], "default");
 }
@@ -71,13 +66,7 @@ fn capabilities_with_effort_levels_roundtrip() {
     let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
     assert_eq!(parsed["capabilities"]["effort"], true);
-    assert_eq!(
-        parsed["capabilities"]["effort_levels"]
-            .as_array()
-            .unwrap()
-            .len(),
-        3
-    );
+    assert_eq!(parsed["capabilities"]["effort_levels"].as_array().unwrap().len(), 3);
     assert_eq!(parsed["capabilities"]["effort_levels"][0], "low");
     assert_eq!(parsed["capabilities"]["effort_levels"][2], "high");
     assert_eq!(parsed["session_id"], "test-session");

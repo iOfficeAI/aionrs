@@ -63,10 +63,7 @@ fn tc_8_1_complete_memory_lifecycle() {
 
     // 5. Build prompt — should include MEMORY.md content
     let prompt = build_memory_prompt(&mem_dir);
-    assert!(
-        prompt.contains(filename),
-        "prompt should reference the memory file"
-    );
+    assert!(prompt.contains(filename), "prompt should reference the memory file");
     assert!(
         prompt.contains("integration tests must hit real DB"),
         "prompt should contain the index summary"
@@ -75,10 +72,7 @@ fn tc_8_1_complete_memory_lifecycle() {
     // 6. Read back the memory file — verify content integrity
     let read_back = store::read_memory(&written_path).unwrap();
     assert_eq!(read_back.frontmatter.name.as_deref(), Some("test policy"));
-    assert_eq!(
-        read_back.frontmatter.memory_type,
-        Some(MemoryType::Feedback)
-    );
+    assert_eq!(read_back.frontmatter.memory_type, Some(MemoryType::Feedback));
     assert!(read_back.content.contains("testcontainers"));
 
     // 7. Delete the memory file
@@ -87,10 +81,7 @@ fn tc_8_1_complete_memory_lifecycle() {
 
     // 8. Re-scan — should be empty
     let headers_after = store::scan_memory_files(&mem_dir).unwrap();
-    assert!(
-        headers_after.is_empty(),
-        "should find no memory files after deletion"
-    );
+    assert!(headers_after.is_empty(), "should find no memory files after deletion");
 }
 
 // ===========================================================================
@@ -118,10 +109,7 @@ fn tc_8_2_chinese_content_roundtrip() {
     // Read back — Chinese content should be intact
     let read_back = store::read_memory(&path).unwrap();
     assert_eq!(read_back.frontmatter.name.as_deref(), Some("用户角色"));
-    assert_eq!(
-        read_back.frontmatter.description.as_deref(),
-        Some("资深后端工程师")
-    );
+    assert_eq!(read_back.frontmatter.description.as_deref(), Some("资深后端工程师"));
     assert_eq!(read_back.frontmatter.memory_type, Some(MemoryType::User));
     assert!(read_back.content.contains("十年经验"));
     assert!(read_back.content.contains("函数式编程"));
@@ -168,18 +156,9 @@ fn tc_8_3_special_characters_in_name() {
 
     // Filename should be safe (no slashes, colons, etc.)
     let filename = path.file_name().unwrap().to_str().unwrap();
-    assert!(
-        !filename.contains('/'),
-        "filename should not contain slash: {filename}"
-    );
-    assert!(
-        !filename.contains(':'),
-        "filename should not contain colon: {filename}"
-    );
-    assert!(
-        filename.ends_with(".md"),
-        "filename should end with .md: {filename}"
-    );
+    assert!(!filename.contains('/'), "filename should not contain slash: {filename}");
+    assert!(!filename.contains(':'), "filename should not contain colon: {filename}");
+    assert!(filename.ends_with(".md"), "filename should end with .md: {filename}");
 
     // Content should round-trip correctly
     let read_back = store::read_memory(&path).unwrap();
@@ -195,12 +174,7 @@ fn tc_8_3_name_with_only_special_chars() {
     paths::ensure_memory_dir(&mem_dir).unwrap();
 
     // Edge case: name is entirely special characters / non-ASCII
-    let entry = MemoryEntry::build(
-        "🔥💡✨",
-        "emoji only name",
-        MemoryType::Feedback,
-        "Some body",
-    );
+    let entry = MemoryEntry::build("🔥💡✨", "emoji only name", MemoryType::Feedback, "Some body");
 
     let path = store::write_memory(&mem_dir, &entry).unwrap();
     assert!(path.exists());

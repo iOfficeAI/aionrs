@@ -41,10 +41,7 @@ pub enum LlmEvent {
     /// Opaque provider signature for the current thinking block.
     ThinkingSignature(String),
     /// Response complete
-    Done {
-        stop_reason: StopReason,
-        usage: TokenUsage,
-    },
+    Done { stop_reason: StopReason, usage: TokenUsage },
     /// Error from the API
     Error(String),
 }
@@ -57,9 +54,7 @@ mod tests {
 
     #[test]
     fn test_thinking_config_enabled_stores_budget() {
-        let config = ThinkingConfig::Enabled {
-            budget_tokens: 4096,
-        };
+        let config = ThinkingConfig::Enabled { budget_tokens: 4096 };
         match config {
             ThinkingConfig::Enabled { budget_tokens } => assert_eq!(budget_tokens, 4096),
             ThinkingConfig::Disabled => panic!("expected Enabled"),
@@ -105,9 +100,7 @@ mod tests {
             extra: None,
         };
         match &event {
-            LlmEvent::ToolUse {
-                id, name, input, ..
-            } => {
+            LlmEvent::ToolUse { id, name, input, .. } => {
                 assert_eq!(id, "call_1");
                 assert_eq!(name, "bash");
                 assert_eq!(input["cmd"], "ls");

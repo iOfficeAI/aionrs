@@ -59,11 +59,7 @@ async fn tc_5_4_01_read_then_edit() {
     });
     let result = edit_tool.execute(input).await;
 
-    assert!(
-        !result.is_error,
-        "Edit after Read should succeed: {}",
-        result.content
-    );
+    assert!(!result.is_error, "Edit after Read should succeed: {}", result.content);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "goodbye world");
 }
 
@@ -118,10 +114,7 @@ async fn tc_5_4_03_external_modification_detected() {
     });
     let result = edit_tool.execute(input).await;
 
-    assert!(
-        result.is_error,
-        "Edit of externally modified file should fail"
-    );
+    assert!(result.is_error, "Edit of externally modified file should fail");
     assert!(
         result.content.contains("modified externally"),
         "Error should mention external modification: {}",
@@ -275,11 +268,7 @@ async fn tc_5_4_w02_write_then_edit() {
         "new_string": "goodbye"
     });
     let er = edit_tool.execute(edit_input).await;
-    assert!(
-        !er.is_error,
-        "Edit after Write should succeed: {}",
-        er.content
-    );
+    assert!(!er.is_error, "Edit after Write should succeed: {}", er.content);
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "goodbye world");
 }
 

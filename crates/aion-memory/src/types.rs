@@ -128,10 +128,7 @@ pub struct MemoryEntry {
 impl MemoryEntry {
     /// Create a new entry with the given frontmatter and body content.
     pub fn new(frontmatter: MemoryFrontmatter, content: String) -> Self {
-        Self {
-            frontmatter,
-            content,
-        }
+        Self { frontmatter, content }
     }
 
     /// Convenience constructor for a fully specified entry.

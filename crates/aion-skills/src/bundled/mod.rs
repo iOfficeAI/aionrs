@@ -80,9 +80,7 @@ pub async fn prepare_bundled_skills() -> Vec<SkillMetadata> {
 
     // Collect (name, files) for skills that have embedded reference files.
     let defs_with_files: Vec<(String, Vec<(&'static str, &'static str)>)> = {
-        let guard = registry()
-            .lock()
-            .expect("bundled skill registry lock poisoned");
+        let guard = registry().lock().expect("bundled skill registry lock poisoned");
         guard
             .iter()
             .filter(|d| !d.files.is_empty())
@@ -119,8 +117,7 @@ pub fn init_bundled_skills() {
 pub fn get_bundled_skill_extract_dir(skill_name: &str) -> PathBuf {
     let pid = std::process::id();
     let tmp = std::env::temp_dir();
-    tmp.join(format!("aionrs-bundled-skills-{pid}"))
-        .join(skill_name)
+    tmp.join(format!("aionrs-bundled-skills-{pid}")).join(skill_name)
 }
 
 /// Extract a bundled skill's reference files to disk.
@@ -135,10 +132,7 @@ pub fn get_bundled_skill_extract_dir(skill_name: &str) -> PathBuf {
 ///
 /// Returns the extraction directory on success, or `None` if extraction fails.
 /// Failure is non-fatal — the skill continues to work without a `skill_root`.
-pub async fn extract_bundled_skill_files(
-    skill_name: &str,
-    files: &[(&str, &str)],
-) -> Option<PathBuf> {
+pub async fn extract_bundled_skill_files(skill_name: &str, files: &[(&str, &str)]) -> Option<PathBuf> {
     if files.is_empty() {
         return None;
     }
@@ -208,9 +202,7 @@ async fn write_skill_files(dir: &std::path::Path, files: &[(&str, &str)]) -> std
         let target = resolve_skill_file_path(dir, rel_path)?;
         let parent = target
             .parent()
-            .ok_or_else(|| {
-                std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent")
-            })?
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has no parent"))?
             .to_owned();
         by_parent.entry(parent).or_default().push((target, content));
     }
@@ -233,10 +225,7 @@ async fn create_dir_secure(dir: &std::path::Path) -> std::io::Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::DirBuilderExt;
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(&dir)
+            std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)
         }
         #[cfg(not(unix))]
         {
@@ -277,10 +266,7 @@ async fn open_secure(path: &std::path::Path) -> std::io::Result<std::fs::File> {
         #[cfg(not(unix))]
         {
             // Windows: 'x' flag (exclusive create) via create_new — no O_NOFOLLOW equivalent.
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)
+            std::fs::OpenOptions::new().write(true).create_new(true).open(&path)
         }
     })
     .await
@@ -317,10 +303,7 @@ fn resolve_skill_file_path(base_dir: &std::path::Path, rel_path: &str) -> std::i
 // ---------------------------------------------------------------------------
 
 fn clear_bundled_skills_inner() {
-    registry()
-        .lock()
-        .expect("bundled skill registry lock poisoned")
-        .clear();
+    registry().lock().expect("bundled skill registry lock poisoned").clear();
 }
 
 /// Clear the bundled skill registry.

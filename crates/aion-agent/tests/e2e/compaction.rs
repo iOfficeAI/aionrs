@@ -5,7 +5,7 @@ use aion_agent::engine::AgentEngine;
 use aion_agent::orchestration::execute_tool_calls;
 use aion_agent::output::OutputSink;
 use aion_agent::output::null_sink::NullSink;
-use aion_compact::CompactionLevel;
+use aion_compact::CompactLevel;
 use aion_config::compat::ProviderCompat;
 use aion_config::config::{Config, ProviderType, SessionConfig, ToolsConfig};
 use aion_config::hooks::HooksConfig;
@@ -17,13 +17,10 @@ use serde_json::json;
 
 const TEST_OUTPUT: &str = "\x1b[32mSTATUS: OK\x1b[0m\n\n\n\n50%\r100%\nCompiling dep-0 v1.0.0\nCompiling dep-1 v1.0.0\nCompiling dep-2 v1.0.0\nCompiling dep-3 v1.0.0\nCompiling dep-4 v1.0.0\n{\n    \"id\": 1,\n    \"name\": \"Alice Wonderland\",\n    \"email\": \"alice@example.com\",\n    \"age\": 30,\n    \"address\": \"123 Main Street, Anytown, USA 12345\",\n    \"phone\": \"+1-555-0123\"\n}";
 
-const TOON_INPUT: &str =
-    r#"[{"id":1,"name":"Alice","role":"admin"},{"id":2,"name":"Bob","role":"user"}]"#;
+const TOON_INPUT: &str = r#"[{"id":1,"name":"Alice","role":"admin"},{"id":2,"name":"Bob","role":"user"}]"#;
 
 fn openai_api_key() -> Option<String> {
-    std::env::var("OPENAI_API_KEY")
-        .ok()
-        .filter(|k| !k.is_empty())
+    std::env::var("OPENAI_API_KEY").ok().filter(|k| !k.is_empty())
 }
 
 fn openai_config(api_key: &str) -> Config {
@@ -37,9 +34,7 @@ fn openai_config(api_key: &str) -> Config {
         max_turns: Some(3),
         max_tool_call_malformed_turns: Some(3),
         max_tool_call_failure_turns: Some(3),
-        system_prompt: Some(
-            "You are a helpful assistant. Be concise. Answer exactly what is asked.".to_string(),
-        ),
+        system_prompt: Some("You are a helpful assistant. Be concise. Answer exactly what is asked.".to_string()),
         thinking: None,
         prompt_caching: false,
         compat: ProviderCompat::openai_defaults(),
@@ -143,62 +138,35 @@ async fn case_9_off_vs_safe_content() {
     }];
 
     // Off
-    let outcome_off = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome_off = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("should succeed");
     let content_off = extract_tool_result_content(&outcome_off).unwrap();
 
     // Safe
-    let outcome_safe = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Safe,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome_safe = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Safe, false)
+        .await
+        .expect("should succeed");
     let content_safe = extract_tool_result_content(&outcome_safe).unwrap();
 
     eprintln!("[e2e:compaction] Off content ({} chars)", content_off.len());
-    eprintln!(
-        "[e2e:compaction] Safe content ({} chars)",
-        content_safe.len()
-    );
+    eprintln!("[e2e:compaction] Safe content ({} chars)", content_safe.len());
 
-    assert!(
-        content_off.contains("\x1b"),
-        "Off should preserve ANSI escapes"
-    );
-    assert!(
-        !content_safe.contains("\x1b"),
-        "Safe should strip ANSI escapes"
-    );
+    assert!(content_off.contains("\x1b"), "Off should preserve ANSI escapes");
+    assert!(!content_safe.contains("\x1b"), "Safe should strip ANSI escapes");
 
     // LLM question (secondary evidence)
     let mut config = openai_config(&api_key);
-    config.compact.compaction = CompactionLevel::Safe;
+    config.compact.compaction = CompactLevel::Safe;
 
     let provider = create_provider(&config);
     let mut registry2 = ToolRegistry::new();
     registry2.register(Box::new(FixedOutputTool::new("check_tool", TEST_OUTPUT)));
     let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry2, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry2, output, std::env::temp_dir());
 
     let prompt = "Call check_tool, then answer: does the tool output contain ANSI color escape codes (sequences starting with \\x1b)? Answer only 'yes' or 'no'.";
-    let result = engine
-        .run(prompt, "")
-        .await
-        .expect("engine.run should succeed");
+    let result = engine.run(prompt, "").await.expect("engine.run should succeed");
 
     eprintln!("[e2e:compaction] LLM question: does Safe output contain ANSI?");
     eprintln!("[e2e:compaction] LLM answer: {}", result.text);
@@ -211,9 +179,7 @@ async fn case_9_off_vs_safe_content() {
     if answer.contains("no") {
         eprintln!("[e2e:compaction] ✓ LLM confirms no ANSI in Safe output");
     } else {
-        eprintln!(
-            "[e2e:compaction] ⚠ LLM answer unexpected (non-deterministic, logged for review)"
-        );
+        eprintln!("[e2e:compaction] ⚠ LLM answer unexpected (non-deterministic, logged for review)");
     }
 
     eprintln!("[e2e:compaction] ✓ PASS (primary: content assertions passed)");
@@ -249,28 +215,20 @@ async fn case_10_off_vs_full_token_savings() {
 
     // Off
     let mut config_off = openai_config(&api_key);
-    config_off.compact.compaction = CompactionLevel::Off;
+    config_off.compact.compaction = CompactLevel::Off;
     let provider_off = create_provider(&config_off);
     let mut registry_off = ToolRegistry::new();
     registry_off.register(Box::new(FixedOutputTool::new("big_tool", &large_output)));
     let output_off: Arc<dyn OutputSink> = Arc::new(NullSink);
-    let mut engine_off = AgentEngine::new_with_provider(
-        provider_off,
-        config_off,
-        registry_off,
-        output_off,
-        std::env::temp_dir(),
-    );
+    let mut engine_off =
+        AgentEngine::new_with_provider(provider_off, config_off, registry_off, output_off, std::env::temp_dir());
 
     let prompt = "Call big_tool, then say 'done'.";
-    let result_off = engine_off
-        .run(prompt, "")
-        .await
-        .expect("engine.run should succeed");
+    let result_off = engine_off.run(prompt, "").await.expect("engine.run should succeed");
 
     // Full
     let mut config_full = openai_config(&api_key);
-    config_full.compact.compaction = CompactionLevel::Full;
+    config_full.compact.compaction = CompactLevel::Full;
     let provider_full = create_provider(&config_full);
     let mut registry_full = ToolRegistry::new();
     registry_full.register(Box::new(FixedOutputTool::new("big_tool", &large_output)));
@@ -283,19 +241,10 @@ async fn case_10_off_vs_full_token_savings() {
         std::env::temp_dir(),
     );
 
-    let result_full = engine_full
-        .run(prompt, "")
-        .await
-        .expect("engine.run should succeed");
+    let result_full = engine_full.run(prompt, "").await.expect("engine.run should succeed");
 
-    eprintln!(
-        "[e2e:compaction] Off  input_tokens: {}",
-        result_off.usage.input_tokens
-    );
-    eprintln!(
-        "[e2e:compaction] Full input_tokens: {}",
-        result_full.usage.input_tokens
-    );
+    eprintln!("[e2e:compaction] Off  input_tokens: {}", result_off.usage.input_tokens);
+    eprintln!("[e2e:compaction] Full input_tokens: {}", result_full.usage.input_tokens);
     eprintln!(
         "[e2e:compaction] Savings: {} tokens ({:.1}%)",
         result_off
@@ -303,8 +252,7 @@ async fn case_10_off_vs_full_token_savings() {
             .input_tokens
             .saturating_sub(result_full.usage.input_tokens),
         if result_off.usage.input_tokens > 0 {
-            (1.0 - result_full.usage.input_tokens as f64 / result_off.usage.input_tokens as f64)
-                * 100.0
+            (1.0 - result_full.usage.input_tokens as f64 / result_off.usage.input_tokens as f64) * 100.0
         } else {
             0.0
         }
@@ -344,16 +292,9 @@ async fn case_11_toon_comprehension_and_system_prompt() {
         extra: None,
     }];
 
-    let outcome = execute_tool_calls(
-        &registry_check,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Full,
-        true,
-    )
-    .await
-    .expect("should succeed");
+    let outcome = execute_tool_calls(&registry_check, &tool_calls, &confirmer, None, CompactLevel::Full, true)
+        .await
+        .expect("should succeed");
     let content = extract_tool_result_content(&outcome).unwrap();
 
     eprintln!("[e2e:compaction] TOON-encoded content: {content}");
@@ -364,21 +305,18 @@ async fn case_11_toon_comprehension_and_system_prompt() {
 
     // LLM comprehension test
     let mut config = openai_config(&api_key);
-    config.compact.compaction = CompactionLevel::Full;
+    config.compact.compaction = CompactLevel::Full;
     config.compact.toon = true;
 
     let provider = create_provider(&config);
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(FixedOutputTool::new("data_tool", TOON_INPUT)));
     let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
 
-    let prompt = "Call data_tool, then answer: what is the name of the second record? Answer with just the name, nothing else.";
-    let result = engine
-        .run(prompt, "")
-        .await
-        .expect("engine.run should succeed");
+    let prompt =
+        "Call data_tool, then answer: what is the name of the second record? Answer with just the name, nothing else.";
+    let result = engine.run(prompt, "").await.expect("engine.run should succeed");
 
     eprintln!("[e2e:compaction] LLM question: name of second record?");
     eprintln!("[e2e:compaction] LLM answer: {}", result.text);

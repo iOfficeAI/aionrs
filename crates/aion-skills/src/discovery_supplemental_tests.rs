@@ -69,9 +69,7 @@ mod discovery_supplemental_tests {
         let file_path = module.join("foo.rs");
         fs::write(&file_path, "").unwrap();
 
-        let found = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let found = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
 
         assert_eq!(found.len(), 1);
         assert!(found[0].ends_with(".aionrs/skills"));
@@ -95,9 +93,7 @@ mod discovery_supplemental_tests {
         fs::write(&file_path, "").unwrap();
 
         // file parent IS cwd — no subdirectory to walk
-        let found = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let found = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
 
         assert!(found.is_empty());
     }
@@ -122,15 +118,11 @@ mod discovery_supplemental_tests {
         let mut mgr = RuntimeDiscovery::new();
 
         // First call discovers the dir
-        let first = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let first = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
         assert_eq!(first.len(), 1);
 
         // Second call: already in checked_dirs → returns empty
-        let second = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let second = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
         assert!(second.is_empty());
     }
 
@@ -153,15 +145,11 @@ mod discovery_supplemental_tests {
 
         let mut mgr = RuntimeDiscovery::new();
 
-        let first = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let first = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
         assert!(first.is_empty());
 
         // Second call: the miss is cached — still empty, no crash
-        let second = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let second = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
         assert!(second.is_empty());
     }
 
@@ -199,9 +187,7 @@ mod discovery_supplemental_tests {
         fs::write(&file_path, "").unwrap();
 
         let mut mgr = RuntimeDiscovery::new();
-        let found = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let found = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
 
         assert!(found.is_empty(), "gitignored dir should be skipped");
     }
@@ -221,9 +207,7 @@ mod discovery_supplemental_tests {
         fs::write(&file_path, "").unwrap();
 
         let mut mgr = RuntimeDiscovery::new();
-        let found = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let found = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
 
         // fail-open: non-git dir → dir is NOT filtered
         assert_eq!(found.len(), 1);
@@ -249,9 +233,7 @@ mod discovery_supplemental_tests {
         fs::write(&file_path, "").unwrap();
 
         let mut mgr = RuntimeDiscovery::new();
-        let found = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let found = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
 
         assert_eq!(found.len(), 2);
         // Deepest path has more components
@@ -355,8 +337,7 @@ mod discovery_supplemental_tests {
 
         let mut mgr = RuntimeDiscovery::new();
         // Pass deepest first (as discover_dirs_for_paths would return)
-        mgr.add_skill_directories(&[deep_skills, shallow_skills])
-            .await;
+        mgr.add_skill_directories(&[deep_skills, shallow_skills]).await;
 
         let skills = mgr.get_dynamic_skills();
         assert_eq!(skills.len(), 1);
@@ -453,18 +434,14 @@ mod discovery_supplemental_tests {
 
         let mut mgr = RuntimeDiscovery::new();
         // First discover — populates checked_dirs
-        let first = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let first = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
         assert_eq!(first.len(), 1);
 
         mgr.clear_dynamic_skills();
         assert!(mgr.get_dynamic_skills().is_empty());
 
         // Second discover — checked_dirs still has the entry → returns empty
-        let second = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let second = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
         assert!(second.is_empty());
     }
 
@@ -489,9 +466,7 @@ mod discovery_supplemental_tests {
         fs::write(&file_path, "").unwrap();
 
         let mut mgr = RuntimeDiscovery::new();
-        let found = mgr
-            .discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd)
-            .await;
+        let found = mgr.discover_dirs_for_paths(&[file_path.to_str().unwrap()], &cwd).await;
 
         // Outside cwd — no traversal should produce results within cwd
         assert!(found.is_empty());

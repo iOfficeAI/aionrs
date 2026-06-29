@@ -81,14 +81,8 @@ mod tests {
         let text = plan_mode_instructions();
         assert!(text.contains("Understand"), "should have explore phase");
         assert!(text.contains("Design"), "should have design phase");
-        assert!(
-            text.contains("Write the plan"),
-            "should have plan writing phase"
-        );
-        assert!(
-            text.contains("Submit for review"),
-            "should have submission phase"
-        );
+        assert!(text.contains("Write the plan"), "should have plan writing phase");
+        assert!(text.contains("Submit for review"), "should have submission phase");
     }
 
     #[test]
@@ -108,9 +102,6 @@ mod tests {
     fn instructions_no_bb_brand() {
         let text = plan_mode_instructions();
         assert!(!text.contains("Claude"), "should not contain Claude brand");
-        assert!(
-            !text.contains("~/.claude"),
-            "should not contain bb config path"
-        );
+        assert!(!text.contains("~/.claude"), "should not contain bb config path");
     }
 }

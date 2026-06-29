@@ -32,10 +32,7 @@ pub fn toon_encode_array(value: &serde_json::Value) -> Option<String> {
     for item in arr {
         let obj = item.as_object().unwrap();
         result.push_str("  ");
-        let values: Vec<String> = fields
-            .iter()
-            .map(|f| format_toon_value(obj.get(*f).unwrap()))
-            .collect();
+        let values: Vec<String> = fields.iter().map(|f| format_toon_value(obj.get(*f).unwrap())).collect();
         result.push_str(&values.join(","));
         result.push('\n');
     }
@@ -154,10 +151,7 @@ mod tests {
         let result = toon_encode_array(&value);
         assert!(result.is_some());
         let encoded = result.unwrap();
-        assert!(
-            encoded.contains("[2]{id,name,role}:"),
-            "should have header: {encoded}"
-        );
+        assert!(encoded.contains("[2]{id,name,role}:"), "should have header: {encoded}");
         assert!(encoded.contains("1,Alice,admin"));
         assert!(encoded.contains("2,Bob,user"));
     }

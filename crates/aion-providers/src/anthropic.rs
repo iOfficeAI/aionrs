@@ -34,23 +34,12 @@ impl AnthropicProvider {
 
     pub fn with_cache(mut self, enabled: bool) -> Self {
         self.cache_enabled = enabled;
-        self.inner = Self::build_inner(
-            &self.api_key,
-            &self.base_url,
-            self.cache_enabled,
-            &self.compat,
-        );
+        self.inner = Self::build_inner(&self.api_key, &self.base_url, self.cache_enabled, &self.compat);
         self
     }
 
-    fn build_inner(
-        api_key: &str,
-        base_url: &str,
-        cache_enabled: bool,
-        compat: &ProviderCompat,
-    ) -> ComposedProvider {
-        let transport =
-            ProviderTransport::Anthropic(AnthropicTransport::new(api_key, base_url, cache_enabled));
+    fn build_inner(api_key: &str, base_url: &str, cache_enabled: bool, compat: &ProviderCompat) -> ComposedProvider {
+        let transport = ProviderTransport::Anthropic(AnthropicTransport::new(api_key, base_url, cache_enabled));
         ComposedProvider::new(transport, compat.clone())
     }
 
@@ -62,10 +51,7 @@ impl AnthropicProvider {
 
 #[async_trait]
 impl LlmProvider for AnthropicProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.inner.stream(request).await
     }
 }
@@ -79,19 +65,11 @@ mod tests {
     use serde_json::json;
 
     fn anthropic_golden(cache: bool) -> AnthropicProvider {
-        AnthropicProvider::new(
-            "test-key",
-            "https://example.test",
-            ProviderCompat::anthropic_defaults(),
-        )
-        .with_cache(cache)
+        AnthropicProvider::new("test-key", "https://example.test", ProviderCompat::anthropic_defaults())
+            .with_cache(cache)
     }
 
-    fn areq(
-        messages: Vec<Message>,
-        tools: Vec<ToolDef>,
-        thinking: Option<ThinkingConfig>,
-    ) -> LlmRequest {
+    fn areq(messages: Vec<Message>, tools: Vec<ToolDef>, thinking: Option<ThinkingConfig>) -> LlmRequest {
         LlmRequest {
             model: "test-model".to_string(),
             system: "You are a test assistant.".to_string(),
@@ -146,9 +124,7 @@ mod tests {
         let r = areq(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "go".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "go".to_string() }],
             )],
             atools(),
             None,
@@ -166,9 +142,7 @@ mod tests {
         let r = areq(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "go".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "go".to_string() }],
             )],
             atools(),
             None,
@@ -186,14 +160,10 @@ mod tests {
         let r = areq(
             vec![Message::new(
                 Role::User,
-                vec![ContentBlock::Text {
-                    text: "q".to_string(),
-                }],
+                vec![ContentBlock::Text { text: "q".to_string() }],
             )],
             vec![],
-            Some(ThinkingConfig::Enabled {
-                budget_tokens: 4096,
-            }),
+            Some(ThinkingConfig::Enabled { budget_tokens: 4096 }),
         );
         insta::assert_json_snapshot!(
             "anthropic_with_thinking",

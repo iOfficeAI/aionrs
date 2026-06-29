@@ -123,8 +123,7 @@ impl OAuthManager {
 
         // Step 3: Poll for token
         let interval = std::time::Duration::from_secs(device_resp.interval.max(5));
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_secs(device_resp.expires_in);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(device_resp.expires_in);
 
         loop {
             if std::time::Instant::now() > deadline {

@@ -10,7 +10,7 @@ use aion_agent::engine::AgentEngine;
 use aion_agent::orchestration::execute_tool_calls;
 use aion_agent::output::OutputSink;
 use aion_agent::output::null_sink::NullSink;
-use aion_compact::CompactionLevel;
+use aion_compact::CompactLevel;
 use aion_providers::{LlmProvider, ProviderError};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest};
@@ -20,8 +20,7 @@ use serde_json::json;
 
 const TEST_OUTPUT: &str = "\x1b[32mSTATUS: OK\x1b[0m\n\n\n\n50%\r100%\nCompiling dep-0 v1.0.0\nCompiling dep-1 v1.0.0\nCompiling dep-2 v1.0.0\nCompiling dep-3 v1.0.0\nCompiling dep-4 v1.0.0\n{\n    \"id\": 1,\n    \"name\": \"Alice Wonderland\",\n    \"email\": \"alice@example.com\",\n    \"age\": 30,\n    \"address\": \"123 Main Street, Anytown, USA 12345\",\n    \"phone\": \"+1-555-0123\"\n}";
 
-const TOON_INPUT: &str =
-    r#"[{"id":1,"name":"Alice","role":"admin"},{"id":2,"name":"Bob","role":"user"}]"#;
+const TOON_INPUT: &str = r#"[{"id":1,"name":"Alice","role":"admin"},{"id":2,"name":"Bob","role":"user"}]"#;
 
 fn make_tool_use(id: &str, name: &str) -> ContentBlock {
     ContentBlock::ToolUse {
@@ -53,16 +52,9 @@ async fn case_1_off_passthrough() {
     let tool_calls = vec![make_tool_use("c1", "test_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let outcome = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("should succeed");
 
     let content = extract_tool_result_content(&outcome);
     eprintln!("[compaction:A] === Case 1: Off passthrough ===");
@@ -71,16 +63,9 @@ async fn case_1_off_passthrough() {
         TEST_OUTPUT.len(),
         &TEST_OUTPUT[..60]
     );
-    eprintln!(
-        "[compaction:A] result ({} chars): {:?}",
-        content.len(),
-        &content[..60]
-    );
+    eprintln!("[compaction:A] result ({} chars): {:?}", content.len(), &content[..60]);
 
-    assert_eq!(
-        content, TEST_OUTPUT,
-        "Off level should pass content through unchanged"
-    );
+    assert_eq!(content, TEST_OUTPUT, "Off level should pass content through unchanged");
     eprintln!("[compaction:A] ✓ content unchanged");
 }
 
@@ -92,25 +77,14 @@ async fn case_2_safe_sanitizes() {
     let tool_calls = vec![make_tool_use("c2", "test_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let outcome = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Safe,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Safe, false)
+        .await
+        .expect("should succeed");
 
     let content = extract_tool_result_content(&outcome);
     eprintln!("[compaction:A] === Case 2: Safe sanitizes ===");
     eprintln!("[compaction:A] raw ({} chars)", TEST_OUTPUT.len());
-    eprintln!(
-        "[compaction:A] result ({} chars): {:?}",
-        content.len(),
-        content
-    );
+    eprintln!("[compaction:A] result ({} chars): {:?}", content.len(), content);
 
     assert!(!content.contains("\x1b"), "Safe should strip ANSI escapes");
     assert!(!content.contains("\n\n\n"), "Safe should merge blank lines");
@@ -128,9 +102,7 @@ async fn case_2_safe_sanitizes() {
         "Safe should preserve original JSON indentation"
     );
 
-    eprintln!(
-        "[compaction:A] ✓ ANSI stripped, blanks merged, CR collapsed, repeats & JSON untouched"
-    );
+    eprintln!("[compaction:A] ✓ ANSI stripped, blanks merged, CR collapsed, repeats & JSON untouched");
 }
 
 #[tokio::test]
@@ -141,25 +113,14 @@ async fn case_3_full_folds_and_compacts() {
     let tool_calls = vec![make_tool_use("c3", "test_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let outcome = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Full,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Full, false)
+        .await
+        .expect("should succeed");
 
     let content = extract_tool_result_content(&outcome);
     eprintln!("[compaction:A] === Case 3: Full folds and compacts ===");
     eprintln!("[compaction:A] raw ({} chars)", TEST_OUTPUT.len());
-    eprintln!(
-        "[compaction:A] result ({} chars): {:?}",
-        content.len(),
-        content
-    );
+    eprintln!("[compaction:A] result ({} chars): {:?}", content.len(), content);
 
     assert!(!content.contains("\x1b"), "Full should strip ANSI");
     assert!(
@@ -188,16 +149,9 @@ async fn case_4_toon_encodes_array() {
     let tool_calls = vec![make_tool_use("c4", "test_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let outcome = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Full,
-        true,
-    )
-    .await
-    .expect("should succeed");
+    let outcome = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Full, true)
+        .await
+        .expect("should succeed");
 
     let content = extract_tool_result_content(&outcome);
     eprintln!("[compaction:A] === Case 4: TOON encodes array ===");
@@ -222,16 +176,9 @@ async fn case_5_toon_disabled_no_encoding() {
     let tool_calls = vec![make_tool_use("c5", "test_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let outcome = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Full,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Full, false)
+        .await
+        .expect("should succeed");
 
     let content = extract_tool_result_content(&outcome);
     eprintln!("[compaction:A] === Case 5: TOON disabled ===");
@@ -257,10 +204,7 @@ struct CapturingProvider {
 
 #[async_trait]
 impl LlmProvider for CapturingProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.captured.lock().unwrap().push(request.clone());
         self.inner.stream(request).await
     }
@@ -300,20 +244,14 @@ async fn case_6_compressed_content_reaches_llm() {
     };
 
     let mut config = test_config();
-    config.compact.compaction = CompactionLevel::Full;
+    config.compact.compaction = CompactLevel::Full;
     config.compact.toon = false;
 
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("test_tool", TEST_OUTPUT, false)));
 
     let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-    let mut engine = AgentEngine::new_with_provider(
-        Arc::new(provider),
-        config,
-        registry,
-        output,
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(Arc::new(provider), config, registry, output, std::env::temp_dir());
 
     engine
         .run("call test_tool", "")
@@ -347,10 +285,7 @@ async fn case_6_compressed_content_reaches_llm() {
             }
         }
     }
-    assert!(
-        found_tool_result,
-        "second request should contain a ToolResult"
-    );
+    assert!(found_tool_result, "second request should contain a ToolResult");
 
     eprintln!("[compaction:B] ✓ LLM received compressed content");
 }
@@ -367,28 +302,14 @@ async fn case_7_runtime_compaction_switch() {
     let tool_calls = vec![make_tool_use("c7", "test_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let outcome_off = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome_off = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("should succeed");
     let content_off = extract_tool_result_content(&outcome_off).to_string();
 
-    let outcome_full = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Full,
-        false,
-    )
-    .await
-    .expect("should succeed");
+    let outcome_full = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Full, false)
+        .await
+        .expect("should succeed");
     let content_full = extract_tool_result_content(&outcome_full).to_string();
 
     eprintln!("[compaction:B] === Case 7: Runtime compaction switch ===");
@@ -408,7 +329,7 @@ async fn case_7_runtime_compaction_switch() {
 
     // Verify apply_config_update works on the engine
     let mut config = test_config();
-    config.compact.compaction = CompactionLevel::Off;
+    config.compact.compaction = CompactLevel::Off;
     let registry_engine = ToolRegistry::new();
     let output: Arc<dyn OutputSink> = Arc::new(NullSink);
     let mut engine = AgentEngine::new_with_provider(
@@ -418,11 +339,11 @@ async fn case_7_runtime_compaction_switch() {
         output,
         std::env::temp_dir(),
     );
-    assert_eq!(engine.compaction_level(), CompactionLevel::Off);
+    assert_eq!(engine.compaction_level(), CompactLevel::Off);
 
     let changes = engine.apply_config_update(None, None, None, None, Some("full".to_string()));
     assert!(!changes.is_empty(), "should report changes");
-    assert_eq!(engine.compaction_level(), CompactionLevel::Full);
+    assert_eq!(engine.compaction_level(), CompactLevel::Full);
     eprintln!("[compaction:B] apply_config_update changes: {:?}", changes);
 
     eprintln!("[compaction:B] ✓ runtime switch from Off to Full verified");

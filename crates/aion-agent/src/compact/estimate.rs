@@ -90,18 +90,11 @@ mod tests {
     #[test]
     fn mixed_conversation_accumulates() {
         let messages = vec![
-            Message::new(
-                Role::User,
-                vec![ContentBlock::Text {
-                    text: "a".repeat(400),
-                }],
-            ),
+            Message::new(Role::User, vec![ContentBlock::Text { text: "a".repeat(400) }]),
             Message::new(
                 Role::Assistant,
                 vec![
-                    ContentBlock::Text {
-                        text: "b".repeat(200),
-                    },
+                    ContentBlock::Text { text: "b".repeat(200) },
                     ContentBlock::ToolUse {
                         id: "c1".into(),
                         name: "Read".into(),

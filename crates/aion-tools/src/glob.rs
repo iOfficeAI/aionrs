@@ -110,11 +110,7 @@ impl Tool for GlobTool {
                 .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
             // Make path relative to root
-            let display_path = path
-                .strip_prefix(&root_path)
-                .unwrap_or(&path)
-                .display()
-                .to_string();
+            let display_path = path.strip_prefix(&root_path).unwrap_or(&path).display().to_string();
 
             files.push((mtime, display_path));
         }
@@ -178,20 +174,10 @@ mod tests {
         let lines: Vec<&str> = result.content.lines().collect();
         assert_eq!(lines.len(), 2, "should match exactly 2 .rs files");
         for line in &lines {
-            assert!(
-                line.ends_with(".rs"),
-                "each match should be a .rs file, got: {}",
-                line
-            );
+            assert!(line.ends_with(".rs"), "each match should be a .rs file, got: {}", line);
         }
-        assert!(
-            !result.content.contains("notes.txt"),
-            "should not include .txt files"
-        );
-        assert!(
-            !result.content.contains("readme.md"),
-            "should not include .md files"
-        );
+        assert!(!result.content.contains("notes.txt"), "should not include .txt files");
+        assert!(!result.content.contains("readme.md"), "should not include .md files");
     }
 
     #[tokio::test]
@@ -214,11 +200,7 @@ mod tests {
         let base = dir.path();
 
         for i in 0..5 {
-            fs::write(
-                base.join(format!("file_{}.txt", i)),
-                format!("content {}", i),
-            )
-            .unwrap();
+            fs::write(base.join(format!("file_{}.txt", i)), format!("content {}", i)).unwrap();
         }
 
         let result = run_glob("*.txt", base.to_str().unwrap()).await;
@@ -249,22 +231,10 @@ mod tests {
         assert!(!result.is_error, "recursive glob should succeed");
         let lines: Vec<&str> = result.content.lines().collect();
         assert_eq!(lines.len(), 3, "should find 3 .txt files across all levels");
-        assert!(
-            result.content.contains("root.txt"),
-            "should include root-level file"
-        );
-        assert!(
-            result.content.contains("mid.txt"),
-            "should include mid-level file"
-        );
-        assert!(
-            result.content.contains("deep.txt"),
-            "should include deep-level file"
-        );
-        assert!(
-            !result.content.contains("skip.rs"),
-            "should not include .rs files"
-        );
+        assert!(result.content.contains("root.txt"), "should include root-level file");
+        assert!(result.content.contains("mid.txt"), "should include mid-level file");
+        assert!(result.content.contains("deep.txt"), "should include deep-level file");
+        assert!(!result.content.contains("skip.rs"), "should not include .rs files");
     }
 
     #[tokio::test]

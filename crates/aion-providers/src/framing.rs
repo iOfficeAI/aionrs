@@ -31,11 +31,7 @@ pub(crate) fn bedrock_payload_to_frame(payload: &[u8]) -> Option<Frame> {
     let decoded = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
     let inner = String::from_utf8(decoded).ok()?;
     let inner_json = serde_json::from_str::<Value>(&inner).ok()?;
-    let event_type = inner_json
-        .get("type")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string();
+    let event_type = inner_json.get("type").and_then(Value::as_str).unwrap_or("").to_string();
 
     Some(Frame {
         event: Some(event_type),
@@ -175,11 +171,7 @@ mod tests {
     fn test_sse_block_framer_keeps_partial_block_buffered() {
         let mut framer = SseBlockFramer::default();
 
-        assert!(
-            framer
-                .push_text("event: message_delta\ndata: body")
-                .is_empty()
-        );
+        assert!(framer.push_text("event: message_delta\ndata: body").is_empty());
 
         assert_eq!(
             framer.push_text("\n\n"),
@@ -209,11 +201,7 @@ mod tests {
     fn test_sse_block_framer_does_not_accept_leading_space_fields() {
         let mut framer = SseBlockFramer::default();
 
-        assert!(
-            framer
-                .push_text(" event: ignored\n data: ignored\n\n")
-                .is_empty()
-        );
+        assert!(framer.push_text(" event: ignored\n data: ignored\n\n").is_empty());
     }
 
     #[test]

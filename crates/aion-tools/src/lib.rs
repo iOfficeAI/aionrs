@@ -77,11 +77,7 @@ pub trait Tool: Send + Sync {
 
     /// Human-readable description of what the tool will do with the given input
     fn describe(&self, input: &Value) -> String {
-        format!(
-            "{}: {}",
-            self.name(),
-            serde_json::to_string(input).unwrap_or_default()
-        )
+        format!("{}: {}", self.name(), serde_json::to_string(input).unwrap_or_default())
     }
 }
 

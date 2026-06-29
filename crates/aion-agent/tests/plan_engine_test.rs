@@ -92,39 +92,22 @@ fn tc_3_5_01_plan_mode_only_info_tools_plus_exit() {
     let registry = build_test_registry();
 
     // Plan mode filter: Info category except EnterPlanMode
-    let defs = registry.to_tool_defs_filtered(|t| {
-        t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
-    });
+    let defs = registry.to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode");
 
     let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
 
     // Should include Info tools
-    assert!(
-        names.contains(&"Read"),
-        "Read should be available in plan mode"
-    );
-    assert!(
-        names.contains(&"Grep"),
-        "Grep should be available in plan mode"
-    );
-    assert!(
-        names.contains(&"Glob"),
-        "Glob should be available in plan mode"
-    );
-    assert!(
-        names.contains(&"Skill"),
-        "Skill should be available in plan mode"
-    );
+    assert!(names.contains(&"Read"), "Read should be available in plan mode");
+    assert!(names.contains(&"Grep"), "Grep should be available in plan mode");
+    assert!(names.contains(&"Glob"), "Glob should be available in plan mode");
+    assert!(names.contains(&"Skill"), "Skill should be available in plan mode");
     assert!(
         names.contains(&"ExitPlanMode"),
         "ExitPlanMode should be available in plan mode"
     );
 
     // Should NOT include write/exec/EnterPlanMode
-    assert!(
-        !names.contains(&"Write"),
-        "Write should NOT be in plan mode"
-    );
+    assert!(!names.contains(&"Write"), "Write should NOT be in plan mode");
     assert!(!names.contains(&"Edit"), "Edit should NOT be in plan mode");
     assert!(
         !names.contains(&"ExecCommand"),
@@ -183,21 +166,13 @@ fn tc_3_5_07_to_tool_defs_filtered_mixed_categories() {
     registry.register(mock_tool("ExecCommand", ToolCategory::Exec));
     registry.register(Box::new(ExitPlanModeTool::new(flag)));
 
-    let defs = registry.to_tool_defs_filtered(|t| {
-        t.category() == ToolCategory::Info || t.name() == "ExitPlanMode"
-    });
+    let defs = registry.to_tool_defs_filtered(|t| t.category() == ToolCategory::Info || t.name() == "ExitPlanMode");
 
     let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
     assert!(names.contains(&"Read"), "Info tool should be included");
-    assert!(
-        names.contains(&"ExitPlanMode"),
-        "ExitPlanMode should be included"
-    );
+    assert!(names.contains(&"ExitPlanMode"), "ExitPlanMode should be included");
     assert!(!names.contains(&"Write"), "Edit tool should be excluded");
-    assert!(
-        !names.contains(&"ExecCommand"),
-        "Exec tool should be excluded"
-    );
+    assert!(!names.contains(&"ExecCommand"), "Exec tool should be excluded");
 }
 
 // ---------------------------------------------------------------------------
@@ -221,10 +196,7 @@ fn tc_3_5_08_system_prompt_includes_plan_mode_when_active() {
         active_prompt.contains("MUST NOT"),
         "should contain plan mode restrictions"
     );
-    assert!(
-        active_prompt.contains(base_prompt),
-        "should still contain base prompt"
-    );
+    assert!(active_prompt.contains(base_prompt), "should still contain base prompt");
 }
 
 #[test]
@@ -273,9 +245,7 @@ fn plan_mode_filter_excludes_mcp_tools() {
     registry.register(mock_tool("Read", ToolCategory::Info));
     registry.register(mock_tool("mcp_server_tool", ToolCategory::Mcp));
 
-    let defs = registry.to_tool_defs_filtered(|t| {
-        t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
-    });
+    let defs = registry.to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode");
 
     let names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
     assert!(names.contains(&"Read"));
@@ -301,9 +271,8 @@ fn tool_set_transitions_through_plan_mode_cycle() {
     assert!(!normal_names.contains(&"ExitPlanMode"));
 
     // Enter plan mode: only Info (minus EnterPlanMode)
-    let plan_defs = registry.to_tool_defs_filtered(|t| {
-        t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
-    });
+    let plan_defs =
+        registry.to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode");
     let plan_names: Vec<&str> = plan_defs.iter().map(|d| d.name.as_str()).collect();
     assert!(!plan_names.contains(&"Write"));
     assert!(!plan_names.contains(&"EnterPlanMode"));
@@ -313,8 +282,5 @@ fn tool_set_transitions_through_plan_mode_cycle() {
     // Exit plan mode: back to normal
     let back_to_normal = registry.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode");
     let back_names: Vec<&str> = back_to_normal.iter().map(|d| d.name.as_str()).collect();
-    assert_eq!(
-        normal_names, back_names,
-        "tool set should be identical after exit"
-    );
+    assert_eq!(normal_names, back_names, "tool set should be identical after exit");
 }

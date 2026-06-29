@@ -28,8 +28,7 @@ impl FileStateCache {
     ///
     /// If `max_entries` is 0, defaults to 100.
     pub fn new(config: &FileCacheConfig) -> Self {
-        let cap = NonZeroUsize::new(config.max_entries)
-            .unwrap_or(NonZeroUsize::new(100).expect("100 is non-zero"));
+        let cap = NonZeroUsize::new(config.max_entries).unwrap_or(NonZeroUsize::new(100).expect("100 is non-zero"));
         Self {
             entries: LruCache::new(cap),
             max_size_bytes: config.max_size_bytes,
@@ -65,9 +64,7 @@ impl FileStateCache {
 
         // push() returns evicted (key, value) if entry-count capacity is reached.
         if let Some((_evicted_key, evicted_val)) = self.entries.push(normalized, state) {
-            self.current_size_bytes = self
-                .current_size_bytes
-                .saturating_sub(evicted_val.content_bytes());
+            self.current_size_bytes = self.current_size_bytes.saturating_sub(evicted_val.content_bytes());
         }
         self.current_size_bytes += new_size;
     }
@@ -109,11 +106,7 @@ impl FileStateCache {
 /// Reads the new mtime from disk and stores line-numbered content.
 /// This is the single point for post-write cache updates, eliminating
 /// duplication between EditTool and WriteTool.
-pub fn update_cache_after_write(
-    cache_arc: &Arc<std::sync::RwLock<FileStateCache>>,
-    path: &Path,
-    content: &str,
-) {
+pub fn update_cache_after_write(cache_arc: &Arc<std::sync::RwLock<FileStateCache>>, path: &Path, content: &str) {
     let Ok(mut cache) = cache_arc.write() else {
         return;
     };

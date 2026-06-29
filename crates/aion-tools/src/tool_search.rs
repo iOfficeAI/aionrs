@@ -62,8 +62,7 @@ impl Tool for ToolSearchTool {
             .iter()
             .filter(|d| d.deferred)
             .filter(|d| {
-                d.name.to_lowercase().contains(&query_lower)
-                    || d.description.to_lowercase().contains(&query_lower)
+                d.name.to_lowercase().contains(&query_lower) || d.description.to_lowercase().contains(&query_lower)
             })
             .map(|d| {
                 json!({
@@ -150,10 +149,7 @@ mod tests {
         let tool = ToolSearchTool::new(build_tool_defs());
         let result = tool.execute(json!({"query": "Read"})).await;
         // "Read" is not deferred, should not appear in results
-        assert!(
-            !result.content.contains("\"name\": \"Read\"")
-                || result.content.contains("No deferred tools")
-        );
+        assert!(!result.content.contains("\"name\": \"Read\"") || result.content.contains("No deferred tools"));
     }
 
     #[tokio::test]

@@ -121,10 +121,7 @@ fn tc_4_3_03_parallel_call_guidance() {
         false,
         false,
     );
-    assert!(
-        result.contains("parallel"),
-        "should contain parallel call guidance"
-    );
+    assert!(result.contains("parallel"), "should contain parallel call guidance");
     assert!(
         result.contains("sequentially"),
         "should explain when to run sequentially (dependencies)"
@@ -182,9 +179,7 @@ fn tc_4_3_05_order_after_intro_before_custom() {
     let guidance_pos = result
         .find("# Using your tools")
         .expect("tool guidance section should exist");
-    let custom_pos = result
-        .find("CUSTOM_PROMPT_MARKER")
-        .expect("custom prompt should exist");
+    let custom_pos = result.find("CUSTOM_PROMPT_MARKER").expect("custom prompt should exist");
 
     assert!(
         guidance_pos > intro_pos,
@@ -215,12 +210,8 @@ fn tc_4_3_06_order_before_skills() {
         false,
     );
 
-    let guidance_pos = result
-        .find("# Using your tools")
-        .expect("tool guidance should exist");
-    let skills_pos = result
-        .find("order-test-skill")
-        .expect("skill should be listed");
+    let guidance_pos = result.find("# Using your tools").expect("tool guidance should exist");
+    let skills_pos = result.find("order-test-skill").expect("skill should be listed");
 
     assert!(
         guidance_pos < skills_pos,
@@ -233,11 +224,7 @@ fn tc_4_3_06_order_before_memory() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mem_dir = tmp.path().join("memory");
     fs::create_dir_all(&mem_dir).unwrap();
-    fs::write(
-        mem_dir.join("MEMORY.md"),
-        "- [Note](note.md) \u{2014} some note\n",
-    )
-    .unwrap();
+    fs::write(mem_dir.join("MEMORY.md"), "- [Note](note.md) \u{2014} some note\n").unwrap();
 
     let result = build_system_prompt(
         &mut SystemPromptCache::new(),
@@ -251,12 +238,8 @@ fn tc_4_3_06_order_before_memory() {
         false,
     );
 
-    let guidance_pos = result
-        .find("# Using your tools")
-        .expect("tool guidance should exist");
-    let memory_pos = result
-        .find("auto memory")
-        .expect("memory section should exist");
+    let guidance_pos = result.find("# Using your tools").expect("tool guidance should exist");
+    let memory_pos = result.find("auto memory").expect("memory section should exist");
 
     assert!(
         guidance_pos < memory_pos,
@@ -279,11 +262,7 @@ fn tc_4_3_07_all_sections_coexist() {
     // Create memory
     let mem_dir = tmp.path().join("memory");
     fs::create_dir_all(&mem_dir).unwrap();
-    fs::write(
-        mem_dir.join("MEMORY.md"),
-        "- [Item](item.md) \u{2014} coexist test\n",
-    )
-    .unwrap();
+    fs::write(mem_dir.join("MEMORY.md"), "- [Item](item.md) \u{2014} coexist test\n").unwrap();
 
     let skills = vec![make_skill("coexist-skill", "Coexist test")];
 
@@ -301,26 +280,11 @@ fn tc_4_3_07_all_sections_coexist() {
 
     // All sections should exist
     assert!(result.contains("Working directory"), "intro should exist");
-    assert!(
-        result.contains("# Using your tools"),
-        "tool guidance should exist"
-    );
-    assert!(
-        result.contains("CUSTOM_COEXIST"),
-        "custom prompt should exist"
-    );
-    assert!(
-        result.contains("PROJECT_RULES_COEXIST"),
-        "AGENTS.md should exist"
-    );
-    assert!(
-        result.contains("auto memory"),
-        "memory section should exist"
-    );
-    assert!(
-        result.contains("coexist-skill"),
-        "skills listing should exist"
-    );
+    assert!(result.contains("# Using your tools"), "tool guidance should exist");
+    assert!(result.contains("CUSTOM_COEXIST"), "custom prompt should exist");
+    assert!(result.contains("PROJECT_RULES_COEXIST"), "AGENTS.md should exist");
+    assert!(result.contains("auto memory"), "memory section should exist");
+    assert!(result.contains("coexist-skill"), "skills listing should exist");
 
     // Verify ordering: intro < guidance < custom < agents.md < memory < skills
     let intro_pos = result.find("Working directory").unwrap();

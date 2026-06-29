@@ -100,11 +100,7 @@ pub(crate) fn tool_call_malformed_fingerprint(
     tool_calls: &[ContentBlock],
     tool_call_malformed_reasons: &[Option<ToolCallMalformedReason>],
 ) -> Option<ToolCallMalformedFingerprint> {
-    if tool_calls.is_empty()
-        || tool_call_malformed_reasons
-            .iter()
-            .any(|reason| reason.is_none())
-    {
+    if tool_calls.is_empty() || tool_call_malformed_reasons.iter().any(|reason| reason.is_none()) {
         return None;
     }
 
@@ -112,10 +108,7 @@ pub(crate) fn tool_call_malformed_fingerprint(
         .iter()
         .zip(tool_call_malformed_reasons)
         .filter_map(|(block, reason)| {
-            let ContentBlock::ToolUse {
-                id, name, input, ..
-            } = block
-            else {
+            let ContentBlock::ToolUse { id, name, input, .. } = block else {
                 return None;
             };
             Some(ToolCallMalformedFingerprintPart {
@@ -256,10 +249,7 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let fingerprint = tool_call_malformed_fingerprint(
-            &[call],
-            &[Some(ToolCallMalformedReason::EmptyFunctionName)],
-        );
+        let fingerprint = tool_call_malformed_fingerprint(&[call], &[Some(ToolCallMalformedReason::EmptyFunctionName)]);
         let mut tracker = ToolCallMalformedTracker::new(3);
 
         assert_eq!(tracker.observe(fingerprint.clone()), 1);
@@ -275,10 +265,7 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let fingerprint = tool_call_malformed_fingerprint(
-            &[call],
-            &[Some(ToolCallMalformedReason::EmptyFunctionName)],
-        );
+        let fingerprint = tool_call_malformed_fingerprint(&[call], &[Some(ToolCallMalformedReason::EmptyFunctionName)]);
         let mut tracker = ToolCallMalformedTracker::new(0);
 
         assert_eq!(tracker.observe(fingerprint.clone()), 1);

@@ -2,10 +2,7 @@ const MIN_FOLD_COUNT: usize = 3;
 const MIN_PREFIX_RATIO: f64 = 0.5;
 
 fn common_prefix_len(a: &str, b: &str) -> usize {
-    a.chars()
-        .zip(b.chars())
-        .take_while(|(ca, cb)| ca == cb)
-        .count()
+    a.chars().zip(b.chars()).take_while(|(ca, cb)| ca == cb).count()
 }
 
 fn lines_are_similar(a: &str, b: &str) -> bool {
@@ -76,9 +73,7 @@ mod tests {
 
     #[test]
     fn fold_similar_prefix_lines() {
-        let lines: Vec<String> = (0..10)
-            .map(|i| format!("Compiling crate-{i} v0.1.0"))
-            .collect();
+        let lines: Vec<String> = (0..10).map(|i| format!("Compiling crate-{i} v0.1.0")).collect();
         let input = lines.join("\n");
         let result = fold_repeated_lines(&input);
         assert!(result.contains("[... 8 similar lines]"));
@@ -104,10 +99,7 @@ mod tests {
         }
         let input = lines.join("\n");
         let result = fold_repeated_lines(&input);
-        assert!(
-            result.contains("[... 4 similar lines]"),
-            "first group folded: {result}"
-        );
+        assert!(result.contains("[... 4 similar lines]"), "first group folded: {result}");
         assert!(result.contains("Install complete"));
         assert!(
             result.contains("[... 3 similar lines]"),

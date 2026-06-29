@@ -130,12 +130,8 @@ impl TransportCompat {
         Self {
             max_tokens_field: user.max_tokens_field.or(defaults.max_tokens_field),
             api_path: user.api_path.or(defaults.api_path),
-            max_request_body_bytes: user
-                .max_request_body_bytes
-                .or(defaults.max_request_body_bytes),
-            include_stream_options: user
-                .include_stream_options
-                .or(defaults.include_stream_options),
+            max_request_body_bytes: user.max_request_body_bytes.or(defaults.max_request_body_bytes),
+            include_stream_options: user.include_stream_options.or(defaults.include_stream_options),
         }
     }
 }
@@ -143,12 +139,8 @@ impl TransportCompat {
 impl MessageCompat {
     fn merge(defaults: Self, user: Self) -> Self {
         Self {
-            merge_assistant_messages: user
-                .merge_assistant_messages
-                .or(defaults.merge_assistant_messages),
-            clean_orphan_tool_results: user
-                .clean_orphan_tool_results
-                .or(defaults.clean_orphan_tool_results),
+            merge_assistant_messages: user.merge_assistant_messages.or(defaults.merge_assistant_messages),
+            clean_orphan_tool_results: user.clean_orphan_tool_results.or(defaults.clean_orphan_tool_results),
             dedup_tool_results: user.dedup_tool_results.or(defaults.dedup_tool_results),
             ensure_alternation: user.ensure_alternation.or(defaults.ensure_alternation),
             merge_same_role: user.merge_same_role.or(defaults.merge_same_role),
@@ -160,9 +152,7 @@ impl MessageCompat {
 impl ToolCompat {
     fn merge(defaults: Self, user: Self) -> Self {
         Self {
-            clean_orphan_tool_calls: user
-                .clean_orphan_tool_calls
-                .or(defaults.clean_orphan_tool_calls),
+            clean_orphan_tool_calls: user.clean_orphan_tool_calls.or(defaults.clean_orphan_tool_calls),
             sanitize_malformed_tool_calls: user
                 .sanitize_malformed_tool_calls
                 .or(defaults.sanitize_malformed_tool_calls),
@@ -286,10 +276,7 @@ impl ProviderCompat {
     // --- Resolved accessors (Option<bool> → bool with false default) ---
 
     pub fn max_tokens_field(&self) -> &str {
-        self.transport
-            .max_tokens_field
-            .as_deref()
-            .unwrap_or("max_tokens")
+        self.transport.max_tokens_field.as_deref().unwrap_or("max_tokens")
     }
 
     pub fn max_request_body_bytes(&self) -> Option<usize> {
@@ -349,10 +336,7 @@ impl ProviderCompat {
     }
 
     pub fn api_path(&self) -> &str {
-        self.transport
-            .api_path
-            .as_deref()
-            .unwrap_or("/v1/chat/completions")
+        self.transport.api_path.as_deref().unwrap_or("/v1/chat/completions")
     }
 
     pub fn supports_thinking(&self) -> bool {
@@ -459,10 +443,7 @@ effort_levels = ["low", "medium"]
             compat.transport.max_tokens_field.as_deref(),
             Some("max_completion_tokens")
         );
-        assert_eq!(
-            compat.transport.api_path.as_deref(),
-            Some("/chat/completions")
-        );
+        assert_eq!(compat.transport.api_path.as_deref(), Some("/chat/completions"));
         assert_eq!(compat.max_request_body_bytes(), Some(1_048_576));
         assert_eq!(compat.transport.include_stream_options, Some(false));
         assert!(!compat.include_stream_options());
@@ -471,10 +452,7 @@ effort_levels = ["low", "medium"]
         assert_eq!(compat.messages.dedup_tool_results, Some(true));
         assert_eq!(compat.messages.ensure_alternation, Some(true));
         assert_eq!(compat.messages.merge_same_role, Some(true));
-        assert_eq!(
-            compat.messages.strip_patterns,
-            Some(vec!["__REASONING__".to_string()])
-        );
+        assert_eq!(compat.messages.strip_patterns, Some(vec!["__REASONING__".to_string()]));
         assert_eq!(compat.tools.clean_orphan_tool_calls, Some(true));
         assert_eq!(compat.tools.sanitize_malformed_tool_calls, Some(false));
         assert_eq!(compat.tools.auto_tool_id, Some(true));
@@ -597,10 +575,7 @@ effort_levels = ["low", "medium"]
             merged.transport.max_tokens_field.as_deref(),
             Some("max_completion_tokens")
         );
-        assert_eq!(
-            merged.transport.api_path.as_deref(),
-            Some("/chat/completions")
-        );
+        assert_eq!(merged.transport.api_path.as_deref(), Some("/chat/completions"));
         assert_eq!(merged.max_request_body_bytes(), Some(2_048));
         assert!(merged.include_stream_options());
         assert!(!merged.merge_assistant_messages());
@@ -616,24 +591,15 @@ effort_levels = ["low", "medium"]
         assert!(merged.supports_thinking());
         assert!(merged.supports_effort());
         assert_eq!(merged.effort_levels(), &["custom"]);
-        assert_eq!(
-            merged.messages.strip_patterns,
-            Some(vec!["strip-me".to_string()])
-        );
+        assert_eq!(merged.messages.strip_patterns, Some(vec!["strip-me".to_string()]));
         assert_eq!(merged.reasoning.supports_thinking, Some(true));
         assert_eq!(merged.reasoning.supports_effort, Some(true));
-        assert_eq!(
-            merged.reasoning.effort_levels,
-            Some(vec!["custom".to_string()])
-        );
+        assert_eq!(merged.reasoning.effort_levels, Some(vec!["custom".to_string()]));
     }
 
     #[test]
     fn test_domain_merge_empty_user_keeps_all_defaults() {
-        let merged = ProviderCompat::merge(
-            ProviderCompat::anthropic_defaults(),
-            ProviderCompat::default(),
-        );
+        let merged = ProviderCompat::merge(ProviderCompat::anthropic_defaults(), ProviderCompat::default());
 
         assert!(merged.ensure_alternation());
         assert!(merged.merge_same_role());
@@ -672,10 +638,7 @@ effort_levels = ["low", "medium"]
         assert!(compat.clean_orphan_tool_calls());
         assert!(compat.clean_orphan_tool_results());
         assert!(compat.dedup_tool_results());
-        assert_eq!(
-            compat.transport.max_tokens_field.as_deref(),
-            Some("max_tokens")
-        );
+        assert_eq!(compat.transport.max_tokens_field.as_deref(), Some("max_tokens"));
         assert!(!compat.ensure_alternation());
         assert_eq!(compat.transport.include_stream_options, Some(true));
         assert_eq!(compat.tools.emit_tools, Some(true));
@@ -733,8 +696,7 @@ supports_effort = false
     #[test]
     fn test_tool_wire_shape_toml_round_trips_supported_values() {
         for value in ["native", "openai_function", "anthropic_input_schema"] {
-            let compat: ProviderCompat =
-                toml::from_str(&format!("tool_wire_shape = \"{value}\"")).unwrap();
+            let compat: ProviderCompat = toml::from_str(&format!("tool_wire_shape = \"{value}\"")).unwrap();
 
             let toml = toml::to_string(&compat).unwrap();
 
@@ -756,21 +718,15 @@ tool_wire_shape = "provider_guess"
     #[test]
     fn test_clean_orphan_tool_results_defaults() {
         assert_eq!(
-            ProviderCompat::openai_defaults()
-                .messages
-                .clean_orphan_tool_results,
+            ProviderCompat::openai_defaults().messages.clean_orphan_tool_results,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::anthropic_defaults()
-                .messages
-                .clean_orphan_tool_results,
+            ProviderCompat::anthropic_defaults().messages.clean_orphan_tool_results,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::bedrock_defaults()
-                .messages
-                .clean_orphan_tool_results,
+            ProviderCompat::bedrock_defaults().messages.clean_orphan_tool_results,
             Some(true)
         );
     }
@@ -856,11 +812,7 @@ tool_wire_shape = "provider_guess"
         let sanitized = sanitize_json_schema(&schema);
 
         assert!(sanitized.get("additionalProperties").is_none());
-        assert!(
-            sanitized["properties"]["name"]
-                .get("additionalProperties")
-                .is_none()
-        );
+        assert!(sanitized["properties"]["name"].get("additionalProperties").is_none());
     }
 
     #[test]
@@ -906,11 +858,7 @@ tool_wire_shape = "provider_guess"
         assert_eq!(compat.reasoning.supports_effort, Some(true));
         assert_eq!(
             compat.reasoning.effort_levels,
-            Some(vec![
-                "low".to_string(),
-                "medium".to_string(),
-                "high".to_string()
-            ])
+            Some(vec!["low".to_string(), "medium".to_string(), "high".to_string()])
         );
     }
 
@@ -953,21 +901,15 @@ tool_wire_shape = "provider_guess"
     #[test]
     fn test_defaults_enable_sanitize_malformed_tool_calls() {
         assert_eq!(
-            ProviderCompat::openai_defaults()
-                .tools
-                .sanitize_malformed_tool_calls,
+            ProviderCompat::openai_defaults().tools.sanitize_malformed_tool_calls,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::anthropic_defaults()
-                .tools
-                .sanitize_malformed_tool_calls,
+            ProviderCompat::anthropic_defaults().tools.sanitize_malformed_tool_calls,
             Some(true)
         );
         assert_eq!(
-            ProviderCompat::bedrock_defaults()
-                .tools
-                .sanitize_malformed_tool_calls,
+            ProviderCompat::bedrock_defaults().tools.sanitize_malformed_tool_calls,
             Some(true)
         );
     }
@@ -1003,10 +945,7 @@ strip_patterns = ["__REASONING__"]
         );
         assert_eq!(compat.messages.merge_assistant_messages, Some(true));
         assert_eq!(compat.messages.clean_orphan_tool_results, Some(false));
-        assert_eq!(
-            compat.messages.strip_patterns,
-            Some(vec!["__REASONING__".to_string()])
-        );
+        assert_eq!(compat.messages.strip_patterns, Some(vec!["__REASONING__".to_string()]));
         assert!(compat.tools.clean_orphan_tool_calls.is_none());
     }
 }

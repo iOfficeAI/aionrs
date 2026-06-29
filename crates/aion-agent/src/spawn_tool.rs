@@ -94,11 +94,7 @@ impl Tool for SpawnTool {
 
         if tasks.len() > MAX_SUB_AGENTS {
             return ToolResult {
-                content: format!(
-                    "Too many sub-agents: {} (max {})",
-                    tasks.len(),
-                    MAX_SUB_AGENTS
-                ),
+                content: format!("Too many sub-agents: {} (max {})", tasks.len(), MAX_SUB_AGENTS),
                 is_error: true,
             };
         }
@@ -129,18 +125,13 @@ impl Tool for SpawnTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let task = input
-            .get("task")
-            .and_then(|v| v.as_str())
-            .unwrap_or("sub-agent");
+        let task = input.get("task").and_then(|v| v.as_str()).unwrap_or("sub-agent");
         format!("Spawn: {}", aion_tools::truncate_utf8(task, 80))
     }
 }
 
 fn parse_tasks(input: &Value) -> Result<Vec<SubAgentConfig>, String> {
-    let tasks_arr = input["tasks"]
-        .as_array()
-        .ok_or("Missing or invalid 'tasks' array")?;
+    let tasks_arr = input["tasks"].as_array().ok_or("Missing or invalid 'tasks' array")?;
 
     let mut configs = Vec::new();
     for task in tasks_arr {

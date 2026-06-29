@@ -15,9 +15,7 @@ use aion_config::config::VertexConfig;
 use aion_types::llm::{LlmEvent, LlmRequest};
 
 use crate::composed::ComposedProvider;
-use crate::projector::{
-    ResolvedToolWireShape, WireParams, WireProvider, classify_tools_wire_shape_mismatch,
-};
+use crate::projector::{ResolvedToolWireShape, WireParams, WireProvider, classify_tools_wire_shape_mismatch};
 use crate::transport::{ProjectedHttpRequest, ProviderTransport, VertexTransport};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
@@ -28,13 +26,7 @@ pub struct VertexProvider {
 }
 
 impl VertexProvider {
-    pub fn new(
-        project_id: &str,
-        region: &str,
-        auth: GcpAuth,
-        cache_enabled: bool,
-        compat: ProviderCompat,
-    ) -> Self {
+    pub fn new(project_id: &str, region: &str, auth: GcpAuth, cache_enabled: bool, compat: ProviderCompat) -> Self {
         let transport_state = VertexTransportState::new(project_id, region, auth, cache_enabled);
         let transport = ProviderTransport::Vertex(VertexTransport {
             inner: transport_state.clone(),
@@ -52,10 +44,7 @@ impl VertexProvider {
 
 #[async_trait]
 impl LlmProvider for VertexProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.inner.stream(request).await
     }
 }
@@ -127,14 +116,12 @@ impl VertexTransportState {
     async fn get_access_token(&self) -> Result<String, ProviderError> {
         // Check cache first
         {
-            let cached = self.cached_token.lock().map_err(|_| {
-                ProviderError::Connection("Vertex token cache lock poisoned".to_string())
-            })?;
+            let cached = self
+                .cached_token
+                .lock()
+                .map_err(|_| ProviderError::Connection("Vertex token cache lock poisoned".to_string()))?;
             if let Some(token) = cached.as_ref() {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
                 if token.expires_at > now + 60 {
                     return Ok(token.token.clone());
                 }
@@ -142,21 +129,17 @@ impl VertexTransportState {
         }
 
         let (token, expires_in) = match &self.auth {
-            GcpAuth::ServiceAccount { key_file } => {
-                self.get_service_account_token(key_file).await?
-            }
+            GcpAuth::ServiceAccount { key_file } => self.get_service_account_token(key_file).await?,
             GcpAuth::ApplicationDefault => self.get_adc_token().await?,
             GcpAuth::MetadataServer => self.get_metadata_token().await?,
         };
 
         // Cache the token
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let mut cached = self.cached_token.lock().map_err(|_| {
-            ProviderError::Connection("Vertex token cache lock poisoned".to_string())
-        })?;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let mut cached = self
+            .cached_token
+            .lock()
+            .map_err(|_| ProviderError::Connection("Vertex token cache lock poisoned".to_string()))?;
         *cached = Some(CachedToken {
             token: token.clone(),
             expires_at: now + expires_in,
@@ -165,20 +148,14 @@ impl VertexTransportState {
         Ok(token)
     }
 
-    async fn get_service_account_token(
-        &self,
-        key_file: &str,
-    ) -> Result<(String, u64), ProviderError> {
+    async fn get_service_account_token(&self, key_file: &str) -> Result<(String, u64), ProviderError> {
         let key_json = read_to_string(key_file)
             .map_err(|e| ProviderError::Connection(format!("Failed to read key file: {}", e)))?;
 
         let sa: ServiceAccountKey = serde_json::from_str(&key_json)
             .map_err(|e| ProviderError::Connection(format!("Failed to parse key file: {}", e)))?;
 
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         let claims = JwtClaims {
             iss: sa.client_email.clone(),
@@ -271,10 +248,7 @@ impl VertexTransportState {
         Ok((token_resp.access_token, token_resp.expires_in))
     }
 
-    pub(crate) async fn send(
-        &self,
-        request: ProjectedHttpRequest,
-    ) -> Result<reqwest::Response, ProviderError> {
+    pub(crate) async fn send(&self, request: ProjectedHttpRequest) -> Result<reqwest::Response, ProviderError> {
         let ProjectedHttpRequest {
             url,
             body,
@@ -301,25 +275,15 @@ impl VertexTransportState {
                 .map_err(|e| ProviderError::Connection(format!("Header error: {}", e)))?,
         );
 
-        let response = self
-            .client
-            .post(url)
-            .headers(headers)
-            .json(body)
-            .send()
-            .await?;
+        let response = self.client.post(url).headers(headers).json(body).send().await?;
 
         let status = response.status();
         if !status.is_success() {
             let body_text = response.text().await.unwrap_or_default();
             if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited {
-                    retry_after_ms: 5000,
-                });
+                return Err(ProviderError::RateLimited { retry_after_ms: 5000 });
             }
-            if let Some(message) =
-                classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape)
-            {
+            if let Some(message) = classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape) {
                 return Err(ProviderError::Api {
                     status: status.as_u16(),
                     message,
@@ -452,12 +416,7 @@ mod tests {
 
     #[test]
     fn vertex_transport_builds_projected_request_with_vertex_url_and_preserves_body() {
-        let state = VertexTransportState::new(
-            "test-project",
-            "us-central1",
-            GcpAuth::ApplicationDefault,
-            false,
-        );
+        let state = VertexTransportState::new("test-project", "us-central1", GcpAuth::ApplicationDefault, false);
         let transport = ProviderTransport::Vertex(VertexTransport { inner: state });
         let compat = ProviderCompat::anthropic_defaults();
         let body = json!({
@@ -489,18 +448,12 @@ mod tests {
             .and(header("authorization", "Bearer cached-token"))
             .and(header("content-type", "application/json"))
             .respond_with(
-                ResponseTemplate::new(400)
-                    .set_body_string("invalid_request_error: body.tools[0].function is missing"),
+                ResponseTemplate::new(400).set_body_string("invalid_request_error: body.tools[0].function is missing"),
             )
             .mount(&server)
             .await;
 
-        let state = VertexTransportState::new(
-            "test-project",
-            "us-central1",
-            GcpAuth::ApplicationDefault,
-            false,
-        );
+        let state = VertexTransportState::new("test-project", "us-central1", GcpAuth::ApplicationDefault, false);
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock should be after unix epoch")

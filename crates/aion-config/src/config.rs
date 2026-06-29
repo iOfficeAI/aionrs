@@ -386,17 +386,10 @@ impl Config {
         let max_tool_call_failure_turns = cli
             .max_tool_call_failure_turns
             .or(merged.default.max_tool_call_failure_turns);
-        let system_prompt = cli
-            .system_prompt
-            .clone()
-            .or(merged.default.system_prompt.clone());
+        let system_prompt = cli.system_prompt.clone().or(merged.default.system_prompt.clone());
 
         // 6. Resolve API key: CLI > config file > env var
-        let api_key = resolve_api_key(
-            cli.api_key.as_deref(),
-            provider_config.api_key.as_deref(),
-            provider,
-        )?;
+        let api_key = resolve_api_key(cli.api_key.as_deref(), provider_config.api_key.as_deref(), provider)?;
 
         // 7. Apply auto_approve from CLI
         let mut tools = merged.tools;
@@ -518,18 +511,11 @@ fn resolve_provider_alias(
     Ok(ResolvedProviderConfig {
         requested_name: requested.to_string(),
         provider_type,
-        effective_config: merge_provider_configs(
-            providers.get(&underlying).cloned().unwrap_or_default(),
-            alias_config,
-        ),
+        effective_config: merge_provider_configs(providers.get(&underlying).cloned().unwrap_or_default(), alias_config),
     })
 }
 
-fn resolve_api_key(
-    cli_key: Option<&str>,
-    config_key: Option<&str>,
-    provider: ProviderType,
-) -> anyhow::Result<String> {
+fn resolve_api_key(cli_key: Option<&str>, config_key: Option<&str>, provider: ProviderType) -> anyhow::Result<String> {
     // CLI arg takes precedence
     if let Some(key) = cli_key {
         return Ok(key.to_string());
@@ -631,10 +617,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
             .default
             .max_tool_call_failure_turns
             .or(global.default.max_tool_call_failure_turns),
-        system_prompt: project
-            .default
-            .system_prompt
-            .or(global.default.system_prompt),
+        system_prompt: project.default.system_prompt.or(global.default.system_prompt),
     };
 
     // Merge providers: global as base, project overrides
@@ -699,14 +682,10 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
     // MCP: merge servers from both configs, project overrides global
     let mut mcp_servers = global.mcp.servers;
     mcp_servers.extend(project.mcp.servers);
-    let mcp = McpConfig {
-        servers: mcp_servers,
-    };
+    let mcp = McpConfig { servers: mcp_servers };
 
     // Plan: project overrides global if any field differs from default
-    let plan = if !project.plan.enabled
-        || project.plan.plan_directory != PlanConfig::default().plan_directory
-    {
+    let plan = if !project.plan.enabled || project.plan.plan_directory != PlanConfig::default().plan_directory {
         project.plan
     } else {
         global.plan
@@ -731,13 +710,12 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
     // Since CompactConfig uses serde defaults, a fully-default project config
     // is indistinguishable from "absent". We use project if its context_window
     // differs from the default, otherwise fall back to global.
-    let compact = if project.compact.context_window != CompactConfig::default().context_window
-        || !project.compact.enabled
-    {
-        project.compact
-    } else {
-        global.compact
-    };
+    let compact =
+        if project.compact.context_window != CompactConfig::default().context_window || !project.compact.enabled {
+            project.compact
+        } else {
+            global.compact
+        };
 
     let logging = LoggingConfig::merge(global.logging, project.logging);
 
@@ -806,9 +784,7 @@ fn merge_profiles(base: ProfileConfig, overlay: ProfileConfig) -> ProfileConfig 
         max_tool_call_malformed_turns: overlay
             .max_tool_call_malformed_turns
             .or(base.max_tool_call_malformed_turns),
-        max_tool_call_failure_turns: overlay
-            .max_tool_call_failure_turns
-            .or(base.max_tool_call_failure_turns),
+        max_tool_call_failure_turns: overlay.max_tool_call_failure_turns.or(base.max_tool_call_failure_turns),
         extends: None, // already resolved
         mcp_servers: overlay.mcp_servers.or(base.mcp_servers),
         shell: overlay.shell.or(base.shell),
@@ -860,10 +836,7 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
 
     // Filter MCP servers by profile's mcp_servers list
     if let Some(server_names) = profile.mcp_servers {
-        config
-            .mcp
-            .servers
-            .retain(|name, _| server_names.contains(name));
+        config.mcp.servers.retain(|name, _| server_names.contains(name));
     }
 
     Ok(config)
@@ -1048,9 +1021,7 @@ max_sessions = 20                # auto-cleanup oldest
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compat::{
-        MessageCompat, ReasoningCompat, SchemaCompat, ToolCompat, ToolWireShape, TransportCompat,
-    };
+    use crate::compat::{MessageCompat, ReasoningCompat, SchemaCompat, ToolCompat, ToolWireShape, TransportCompat};
 
     // -------------------------------------------------------------------------
     // parse_builtin_provider tests
@@ -1103,14 +1074,8 @@ mod tests {
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
         assert_eq!(resolved.requested_name, "my-service");
         assert_eq!(resolved.provider_type, ProviderType::OpenAI);
-        assert_eq!(
-            resolved.effective_config.model.as_deref(),
-            Some("custom-model-v1")
-        );
-        assert_eq!(
-            resolved.effective_config.api_key.as_deref(),
-            Some("alias-key")
-        );
+        assert_eq!(resolved.effective_config.model.as_deref(), Some("custom-model-v1"));
+        assert_eq!(resolved.effective_config.api_key.as_deref(), Some("alias-key"));
         assert_eq!(
             resolved.effective_config.base_url.as_deref(),
             Some("https://my-service.example.com/v1")
@@ -1139,10 +1104,7 @@ mod tests {
 
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
         assert_eq!(resolved.provider_type, ProviderType::OpenAI);
-        assert_eq!(
-            resolved.effective_config.api_key.as_deref(),
-            Some("builtin-key")
-        );
+        assert_eq!(resolved.effective_config.api_key.as_deref(), Some("builtin-key"));
         assert_eq!(resolved.effective_config.model.as_deref(), Some("gpt-4o"));
         assert_eq!(
             resolved.effective_config.base_url.as_deref(),
@@ -1203,10 +1165,7 @@ mod tests {
         assert_eq!(merged.default.max_turns, Some(5));
         assert_eq!(merged.default.max_tool_call_malformed_turns, Some(2));
         assert_eq!(merged.default.max_tool_call_failure_turns, Some(2));
-        assert_eq!(
-            merged.default.system_prompt,
-            Some("project prompt".to_string())
-        );
+        assert_eq!(merged.default.system_prompt, Some("project prompt".to_string()));
     }
 
     #[test]
@@ -1236,10 +1195,7 @@ mod tests {
         assert_eq!(merged.default.max_turns, Some(5));
         assert_eq!(merged.default.max_tool_call_malformed_turns, Some(4));
         assert_eq!(merged.default.max_tool_call_failure_turns, Some(4));
-        assert_eq!(
-            merged.default.system_prompt,
-            Some("global prompt".to_string())
-        );
+        assert_eq!(merged.default.system_prompt, Some("global prompt".to_string()));
     }
 
     #[test]
@@ -1347,8 +1303,7 @@ mod tests {
     #[test]
     fn test_api_key_from_cli_arg() {
         // CLI key takes highest priority regardless of other sources.
-        let result =
-            resolve_api_key(Some("cli-key"), Some("config-key"), ProviderType::Anthropic).unwrap();
+        let result = resolve_api_key(Some("cli-key"), Some("config-key"), ProviderType::Anthropic).unwrap();
         assert_eq!(result, "cli-key");
     }
 
@@ -1442,9 +1397,7 @@ default = "powershell"
     #[test]
     fn test_merge_config_project_shell_overrides_global() {
         let global = ConfigFile {
-            shell: crate::shell::ShellConfig {
-                default: "bash".into(),
-            },
+            shell: crate::shell::ShellConfig { default: "bash".into() },
             ..Default::default()
         };
         let project = ConfigFile {
@@ -1467,9 +1420,7 @@ default = "powershell"
                 max_tool_call_failure_turns: Some(5),
                 ..Default::default()
             },
-            shell: crate::shell::ShellConfig {
-                default: "bash".into(),
-            },
+            shell: crate::shell::ShellConfig { default: "bash".into() },
             ..Default::default()
         };
         config.profiles.insert(
@@ -1507,11 +1458,7 @@ allow = ["commit", "review-pr", "db:*"]
         );
         assert_eq!(
             config.tools.skills.allow,
-            vec![
-                "commit".to_string(),
-                "review-pr".to_string(),
-                "db:*".to_string()
-            ]
+            vec!["commit".to_string(), "review-pr".to_string(), "db:*".to_string()]
         );
     }
 
@@ -1786,14 +1733,8 @@ base_url = "https://my-service.example.com/api/openai"
         let merged = merge_provider_configs(base, overlay);
         let compat = merged.compat.unwrap();
 
-        assert_eq!(
-            compat.transport.max_tokens_field.as_deref(),
-            Some("max_tokens")
-        );
-        assert_eq!(
-            compat.transport.api_path.as_deref(),
-            Some("/chat/completions")
-        );
+        assert_eq!(compat.transport.max_tokens_field.as_deref(), Some("max_tokens"));
+        assert_eq!(compat.transport.api_path.as_deref(), Some("/chat/completions"));
         assert_eq!(compat.messages.merge_assistant_messages, Some(false));
         assert_eq!(compat.messages.clean_orphan_tool_results, Some(true));
         assert_eq!(compat.tools.auto_tool_id, Some(true));
@@ -1835,10 +1776,7 @@ base_url = "https://my-service.example.com/api/openai"
         let resolved = resolve_provider_alias(&providers, "openai").unwrap();
         assert_eq!(resolved.requested_name, "openai");
         assert_eq!(resolved.provider_type, ProviderType::OpenAI);
-        assert_eq!(
-            resolved.effective_config.api_key.as_deref(),
-            Some("openai-key")
-        );
+        assert_eq!(resolved.effective_config.api_key.as_deref(), Some("openai-key"));
         assert_eq!(
             resolved.effective_config.base_url.as_deref(),
             Some("https://custom-openai.example.com")
@@ -1950,10 +1888,7 @@ base_url = "https://my-service.example.com/api/openai"
         );
 
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
-        assert_eq!(
-            resolved.effective_config.model.as_deref(),
-            Some("alias-model-v1")
-        );
+        assert_eq!(resolved.effective_config.model.as_deref(), Some("alias-model-v1"));
     }
 
     #[test]
@@ -2004,10 +1939,7 @@ base_url = "https://my-service.example.com/api/openai"
         );
 
         let resolved = resolve_provider_alias(&providers, "my-service").unwrap();
-        assert_eq!(
-            resolved.effective_config.model.as_deref(),
-            Some("custom-model-v2")
-        );
+        assert_eq!(resolved.effective_config.model.as_deref(), Some("custom-model-v2"));
     }
 
     // -------------------------------------------------------------------------
@@ -2434,10 +2366,7 @@ tool_wire_shape = "anthropic_input_schema"
 
         let config = Config::resolve(&cli).unwrap();
 
-        assert_eq!(
-            config.compat.tool_wire_shape(),
-            ToolWireShape::AnthropicInputSchema
-        );
+        assert_eq!(config.compat.tool_wire_shape(), ToolWireShape::AnthropicInputSchema);
     }
 
     #[test]

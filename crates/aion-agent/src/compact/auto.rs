@@ -104,10 +104,7 @@ pub async fn autocompact(
     // Build messages for the compact LLM call: conversation + summary prompt
     let prompt = build_compact_prompt();
     let mut conv_messages = messages.to_vec();
-    conv_messages.push(Message::new(
-        Role::User,
-        vec![ContentBlock::Text { text: prompt }],
-    ));
+    conv_messages.push(Message::new(Role::User, vec![ContentBlock::Text { text: prompt }]));
 
     let mut ptl_attempts = 0u32;
 
@@ -146,17 +143,13 @@ pub async fn autocompact(
                     }
                     None => {
                         state.record_failure();
-                        return Err(CompactError::PromptTooLong {
-                            attempts: ptl_attempts,
-                        });
+                        return Err(CompactError::PromptTooLong { attempts: ptl_attempts });
                     }
                 }
             }
             Err(ProviderError::PromptTooLong(_)) => {
                 state.record_failure();
-                return Err(CompactError::PromptTooLong {
-                    attempts: ptl_attempts,
-                });
+                return Err(CompactError::PromptTooLong { attempts: ptl_attempts });
             }
             Err(e) => {
                 state.record_failure();
@@ -185,19 +178,9 @@ pub async fn autocompact(
         serde_json::to_string(&metadata).expect("CompactMetadata serialization cannot fail")
     );
 
-    let boundary_msg = Message::new(
-        Role::User,
-        vec![ContentBlock::Text {
-            text: boundary_text,
-        }],
-    );
+    let boundary_msg = Message::new(Role::User, vec![ContentBlock::Text { text: boundary_text }]);
 
-    let summary_msg = Message::new(
-        Role::User,
-        vec![ContentBlock::Text {
-            text: summary_content,
-        }],
-    );
+    let summary_msg = Message::new(Role::User, vec![ContentBlock::Text { text: summary_content }]);
 
     state.record_success();
 
@@ -211,9 +194,7 @@ pub async fn autocompact(
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Collect all text from a streaming LLM response.
-async fn collect_stream_text(
-    mut rx: mpsc::Receiver<LlmEvent>,
-) -> Result<(String, TokenUsage), CompactError> {
+async fn collect_stream_text(mut rx: mpsc::Receiver<LlmEvent>) -> Result<(String, TokenUsage), CompactError> {
     let mut text = String::new();
 
     while let Some(event) = rx.recv().await {
@@ -396,11 +377,7 @@ mod tests {
     fn truncate_drops_20_percent() {
         let msgs: Vec<Message> = (0..10)
             .map(|i| {
-                let role = if i % 2 == 0 {
-                    Role::User
-                } else {
-                    Role::Assistant
-                };
+                let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
                 Message::new(
                     role,
                     vec![ContentBlock::Text {
@@ -453,11 +430,7 @@ mod tests {
         // First remaining message is already User — no placeholder needed
         let msgs: Vec<Message> = (0..10)
             .map(|i| {
-                let role = if i % 2 == 0 {
-                    Role::User
-                } else {
-                    Role::Assistant
-                };
+                let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
                 Message::new(
                     role,
                     vec![ContentBlock::Text {
@@ -485,10 +458,7 @@ mod tests {
             pre_compact_tokens: 150_000,
             messages_summarized: 42,
         };
-        let text = format!(
-            "{BOUNDARY_PREFIX}\n{}",
-            serde_json::to_string(&metadata).unwrap()
-        );
+        let text = format!("{BOUNDARY_PREFIX}\n{}", serde_json::to_string(&metadata).unwrap());
         let msg = Message::new(Role::User, vec![ContentBlock::Text { text }]);
         assert!(is_compact_boundary(&msg));
     }
@@ -511,10 +481,7 @@ mod tests {
             pre_compact_tokens: 150_000,
             messages_summarized: 42,
         };
-        let text = format!(
-            "{BOUNDARY_PREFIX}\n{}",
-            serde_json::to_string(&metadata).unwrap()
-        );
+        let text = format!("{BOUNDARY_PREFIX}\n{}", serde_json::to_string(&metadata).unwrap());
         let msg = Message::new(Role::User, vec![ContentBlock::Text { text }]);
         let extracted = extract_compact_metadata(&msg).unwrap();
         assert_eq!(extracted, metadata);

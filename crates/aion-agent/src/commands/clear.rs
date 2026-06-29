@@ -15,11 +15,7 @@ impl SlashCommand for ClearCommand {
         "Clear conversation history"
     }
 
-    async fn execute(
-        &self,
-        ctx: &mut CommandContext<'_>,
-        _args: &str,
-    ) -> anyhow::Result<CommandResult> {
+    async fn execute(&self, ctx: &mut CommandContext<'_>, _args: &str) -> anyhow::Result<CommandResult> {
         ctx.messages.clear();
         *ctx.compact_state = CompactState::new();
         ctx.output.emit_info("Conversation cleared");
@@ -42,10 +38,7 @@ mod tests {
     struct NullProvider;
     #[async_trait::async_trait]
     impl LlmProvider for NullProvider {
-        async fn stream(
-            &self,
-            _: &LlmRequest,
-        ) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+        async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
         }
@@ -57,16 +50,8 @@ mod tests {
         let registry = CommandRegistry::new();
         let output = NullSink;
         let mut messages = vec![
-            Message::new(
-                Role::User,
-                vec![ContentBlock::Text {
-                    text: "hello".into(),
-                }],
-            ),
-            Message::new(
-                Role::Assistant,
-                vec![ContentBlock::Text { text: "hi".into() }],
-            ),
+            Message::new(Role::User, vec![ContentBlock::Text { text: "hello".into() }]),
+            Message::new(Role::Assistant, vec![ContentBlock::Text { text: "hi".into() }]),
         ];
         let mut state = CompactState::new();
         state.last_input_tokens = 5000;

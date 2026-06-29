@@ -41,9 +41,7 @@ pub struct OutputFormatter {
 impl OutputFormatter {
     pub fn new(no_color: bool) -> Self {
         // Also check NO_COLOR env var (standard: https://no-color.org/)
-        let color_enabled = !no_color
-            && std::env::var("NO_COLOR").is_err()
-            && is_terminal::is_terminal(io::stderr());
+        let color_enabled = !no_color && std::env::var("NO_COLOR").is_err() && is_terminal::is_terminal(io::stderr());
         Self { color_enabled }
     }
 
@@ -76,11 +74,7 @@ impl OutputFormatter {
     pub fn tool_result(&self, name: &str, is_error: bool, content: &str) {
         if self.color_enabled {
             let color = if is_error { Color::Red } else { Color::Green };
-            let attr = if is_error {
-                Attribute::Bold
-            } else {
-                Attribute::Dim
-            };
+            let attr = if is_error { Attribute::Bold } else { Attribute::Dim };
             let mut stderr = io::stderr();
             let _ = execute!(
                 stderr,

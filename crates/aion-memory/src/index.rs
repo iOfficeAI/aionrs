@@ -84,9 +84,7 @@ pub fn truncate_index(raw: &str) -> IndexTruncation {
 
     // Step 2: byte truncation (on the possibly line-truncated result)
     if truncated.len() > MAX_INDEX_BYTES {
-        let cut_at = truncated[..MAX_INDEX_BYTES]
-            .rfind('\n')
-            .filter(|&pos| pos > 0);
+        let cut_at = truncated[..MAX_INDEX_BYTES].rfind('\n').filter(|&pos| pos > 0);
         let boundary = cut_at.unwrap_or(MAX_INDEX_BYTES);
         truncated.truncate(boundary);
     }
@@ -162,10 +160,7 @@ pub fn remove_index_entry(path: &Path, filename: &str) -> Result<()> {
     };
 
     let needle = format!("({filename})");
-    let filtered: Vec<&str> = content
-        .lines()
-        .filter(|line| !line.contains(&needle))
-        .collect();
+    let filtered: Vec<&str> = content.lines().filter(|line| !line.contains(&needle)).collect();
 
     // Preserve trailing newline if original had one
     let mut result = filtered.join("\n");
@@ -245,10 +240,7 @@ mod tests {
 
     #[test]
     fn no_truncation_exactly_200_lines() {
-        let content = (0..200)
-            .map(|i| format!("- line {i}"))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = (0..200).map(|i| format!("- line {i}")).collect::<Vec<_>>().join("\n");
         let result = truncate_index(&content);
         assert!(!result.was_truncated);
         assert_eq!(result.line_count, 200);
@@ -304,9 +296,7 @@ mod tests {
     #[test]
     fn byte_truncation_long_lines() {
         // 100 lines, each 300 bytes = 30000 bytes > 25000
-        let lines: Vec<String> = (0..100)
-            .map(|i| format!("{i:03}: {}", "x".repeat(296)))
-            .collect();
+        let lines: Vec<String> = (0..100).map(|i| format!("{i:03}: {}", "x".repeat(296))).collect();
         let content = lines.join("\n");
         assert!(content.len() > MAX_INDEX_BYTES);
 
@@ -346,9 +336,7 @@ mod tests {
     #[test]
     fn both_line_and_byte_truncation() {
         // 300 lines of 200 bytes each = 60000 bytes; both limits exceeded
-        let lines: Vec<String> = (0..300)
-            .map(|i| format!("{i:03}: {}", "y".repeat(196)))
-            .collect();
+        let lines: Vec<String> = (0..300).map(|i| format!("{i:03}: {}", "y".repeat(196))).collect();
         let content = lines.join("\n");
 
         let result = truncate_index(&content);
@@ -412,10 +400,7 @@ mod tests {
         append_index_entry(&path, "B", "b.md", "second").unwrap();
 
         let content = fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            content,
-            "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n"
-        );
+        assert_eq!(content, "- [A](a.md) \u{2014} first\n- [B](b.md) \u{2014} second\n");
     }
 
     #[test]
@@ -455,10 +440,7 @@ mod tests {
         remove_index_entry(&path, "b.md").unwrap();
 
         let content = fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            content,
-            "- [A](a.md) \u{2014} first\n- [C](c.md) \u{2014} third\n"
-        );
+        assert_eq!(content, "- [A](a.md) \u{2014} first\n- [C](c.md) \u{2014} third\n");
     }
 
     #[test]

@@ -51,11 +51,7 @@ impl HookEngine {
     }
 
     /// Run pre-tool-use hooks. Returns Err if any hook blocks execution.
-    pub async fn run_pre_tool_use(
-        &self,
-        tool_name: &str,
-        tool_input: &serde_json::Value,
-    ) -> Result<(), HookError> {
+    pub async fn run_pre_tool_use(&self, tool_name: &str, tool_input: &serde_json::Value) -> Result<(), HookError> {
         let matching: Vec<_> = self
             .config
             .pre_tool_use
@@ -113,8 +109,7 @@ impl HookEngine {
     pub async fn run_stop(&self) -> Vec<String> {
         let mut messages = Vec::new();
         for hook in &self.config.stop {
-            match run_hook_command(&hook.command, &HashMap::new(), hook.timeout_ms, &self.cwd).await
-            {
+            match run_hook_command(&hook.command, &HashMap::new(), hook.timeout_ms, &self.cwd).await {
                 Ok(result) => {
                     if !result.output.is_empty() {
                         messages.push(format!("[hook:{}] {}", hook.name, result.output.trim()));
@@ -130,9 +125,7 @@ impl HookEngine {
 
     /// Check if any hooks are configured
     pub fn has_hooks(&self) -> bool {
-        !self.config.pre_tool_use.is_empty()
-            || !self.config.post_tool_use.is_empty()
-            || !self.config.stop.is_empty()
+        !self.config.pre_tool_use.is_empty() || !self.config.post_tool_use.is_empty() || !self.config.stop.is_empty()
     }
 
     /// Merge additional hooks into the engine's config, skipping duplicates by name.
@@ -176,10 +169,7 @@ fn build_env_vars(tool_name: &str, tool_input: &serde_json::Value) -> HashMap<St
 fn matches_tool(hook: &HookDef, tool_name: &str, tool_input: &serde_json::Value) -> bool {
     // Check tool_match
     if !hook.tool_match.is_empty() {
-        let matches = hook
-            .tool_match
-            .iter()
-            .any(|pattern| glob_match(pattern, tool_name));
+        let matches = hook.tool_match.iter().any(|pattern| glob_match(pattern, tool_name));
         if !matches {
             return false;
         }
@@ -188,10 +178,7 @@ fn matches_tool(hook: &HookDef, tool_name: &str, tool_input: &serde_json::Value)
     // Check file_match (if tool has a file_path input)
     if !hook.file_match.is_empty() {
         if let Some(file_path) = tool_input["file_path"].as_str() {
-            let matches = hook
-                .file_match
-                .iter()
-                .any(|pattern| glob_match(pattern, file_path));
+            let matches = hook.file_match.iter().any(|pattern| glob_match(pattern, file_path));
             if !matches {
                 return false;
             }
@@ -204,9 +191,7 @@ fn matches_tool(hook: &HookDef, tool_name: &str, tool_input: &serde_json::Value)
 }
 
 fn glob_match(pattern: &str, value: &str) -> bool {
-    glob::Pattern::new(pattern)
-        .map(|p| p.matches(value))
-        .unwrap_or(false)
+    glob::Pattern::new(pattern).map(|p| p.matches(value)).unwrap_or(false)
 }
 
 /// Interpolate ${VAR} in a command string with provided env vars
@@ -256,11 +241,7 @@ async fn run_hook_command(
     let mut command_builder = shell_command_builder(&shell, &interpolated, false);
     command_builder.envs(env_vars).current_dir(cwd);
 
-    match CommandRunner::new(command_builder)
-        .timeout(timeout)
-        .run()
-        .await
-    {
+    match CommandRunner::new(command_builder).timeout(timeout).run().await {
         Ok(result) if result.timed_out => Err(HookError::Timeout {
             timeout_ms,
             output: combine_output(&result.stdout, &result.stderr),
@@ -418,8 +399,7 @@ mod tests {
         let command = slow_stdout_command("hook_stdout_before_timeout");
         let timeout_ms = if cfg!(windows) { 1500 } else { 100 };
 
-        let result =
-            run_hook_command(&command, &HashMap::new(), timeout_ms, &std::env::temp_dir()).await;
+        let result = run_hook_command(&command, &HashMap::new(), timeout_ms, &std::env::temp_dir()).await;
 
         let err = match result {
             Ok(_) => panic!("hook command should time out"),
@@ -510,8 +490,7 @@ mod phase11_tests {
     // TC-11.33: merging empty config doesn't change existing hooks
     #[test]
     fn tc_11_33_merge_empty_does_not_change_existing() {
-        let mut engine =
-            HookEngine::new(make_config_pre(&["pre-a", "pre-b"]), std::env::temp_dir());
+        let mut engine = HookEngine::new(make_config_pre(&["pre-a", "pre-b"]), std::env::temp_dir());
         engine.merge_hooks(HooksConfig::default());
         assert_eq!(engine.config.pre_tool_use.len(), 2);
     }
@@ -520,15 +499,9 @@ mod phase11_tests {
     #[test]
     fn tc_11_34_has_hooks_true_after_merge() {
         let mut engine = HookEngine::new(HooksConfig::default(), std::env::temp_dir());
-        assert!(
-            !engine.has_hooks(),
-            "precondition: engine starts with no hooks"
-        );
+        assert!(!engine.has_hooks(), "precondition: engine starts with no hooks");
         engine.merge_hooks(make_config_pre(&["pre-a"]));
-        assert!(
-            engine.has_hooks(),
-            "TC-11.34: has_hooks must be true after merge"
-        );
+        assert!(engine.has_hooks(), "TC-11.34: has_hooks must be true after merge");
     }
 
     // TC-11.35: multiple successive merges accumulate correctly (different names)
@@ -551,11 +524,7 @@ mod phase11_tests {
             stop: vec![make_hook("stop-x")],
         };
         engine.merge_hooks(additional);
-        assert_eq!(
-            engine.config.pre_tool_use.len(),
-            1,
-            "TC-11.36: pre unchanged"
-        );
+        assert_eq!(engine.config.pre_tool_use.len(), 1, "TC-11.36: pre unchanged");
         assert_eq!(engine.config.stop.len(), 1, "TC-11.36: stop added");
     }
 

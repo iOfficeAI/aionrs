@@ -160,26 +160,17 @@ mod tests {
 
     #[test]
     fn test_parse_double_quoted() {
-        assert_eq!(
-            parse_arguments(r#""hello world" foo"#),
-            vec!["hello world", "foo"]
-        );
+        assert_eq!(parse_arguments(r#""hello world" foo"#), vec!["hello world", "foo"]);
     }
 
     #[test]
     fn test_parse_single_quoted() {
-        assert_eq!(
-            parse_arguments("'hello world' foo"),
-            vec!["hello world", "foo"]
-        );
+        assert_eq!(parse_arguments("'hello world' foo"), vec!["hello world", "foo"]);
     }
 
     #[test]
     fn test_parse_mixed_quotes() {
-        assert_eq!(
-            parse_arguments(r#"foo "bar baz" qux"#),
-            vec!["foo", "bar baz", "qux"]
-        );
+        assert_eq!(parse_arguments(r#"foo "bar baz" qux"#), vec!["foo", "bar baz", "qux"]);
     }
 
     // --- substitute_arguments ---
@@ -218,13 +209,7 @@ mod tests {
     #[test]
     fn test_named_arguments() {
         let names = vec!["filename".to_string(), "target".to_string()];
-        let result = substitute_arguments(
-            "file=$filename dest=$target",
-            Some("foo.rs /tmp"),
-            &names,
-            None,
-            None,
-        );
+        let result = substitute_arguments("file=$filename dest=$target", Some("foo.rs /tmp"), &names, None, None);
         assert_eq!(result, "file=foo.rs dest=/tmp");
     }
 
@@ -239,25 +224,13 @@ mod tests {
 
     #[test]
     fn test_aionrs_skill_dir_substitution() {
-        let result = substitute_arguments(
-            "dir=${AIONRS_SKILL_DIR}",
-            None,
-            &[],
-            Some("/my/skill"),
-            None,
-        );
+        let result = substitute_arguments("dir=${AIONRS_SKILL_DIR}", None, &[], Some("/my/skill"), None);
         assert_eq!(result, "dir=/my/skill");
     }
 
     #[test]
     fn test_aionrs_session_id_substitution() {
-        let result = substitute_arguments(
-            "sid=${AIONRS_SESSION_ID}",
-            None,
-            &[],
-            None,
-            Some("sess-123"),
-        );
+        let result = substitute_arguments("sid=${AIONRS_SESSION_ID}", None, &[], None, Some("sess-123"));
         assert_eq!(result, "sid=sess-123");
     }
 
@@ -283,13 +256,7 @@ mod tests {
     #[test]
     fn test_substitution_order_indexed_before_full() {
         // $ARGUMENTS[0] must be replaced before $ARGUMENTS to avoid partial corruption
-        let result = substitute_arguments(
-            "$ARGUMENTS[0] and $ARGUMENTS",
-            Some("hello world"),
-            &[],
-            None,
-            None,
-        );
+        let result = substitute_arguments("$ARGUMENTS[0] and $ARGUMENTS", Some("hello world"), &[], None, None);
         assert_eq!(result, "hello and hello world");
     }
 }
@@ -342,10 +309,7 @@ mod supplemental_tests {
     #[test]
     fn tc_1_9_single_quotes_also_group() {
         // Implementation supports single quotes too (extends plan)
-        assert_eq!(
-            parse_arguments("'hello world' foo"),
-            vec!["hello world", "foo"]
-        );
+        assert_eq!(parse_arguments("'hello world' foo"), vec!["hello world", "foo"]);
     }
 
     // -----------------------------------------------------------------------
@@ -395,13 +359,7 @@ mod supplemental_tests {
 
     #[test]
     fn tc_3_4_arguments_index_with_quoted_arg() {
-        let r = substitute_arguments(
-            "$ARGUMENTS[0]",
-            Some(r#""hello world" foo"#),
-            &[],
-            None,
-            None,
-        );
+        let r = substitute_arguments("$ARGUMENTS[0]", Some(r#""hello world" foo"#), &[], None, None);
         assert_eq!(r, "hello world");
     }
 
@@ -445,26 +403,14 @@ mod supplemental_tests {
         // $query is replaced with the first parsed argument "rust".
         // "programming" is the second argument but has no placeholder in content.
         let names = vec!["query".to_string()];
-        let r = substitute_arguments(
-            "Search for $query",
-            Some("rust programming"),
-            &names,
-            None,
-            None,
-        );
+        let r = substitute_arguments("Search for $query", Some("rust programming"), &names, None, None);
         assert_eq!(r, "Search for rust");
     }
 
     #[test]
     fn tc_5_2_multiple_named_args() {
         let names = vec!["src".to_string(), "dst".to_string()];
-        let r = substitute_arguments(
-            "From $src to $dst",
-            Some("source.txt dest.txt"),
-            &names,
-            None,
-            None,
-        );
+        let r = substitute_arguments("From $src to $dst", Some("source.txt dest.txt"), &names, None, None);
         assert_eq!(r, "From source.txt to dest.txt");
     }
 
@@ -517,13 +463,7 @@ mod supplemental_tests {
 
     #[test]
     fn tc_7_1_session_id_replaced() {
-        let r = substitute_arguments(
-            "Session: ${AIONRS_SESSION_ID}",
-            None,
-            &[],
-            None,
-            Some("abc-123"),
-        );
+        let r = substitute_arguments("Session: ${AIONRS_SESSION_ID}", None, &[], None, Some("abc-123"));
         assert_eq!(r, "Session: abc-123");
     }
 
@@ -594,13 +534,7 @@ mod supplemental_tests {
     #[test]
     fn tc_9_4_indexed_before_full_no_corruption() {
         // $ARGUMENTS[0] must be recognized before $ARGUMENTS replacement
-        let r = substitute_arguments(
-            "$ARGUMENTS[0] / $ARGUMENTS",
-            Some("alpha beta"),
-            &[],
-            None,
-            None,
-        );
+        let r = substitute_arguments("$ARGUMENTS[0] / $ARGUMENTS", Some("alpha beta"), &[], None, None);
         assert_eq!(r, "alpha / alpha beta");
     }
 

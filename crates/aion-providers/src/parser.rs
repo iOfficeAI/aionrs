@@ -25,9 +25,7 @@ impl ResponseParser for OpenAiParser {
     fn parse_frame(&self, frame: &Frame, state: &mut Self::State) -> Vec<LlmEvent> {
         match frame.kind {
             FrameKind::Done => state.flush_done().into_iter().collect(),
-            FrameKind::Data => {
-                crate::openai::parse_sse_chunk(&frame.data, state, self.auto_tool_id)
-            }
+            FrameKind::Data => crate::openai::parse_sse_chunk(&frame.data, state, self.auto_tool_id),
         }
     }
 
@@ -65,9 +63,7 @@ mod tests {
 
     #[test]
     fn openai_done_frame_flushes_empty_state_to_no_events() {
-        let parser = OpenAiParser {
-            auto_tool_id: false,
-        };
+        let parser = OpenAiParser { auto_tool_id: false };
         let mut state = parser.new_state();
         let frame = Frame {
             event: None,
@@ -82,9 +78,7 @@ mod tests {
 
     #[test]
     fn openai_done_frame_flushes_pending_done_with_usage() {
-        let parser = OpenAiParser {
-            auto_tool_id: false,
-        };
+        let parser = OpenAiParser { auto_tool_id: false };
         let mut state = parser.new_state();
 
         let finish_frame = Frame {
@@ -98,8 +92,7 @@ mod tests {
 
         let usage_frame = Frame {
             event: None,
-            data: r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#
-                .to_string(),
+            data: r#"{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5}}"#.to_string(),
             kind: FrameKind::Data,
         };
         assert!(parser.parse_frame(&usage_frame, &mut state).is_empty());

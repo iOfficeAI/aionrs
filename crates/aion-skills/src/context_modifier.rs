@@ -5,8 +5,7 @@ pub use aion_types::skill_types::{ContextModifier, effort_to_string};
 
 /// Build a ContextModifier from skill metadata. Returns None if no overrides are specified.
 pub fn from_skill(skill: &SkillMetadata) -> Option<ContextModifier> {
-    let has_overrides =
-        skill.model.is_some() || skill.effort.is_some() || !skill.allowed_tools.is_empty();
+    let has_overrides = skill.model.is_some() || skill.effort.is_some() || !skill.allowed_tools.is_empty();
 
     if !has_overrides {
         return None;
@@ -26,11 +25,7 @@ mod tests {
     use crate::types::{ExecutionContext, LoadedFrom, SkillSource};
     use aion_types::skill_types::EffortLevel;
 
-    fn make_skill(
-        model: Option<&str>,
-        effort: Option<EffortLevel>,
-        allowed_tools: Vec<String>,
-    ) -> SkillMetadata {
+    fn make_skill(model: Option<&str>, effort: Option<EffortLevel>, allowed_tools: Vec<String>) -> SkillMetadata {
         SkillMetadata {
             name: "test".to_string(),
             display_name: None,
@@ -83,22 +78,14 @@ mod tests {
 
     #[test]
     fn test_from_skill_allowed_tools_override() {
-        let skill = make_skill(
-            None,
-            None,
-            vec!["ExecCommand".to_string(), "Read".to_string()],
-        );
+        let skill = make_skill(None, None, vec!["ExecCommand".to_string(), "Read".to_string()]);
         let m = from_skill(&skill).unwrap();
         assert_eq!(m.allowed_tools, vec!["ExecCommand", "Read"]);
     }
 
     #[test]
     fn test_from_skill_all_overrides() {
-        let skill = make_skill(
-            Some("gpt-4o"),
-            Some(EffortLevel::Low),
-            vec!["Write".to_string()],
-        );
+        let skill = make_skill(Some("gpt-4o"), Some(EffortLevel::Low), vec!["Write".to_string()]);
         let m = from_skill(&skill).unwrap();
         assert_eq!(m.model.as_deref(), Some("gpt-4o"));
         assert_eq!(m.effort, Some(EffortLevel::Low));

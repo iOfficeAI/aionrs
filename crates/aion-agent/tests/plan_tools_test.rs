@@ -135,10 +135,7 @@ fn tc_3_3_07_exit_context_modifier_returns_exit_transition() {
     assert!(modifier.is_some(), "should return a context modifier");
     let cm = modifier.unwrap();
     assert!(
-        matches!(
-            cm.plan_mode_transition,
-            Some(PlanModeTransition::Exit { .. })
-        ),
+        matches!(cm.plan_mode_transition, Some(PlanModeTransition::Exit { .. })),
         "transition should be Exit variant"
     );
 }
@@ -173,9 +170,7 @@ fn tc_3_3_08_enter_tool_schema_no_required_params() {
     let flag = Arc::new(AtomicBool::new(false));
     let tool = EnterPlanModeTool::new(flag);
     let schema = tool.input_schema();
-    let required = schema["required"]
-        .as_array()
-        .expect("required should be an array");
+    let required = schema["required"].as_array().expect("required should be an array");
     assert!(required.is_empty(), "no required parameters expected");
 }
 
@@ -209,9 +204,7 @@ fn tc_3_3_09_exit_tool_schema_no_required_params() {
     let flag = Arc::new(AtomicBool::new(false));
     let tool = ExitPlanModeTool::new(flag);
     let schema = tool.input_schema();
-    let required = schema["required"]
-        .as_array()
-        .expect("required should be an array");
+    let required = schema["required"].as_array().expect("required should be an array");
     assert!(required.is_empty(), "no required parameters expected");
 }
 

@@ -61,7 +61,7 @@ pub struct CompactConfig {
     pub cache_diagnostics: bool,
 
     #[serde(default)]
-    pub compaction: aion_compact::CompactionLevel,
+    pub compaction: aion_compact::CompactLevel,
 
     #[serde(default)]
     pub toon: bool,
@@ -81,7 +81,7 @@ impl Default for CompactConfig {
             autocompact_threshold_pct: None,
             enabled: default_true(),
             cache_diagnostics: false,
-            compaction: aion_compact::CompactionLevel::default(),
+            compaction: aion_compact::CompactLevel::default(),
             toon: false,
         }
     }
@@ -220,7 +220,7 @@ cache_diagnostics = true
     #[test]
     fn default_compaction_is_safe() {
         let cfg = CompactConfig::default();
-        assert_eq!(cfg.compaction, aion_compact::CompactionLevel::Safe);
+        assert_eq!(cfg.compaction, aion_compact::CompactLevel::Safe);
     }
 
     #[test]
@@ -233,14 +233,14 @@ cache_diagnostics = true
     fn toml_compaction_level_override() {
         let toml_str = r#"compaction = "full""#;
         let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(cfg.compaction, aion_compact::CompactionLevel::Full);
+        assert_eq!(cfg.compaction, aion_compact::CompactLevel::Full);
     }
 
     #[test]
     fn toml_compaction_off() {
         let toml_str = r#"compaction = "off""#;
         let cfg: CompactConfig = toml::from_str(toml_str).unwrap();
-        assert_eq!(cfg.compaction, aion_compact::CompactionLevel::Off);
+        assert_eq!(cfg.compaction, aion_compact::CompactLevel::Off);
     }
 
     #[test]

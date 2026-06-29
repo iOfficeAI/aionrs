@@ -157,8 +157,7 @@ async fn test_openai_stream_text_response() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -221,12 +220,7 @@ async fn test_openai_initial_connect_error_is_retried() {
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
-    assert_eq!(
-        events.len(),
-        2,
-        "expected retry success events, got: {:?}",
-        events
-    );
+    assert_eq!(events.len(), 2, "expected retry success events, got: {:?}", events);
     match &events[0] {
         LlmEvent::TextDelta(text) => assert_eq!(text, "Recovered"),
         e => panic!("expected TextDelta, got: {:?}", e),
@@ -313,8 +307,7 @@ async fn test_openai_stream_tool_call_aggregation() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -322,9 +315,7 @@ async fn test_openai_stream_tool_call_aggregation() {
     assert_eq!(events.len(), 2, "expected 2 events, got: {:?}", events);
 
     match &events[0] {
-        LlmEvent::ToolUse {
-            id, name, input, ..
-        } => {
+        LlmEvent::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "call_abc123");
             assert_eq!(name, "read_file");
             assert_eq!(input["path"], "/tmp/test.txt");
@@ -420,8 +411,7 @@ async fn test_openai_multiple_tool_calls() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -429,9 +419,7 @@ async fn test_openai_multiple_tool_calls() {
     assert_eq!(events.len(), 3, "expected 3 events, got: {:?}", events);
 
     match &events[0] {
-        LlmEvent::ToolUse {
-            id, name, input, ..
-        } => {
+        LlmEvent::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "call_tool0");
             assert_eq!(name, "list_files");
             assert_eq!(input["dir"], "/tmp");
@@ -440,9 +428,7 @@ async fn test_openai_multiple_tool_calls() {
     }
 
     match &events[1] {
-        LlmEvent::ToolUse {
-            id, name, input, ..
-        } => {
+        LlmEvent::ToolUse { id, name, input, .. } => {
             assert_eq!(id, "call_tool1");
             assert_eq!(name, "read_file");
             assert_eq!(input["path"], "/etc/hosts");
@@ -507,7 +493,8 @@ async fn test_openai_stream_state_transitions() {
     sse_body.push_str("\n\n");
     sse_body.push_str("data: [DONE]\n\n");
     // Stray chunk after [DONE] — must be ignored
-    sse_body.push_str("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ignored\"},\"finish_reason\":null}]}\n\n");
+    sse_body
+        .push_str("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ignored\"},\"finish_reason\":null}]}\n\n");
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
@@ -515,8 +502,7 @@ async fn test_openai_stream_state_transitions() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -551,9 +537,10 @@ async fn test_openai_api_error_non_success_status() {
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(401).set_body_string(
-            r#"{"error":{"message":"Invalid API key","type":"invalid_request_error"}}"#,
-        ))
+        .respond_with(
+            ResponseTemplate::new(401)
+                .set_body_string(r#"{"error":{"message":"Invalid API key","type":"invalid_request_error"}}"#),
+        )
         .mount(&server)
         .await;
 
@@ -575,15 +562,15 @@ async fn test_aio_140_openai_tools_wire_shape_mismatch_error_is_readable_and_not
 
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(ResponseTemplate::new(400).set_body_string(
-            r#"{"error":{"message":"Input tag function does not match expected custom"}}"#,
-        ))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_string(r#"{"error":{"message":"Input tag function does not match expected custom"}}"#),
+        )
         .expect(1)
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let result = provider.stream(&make_request_with_tool()).await;
 
     server.verify().await;
@@ -620,8 +607,7 @@ async fn test_openai_rate_limited() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let result = provider.stream(&make_request()).await;
 
     assert!(result.is_err());
@@ -676,8 +662,7 @@ async fn test_openai_stream_max_tokens_stop_reason() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 
@@ -746,8 +731,7 @@ async fn test_openai_stream_empty_content_delta_skipped() {
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(&make_request()).await.unwrap();
     let events = collect_events(rx).await;
 

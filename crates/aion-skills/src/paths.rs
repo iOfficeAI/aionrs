@@ -130,10 +130,7 @@ mod tests {
         if let Some(dir) = user_skills_dir() {
             let s = dir.to_string_lossy();
             assert!(s.contains("aionrs"), "expected 'aionrs' in path: {s}");
-            assert!(
-                s.ends_with("skills"),
-                "expected path to end with 'skills': {s}"
-            );
+            assert!(s.ends_with("skills"), "expected path to end with 'skills': {s}");
         }
         // If app_config_dir() returns None (rare), that's acceptable.
     }
@@ -297,10 +294,7 @@ mod supplemental_tests {
 
         // Implementation uses .exists() which is true for both files and dirs
         let found = find_git_root(root);
-        assert!(
-            found.is_some(),
-            ".git file should be recognized as git root"
-        );
+        assert!(found.is_some(), ".git file should be recognized as git root");
         assert_eq!(found.unwrap(), root);
     }
 
@@ -321,10 +315,7 @@ mod supplemental_tests {
     fn tc_3_1_user_commands_dir_ends_with_commands() {
         if let Some(dir) = user_commands_dir() {
             let s = dir.to_string_lossy();
-            assert!(
-                s.ends_with("commands"),
-                "path should end with 'commands': {s}"
-            );
+            assert!(s.ends_with("commands"), "path should end with 'commands': {s}");
             assert!(s.contains("aionrs"), "path should contain 'aionrs': {s}");
         }
     }
@@ -339,10 +330,7 @@ mod supplemental_tests {
         fs::create_dir(tmp.path().join(".git")).unwrap();
         // No .aionrs/skills/ created
         let dirs = project_skills_dirs(tmp.path());
-        assert!(
-            dirs.is_empty(),
-            "should be empty when .aionrs/skills/ doesn't exist"
-        );
+        assert!(dirs.is_empty(), "should be empty when .aionrs/skills/ doesn't exist");
     }
 
     #[test]
@@ -443,8 +431,7 @@ mod supplemental_tests {
         make_dir(tmp1.path(), ".aionrs/skills");
         make_dir(tmp2.path(), ".aionrs/skills");
 
-        let result =
-            additional_skills_dirs(&[tmp1.path().to_path_buf(), tmp2.path().to_path_buf()]);
+        let result = additional_skills_dirs(&[tmp1.path().to_path_buf(), tmp2.path().to_path_buf()]);
         assert_eq!(result.len(), 2);
     }
 }

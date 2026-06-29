@@ -53,8 +53,7 @@ impl SseTransport {
             )));
         }
 
-        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>> =
-            Arc::new(Mutex::new(HashMap::new()));
+        let pending: Arc<Mutex<HashMap<u64, oneshot::Sender<JsonRpcResponse>>>> = Arc::new(Mutex::new(HashMap::new()));
 
         // Parse the SSE stream to find the endpoint URL
         // The server sends an "endpoint" event with the POST URL
@@ -96,8 +95,7 @@ impl SseTransport {
             }
         }
 
-        let post_url = post_url
-            .ok_or_else(|| McpError::Transport("No endpoint event received from SSE".into()))?;
+        let post_url = post_url.ok_or_else(|| McpError::Transport("No endpoint event received from SSE".into()))?;
 
         // Spawn background task to listen for SSE responses
         let pending_clone = pending.clone();
@@ -117,10 +115,8 @@ impl SseTransport {
                         && let Ok(response) = serde_json::from_str::<JsonRpcResponse>(&event_data)
                         && let Some(id) = response.id
                     {
-                        let mut map: tokio::sync::MutexGuard<
-                            '_,
-                            HashMap<u64, oneshot::Sender<JsonRpcResponse>>,
-                        > = pending_clone.lock().await;
+                        let mut map: tokio::sync::MutexGuard<'_, HashMap<u64, oneshot::Sender<JsonRpcResponse>>> =
+                            pending_clone.lock().await;
                         if let Some(sender) = map.remove(&id) {
                             let _ = sender.send(response);
                         }
@@ -154,16 +150,14 @@ impl McpTransport for SseTransport {
         // Set up response channel before sending
         let (tx, rx) = oneshot::channel::<JsonRpcResponse>();
         {
-            let mut map: tokio::sync::MutexGuard<
-                '_,
-                HashMap<u64, oneshot::Sender<JsonRpcResponse>>,
-            > = self.pending.lock().await;
+            let mut map: tokio::sync::MutexGuard<'_, HashMap<u64, oneshot::Sender<JsonRpcResponse>>> =
+                self.pending.lock().await;
             map.insert(req_id, tx);
         }
 
         // POST the request
-        let body = serde_json::to_string(req)
-            .map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
+        let body =
+            serde_json::to_string(req).map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
 
         let response = self
             .client
@@ -200,8 +194,8 @@ impl McpTransport for SseTransport {
     }
 
     async fn notify(&self, req: &JsonRpcRequest) -> Result<(), McpError> {
-        let body = serde_json::to_string(req)
-            .map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
+        let body =
+            serde_json::to_string(req).map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
 
         self.client
             .post(&self.post_url)

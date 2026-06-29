@@ -73,11 +73,7 @@ impl Tool for McpToolProxy {
     }
 
     async fn execute(&self, input: Value) -> ToolResult {
-        match self
-            .manager
-            .call_tool(&self.server_name, &self.tool_name, input)
-            .await
-        {
+        match self.manager.call_tool(&self.server_name, &self.tool_name, input).await {
             Ok(content) => ToolResult {
                 content,
                 is_error: false,
@@ -165,10 +161,7 @@ pub fn register_single_server_tools(
     deferred: bool,
 ) {
     let all_tools = manager.all_tools();
-    let server_tools: Vec<_> = all_tools
-        .iter()
-        .filter(|(sn, _)| *sn == server_name)
-        .collect();
+    let server_tools: Vec<_> = all_tools.iter().filter(|(sn, _)| *sn == server_name).collect();
 
     for (_, tool_def) in &server_tools {
         let original_name = &tool_def.name;

@@ -60,10 +60,7 @@ impl StreamableHttpTransport {
     }
 
     /// Parse response based on content type
-    async fn parse_response(
-        &self,
-        response: reqwest::Response,
-    ) -> Result<JsonRpcResponse, McpError> {
+    async fn parse_response(&self, response: reqwest::Response) -> Result<JsonRpcResponse, McpError> {
         // Capture session ID from response headers
         if let Some(sid) = response.headers().get("mcp-session-id")
             && let Ok(sid_str) = sid.to_str()
@@ -87,17 +84,13 @@ impl StreamableHttpTransport {
                 .text()
                 .await
                 .map_err(|e| McpError::Transport(format!("Read response body failed: {}", e)))?;
-            serde_json::from_str(&text).map_err(|e| {
-                McpError::Transport(format!("Parse JSON response failed: {} — raw: {}", e, text))
-            })
+            serde_json::from_str(&text)
+                .map_err(|e| McpError::Transport(format!("Parse JSON response failed: {} — raw: {}", e, text)))
         }
     }
 
     /// Parse an SSE stream response to extract JSON-RPC response
-    async fn parse_sse_response(
-        &self,
-        response: reqwest::Response,
-    ) -> Result<JsonRpcResponse, McpError> {
+    async fn parse_sse_response(&self, response: reqwest::Response) -> Result<JsonRpcResponse, McpError> {
         use futures::StreamExt;
 
         let mut stream = response.bytes_stream();
@@ -112,9 +105,7 @@ impl StreamableHttpTransport {
             }
         }
 
-        Err(McpError::Transport(
-            "SSE stream ended without JSON-RPC response".into(),
-        ))
+        Err(McpError::Transport("SSE stream ended without JSON-RPC response".into()))
     }
 }
 
@@ -151,8 +142,8 @@ fn extract_jsonrpc_from_sse_buffer(buffer: &str) -> Option<JsonRpcResponse> {
 #[async_trait]
 impl McpTransport for StreamableHttpTransport {
     async fn request(&self, req: &JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
-        let body = serde_json::to_string(req)
-            .map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
+        let body =
+            serde_json::to_string(req).map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
 
         let http_req = self.build_request(&body).await;
         let response = http_req
@@ -180,8 +171,8 @@ impl McpTransport for StreamableHttpTransport {
     }
 
     async fn notify(&self, req: &JsonRpcRequest) -> Result<(), McpError> {
-        let body = serde_json::to_string(req)
-            .map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
+        let body =
+            serde_json::to_string(req).map_err(|e| McpError::Transport(format!("JSON serialize error: {}", e)))?;
 
         let http_req = self.build_request(&body).await;
         http_req

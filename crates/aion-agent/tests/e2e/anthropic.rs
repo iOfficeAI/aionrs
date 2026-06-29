@@ -13,9 +13,7 @@ use aion_tools::registry::ToolRegistry;
 
 /// Skip the test if ANTHROPIC_API_KEY is not set.
 fn anthropic_api_key() -> Option<String> {
-    std::env::var("ANTHROPIC_API_KEY")
-        .ok()
-        .filter(|k| !k.is_empty())
+    std::env::var("ANTHROPIC_API_KEY").ok().filter(|k| !k.is_empty())
 }
 
 fn anthropic_config(api_key: &str) -> Config {
@@ -68,8 +66,7 @@ async fn test_anthropic_single_turn_completion() {
     let output: Arc<dyn OutputSink> = Arc::new(TerminalSink::new(true));
     let registry = ToolRegistry::new();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Say 'hello world' and nothing else.", "")
         .await
@@ -104,16 +101,12 @@ async fn test_anthropic_tool_use() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(ReadTool::new(None)));
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let prompt = format!(
         "Read the file at path '{}' and tell me what it contains. Be brief.",
         path
     );
-    let result = engine
-        .run(&prompt, "")
-        .await
-        .expect("engine.run should not fail");
+    let result = engine.run(&prompt, "").await.expect("engine.run should not fail");
 
     assert!(!result.text.is_empty(), "response text should not be empty");
     // The model should have called Read and seen our content

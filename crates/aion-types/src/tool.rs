@@ -163,10 +163,7 @@ mod tests {
     #[test]
     fn truncate_at_blank_line() {
         let desc = "First paragraph here.\n\nSecond paragraph with details.";
-        assert_eq!(
-            truncate_deferred_description(desc),
-            "First paragraph here.…"
-        );
+        assert_eq!(truncate_deferred_description(desc), "First paragraph here.…");
     }
 
     #[test]

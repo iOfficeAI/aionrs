@@ -1,7 +1,7 @@
 mod common;
 
 use aion_agent::orchestration::execute_tool_calls;
-use aion_compact::CompactionLevel;
+use aion_compact::CompactLevel;
 use aion_config::hooks::{HookDef, HookEngine, HooksConfig};
 use aion_tools::registry::ToolRegistry;
 use aion_types::message::ContentBlock;
@@ -54,16 +54,9 @@ async fn test_execute_single_tool_call() {
     let tool_calls = vec![make_tool_use("call-1", "echo")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("execution should succeed");
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("execution should succeed");
 
     assert_eq!(results.len(), 1);
     match &results[0] {
@@ -87,22 +80,12 @@ async fn test_execute_concurrent_safe_tools() {
     registry.register(Box::new(MockTool::new("tool_a", "result_a", false)));
     registry.register(Box::new(MockTool::new("tool_b", "result_b", false)));
 
-    let tool_calls = vec![
-        make_tool_use("id-a", "tool_a"),
-        make_tool_use("id-b", "tool_b"),
-    ];
+    let tool_calls = vec![make_tool_use("id-a", "tool_a"), make_tool_use("id-b", "tool_b")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("execution should succeed");
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("execution should succeed");
 
     assert_eq!(results.len(), 2);
 
@@ -111,9 +94,7 @@ async fn test_execute_concurrent_safe_tools() {
         .iter()
         .filter_map(|r| match r {
             ContentBlock::ToolResult {
-                tool_use_id,
-                content,
-                ..
+                tool_use_id, content, ..
             } => Some((tool_use_id.as_str(), content.as_str())),
             _ => None,
         })
@@ -130,22 +111,12 @@ async fn test_execute_non_concurrent_tools_sequential() {
     registry.register(Box::new(MockTool::sequential("seq_a", "seq_result_a")));
     registry.register(Box::new(MockTool::sequential("seq_b", "seq_result_b")));
 
-    let tool_calls = vec![
-        make_tool_use("id-a", "seq_a"),
-        make_tool_use("id-b", "seq_b"),
-    ];
+    let tool_calls = vec![make_tool_use("id-a", "seq_a"), make_tool_use("id-b", "seq_b")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("execution should succeed");
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("execution should succeed");
 
     assert_eq!(results.len(), 2);
 
@@ -153,9 +124,7 @@ async fn test_execute_non_concurrent_tools_sequential() {
         .iter()
         .filter_map(|r| match r {
             ContentBlock::ToolResult {
-                tool_use_id,
-                content,
-                ..
+                tool_use_id, content, ..
             } => Some((tool_use_id.as_str(), content.as_str())),
             _ => None,
         })
@@ -173,22 +142,13 @@ async fn test_unknown_tool_returns_error() {
     let tool_calls = vec![make_tool_use("id-x", "nonexistent_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("execute_tool_calls itself should not fail");
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("execute_tool_calls itself should not fail");
 
     assert_eq!(results.len(), 1);
     match &results[0] {
-        ContentBlock::ToolResult {
-            content, is_error, ..
-        } => {
+        ContentBlock::ToolResult { content, is_error, .. } => {
             assert!(*is_error, "unknown tool should produce is_error = true");
             assert!(
                 content.contains("Unknown tool"),
@@ -209,22 +169,13 @@ async fn test_tool_error_returns_error_result() {
     let tool_calls = vec![make_tool_use("id-fail", "fail_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("execution should succeed");
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("execution should succeed");
 
     assert_eq!(results.len(), 1);
     match &results[0] {
-        ContentBlock::ToolResult {
-            content, is_error, ..
-        } => {
+        ContentBlock::ToolResult { content, is_error, .. } => {
             assert!(*is_error, "tool error should propagate as is_error = true");
             assert_eq!(content, "error message");
         }
@@ -253,7 +204,7 @@ async fn test_pre_hook_blocks_tool() {
         &tool_calls,
         &confirmer,
         Some(&mut hook_engine),
-        CompactionLevel::Off,
+        CompactLevel::Off,
         false,
     )
     .await
@@ -261,13 +212,8 @@ async fn test_pre_hook_blocks_tool() {
 
     assert_eq!(results.len(), 1);
     match &results[0] {
-        ContentBlock::ToolResult {
-            content, is_error, ..
-        } => {
-            assert!(
-                *is_error,
-                "blocked execution should produce is_error = true"
-            );
+        ContentBlock::ToolResult { content, is_error, .. } => {
+            assert!(*is_error, "blocked execution should produce is_error = true");
             assert!(
                 content.contains("Blocked by hook"),
                 "result should mention 'Blocked by hook', got: {}",
@@ -299,7 +245,7 @@ async fn test_post_hook_runs_after_tool() {
         &tool_calls,
         &confirmer,
         Some(&mut hook_engine),
-        CompactionLevel::Off,
+        CompactLevel::Off,
         false,
     )
     .await
@@ -307,9 +253,7 @@ async fn test_post_hook_runs_after_tool() {
 
     assert_eq!(results.len(), 1);
     match &results[0] {
-        ContentBlock::ToolResult {
-            content, is_error, ..
-        } => {
+        ContentBlock::ToolResult { content, is_error, .. } => {
             // Post-hooks must not mutate the tool result
             assert!(!is_error);
             assert_eq!(content, "result");
@@ -330,22 +274,13 @@ async fn test_tool_result_truncation() {
     let tool_calls = vec![make_tool_use("id-big", "big_tool")];
     let confirmer = auto_approve_confirmer();
 
-    let results = execute_tool_calls(
-        &registry,
-        &tool_calls,
-        &confirmer,
-        None,
-        CompactionLevel::Off,
-        false,
-    )
-    .await
-    .expect("execution should succeed");
+    let results = execute_tool_calls(&registry, &tool_calls, &confirmer, None, CompactLevel::Off, false)
+        .await
+        .expect("execution should succeed");
 
     assert_eq!(results.len(), 1);
     match &results[0] {
-        ContentBlock::ToolResult {
-            content, is_error, ..
-        } => {
+        ContentBlock::ToolResult { content, is_error, .. } => {
             assert!(!is_error);
             assert!(
                 content.len() < long_result.len(),

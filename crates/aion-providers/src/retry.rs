@@ -207,18 +207,14 @@ mod tests {
             let counter = Arc::clone(&counter);
             async move {
                 counter.fetch_add(1, Ordering::SeqCst);
-                Err::<(), _>(ProviderError::RateLimited {
-                    retry_after_ms: 5000,
-                })
+                Err::<(), _>(ProviderError::RateLimited { retry_after_ms: 5000 })
             }
         })
         .await;
 
         assert!(matches!(
             result.unwrap_err(),
-            ProviderError::RateLimited {
-                retry_after_ms: 5000
-            }
+            ProviderError::RateLimited { retry_after_ms: 5000 }
         ));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }

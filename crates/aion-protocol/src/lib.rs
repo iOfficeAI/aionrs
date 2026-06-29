@@ -49,11 +49,7 @@ impl ToolApprovalManager {
         }
     }
 
-    pub fn request_approval(
-        &self,
-        call_id: &str,
-        category: &ToolCategory,
-    ) -> oneshot::Receiver<ToolApprovalResult> {
+    pub fn request_approval(&self, call_id: &str, category: &ToolCategory) -> oneshot::Receiver<ToolApprovalResult> {
         let (tx, rx) = oneshot::channel();
         if let Ok(mut pending) = self.pending.lock() {
             pending.insert(
@@ -68,11 +64,7 @@ impl ToolApprovalManager {
     }
 
     pub fn approve(&self, call_id: &str, scope: ApprovalScope) {
-        let pending = self
-            .pending
-            .lock()
-            .ok()
-            .and_then(|mut pending| pending.remove(call_id));
+        let pending = self.pending.lock().ok().and_then(|mut pending| pending.remove(call_id));
 
         if let Some(pending) = pending {
             if matches!(scope, ApprovalScope::Always) {
@@ -83,12 +75,7 @@ impl ToolApprovalManager {
     }
 
     pub fn resolve(&self, call_id: &str, result: ToolApprovalResult) {
-        if let Some(pending) = self
-            .pending
-            .lock()
-            .ok()
-            .and_then(|mut pending| pending.remove(call_id))
-        {
+        if let Some(pending) = self.pending.lock().ok().and_then(|mut pending| pending.remove(call_id)) {
             let _ = pending.tx.send(result);
         }
     }

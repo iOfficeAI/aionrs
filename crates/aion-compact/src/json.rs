@@ -80,14 +80,8 @@ mod tests {
     "phone": "+1-555-0123"
 }"#;
         let result = compact_json(input);
-        assert!(
-            result.contains("  \"name\""),
-            "should use 2-space indent: {result}"
-        );
-        assert!(
-            !result.contains("    \"name\""),
-            "should not have 4-space indent"
-        );
+        assert!(result.contains("  \"name\""), "should use 2-space indent: {result}");
+        assert!(!result.contains("    \"name\""), "should not have 4-space indent");
     }
 
     #[test]
@@ -100,8 +94,7 @@ mod tests {
 }"#;
         let result = compact_json(input);
         assert!(
-            result.contains(r#"{"id":1,"name":"Alice"}"#)
-                || result.contains(r#"{"id": 1, "name": "Alice"}"#),
+            result.contains(r#"{"id":1,"name":"Alice"}"#) || result.contains(r#"{"id": 1, "name": "Alice"}"#),
             "short nested object should be inlined: {result}"
         );
     }
@@ -116,11 +109,7 @@ mod tests {
     fn compact_already_minified() {
         let input = r#"{"id":1,"name":"Alice"}"#;
         let result = compact_json(input);
-        assert_eq!(
-            result.len(),
-            input.len(),
-            "already compact JSON should not grow"
-        );
+        assert_eq!(result.len(), input.len(), "already compact JSON should not grow");
     }
 
     #[test]

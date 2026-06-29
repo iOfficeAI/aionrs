@@ -22,10 +22,7 @@ pub struct ResolvedLogging {
 #[derive(Debug, thiserror::Error)]
 pub enum LoggingError {
     #[error("failed to create log directory '{path}': {source}")]
-    CreateDir {
-        path: PathBuf,
-        source: std::io::Error,
-    },
+    CreateDir { path: PathBuf, source: std::io::Error },
     #[error("failed to build log file appender: {0}")]
     AppenderInit(String),
     #[error("invalid log level filter '{filter}': {reason}")]
@@ -113,11 +110,7 @@ impl LoggingConfig {
         }
     }
 
-    pub fn resolve(
-        &self,
-        cli_log_dir: Option<&str>,
-        cli_log_level: Option<&str>,
-    ) -> ResolvedLogging {
+    pub fn resolve(&self, cli_log_dir: Option<&str>, cli_log_level: Option<&str>) -> ResolvedLogging {
         let dir = cli_log_dir
             .map(PathBuf::from)
             .or_else(|| self.dir.as_ref().map(PathBuf::from))
@@ -131,11 +124,7 @@ impl LoggingConfig {
             .or_else(|| self.level.clone())
             .unwrap_or_else(|| "info".to_string());
 
-        ResolvedLogging {
-            enabled,
-            level,
-            dir,
-        }
+        ResolvedLogging { enabled, level, dir }
     }
 }
 

@@ -62,20 +62,11 @@ async fn bootstrap_registers_all_expected_tools() {
     let names = result.engine.tool_names();
 
     for expected in &["Read", "Write", "Edit", "ExecCommand", "Grep", "Glob"] {
-        assert!(
-            names.iter().any(|n| n == expected),
-            "missing built-in tool: {expected}"
-        );
+        assert!(names.iter().any(|n| n == expected), "missing built-in tool: {expected}");
     }
 
-    assert!(
-        names.iter().any(|n| n == "Skill"),
-        "SkillTool should be registered"
-    );
-    assert!(
-        names.iter().any(|n| n == "Spawn"),
-        "SpawnTool should be registered"
-    );
+    assert!(names.iter().any(|n| n == "Skill"), "SkillTool should be registered");
+    assert!(names.iter().any(|n| n == "Spawn"), "SpawnTool should be registered");
     assert!(
         names.iter().any(|n| n == "ToolSearch"),
         "ToolSearchTool should be registered"

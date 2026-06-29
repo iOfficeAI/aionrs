@@ -16,10 +16,7 @@ pub enum ProviderError {
 
 impl ProviderError {
     pub fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            ProviderError::RateLimited { .. } | ProviderError::Connection(_)
-        )
+        matches!(self, ProviderError::RateLimited { .. } | ProviderError::Connection(_))
     }
 }
 
@@ -37,12 +34,7 @@ mod retryable_tests {
             }
             .is_retryable()
         );
-        assert!(
-            ProviderError::RateLimited {
-                retry_after_ms: 1000
-            }
-            .is_retryable()
-        );
+        assert!(ProviderError::RateLimited { retry_after_ms: 1000 }.is_retryable());
         assert!(ProviderError::Connection("x".into()).is_retryable());
     }
 }

@@ -13,9 +13,7 @@ fn malformed_history() -> Vec<Message> {
         Message::new(
             Role::Assistant,
             vec![
-                ContentBlock::Text {
-                    text: "writing".into(),
-                },
+                ContentBlock::Text { text: "writing".into() },
                 ContentBlock::ToolUse {
                     id: "call_x".into(),
                     name: "".into(),
@@ -90,15 +88,12 @@ async fn openai_projected_messages(request: &LlmRequest) -> Vec<Value> {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(openai_sse_body(), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(openai_sse_body(), "text/event-stream"))
         .expect(1)
         .mount(&server)
         .await;
 
-    let provider =
-        OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
+    let provider = OpenAIProvider::new("test-key", &server.uri(), ProviderCompat::openai_defaults());
     let rx = provider.stream(request).await.unwrap();
     let _ = collect_events(rx).await;
 
@@ -116,14 +111,10 @@ async fn test_projection_does_not_mutate_history() {
     let before = serde_json::to_string(&request.messages).unwrap();
 
     let _ = openai_projected_messages(&request).await;
-    let _ =
-        anthropic_shared::build_messages(&request.messages, &ProviderCompat::anthropic_defaults());
+    let _ = anthropic_shared::build_messages(&request.messages, &ProviderCompat::anthropic_defaults());
 
     let after = serde_json::to_string(&request.messages).unwrap();
-    assert_eq!(
-        before, after,
-        "history MUST be byte-identical after projection"
-    );
+    assert_eq!(before, after, "history MUST be byte-identical after projection");
 }
 
 // F1-12
@@ -172,8 +163,7 @@ async fn test_public_projection_drops_reverse_orphan_results() {
     let after = serde_json::to_string(&request.messages).unwrap();
     assert_eq!(before, after);
 
-    let an =
-        anthropic_shared::build_messages(&request.messages, &ProviderCompat::anthropic_defaults());
+    let an = anthropic_shared::build_messages(&request.messages, &ProviderCompat::anthropic_defaults());
     let any_orphan = an
         .iter()
         .flat_map(|m| m["content"].as_array().cloned().unwrap_or_default())
@@ -190,9 +180,7 @@ async fn test_public_projection_downgrades_empty_id_when_auto_id_disabled() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_raw(openai_sse_body(), "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(openai_sse_body(), "text/event-stream"))
         .expect(1)
         .mount(&server)
         .await;

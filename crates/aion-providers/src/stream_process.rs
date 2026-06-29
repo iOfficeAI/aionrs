@@ -16,15 +16,9 @@ pub(crate) enum StreamDecoder {
 }
 
 impl StreamDecoder {
-    pub(crate) async fn process(
-        self,
-        response: reqwest::Response,
-        tx: &mpsc::Sender<LlmEvent>,
-    ) -> StreamOutcome {
+    pub(crate) async fn process(self, response: reqwest::Response, tx: &mpsc::Sender<LlmEvent>) -> StreamOutcome {
         match self {
-            Self::OpenAiSseLine { auto_tool_id } => {
-                process_openai_sse_stream(response, tx, auto_tool_id).await
-            }
+            Self::OpenAiSseLine { auto_tool_id } => process_openai_sse_stream(response, tx, auto_tool_id).await,
             Self::AnthropicSseBlock => process_anthropic_sse_stream(response, tx).await,
             Self::BedrockAwsEventStream => process_bedrock_aws_event_stream(response, tx).await,
         }
@@ -305,8 +299,7 @@ mod tests {
 
         assert!(parse_aws_event(&message[..message.len() - 1]).is_none());
 
-        let (event_data, consumed) =
-            parse_aws_event(&message).expect("complete event should parse");
+        let (event_data, consumed) = parse_aws_event(&message).expect("complete event should parse");
         assert_eq!(event_data, Some(payload.to_vec()));
         assert_eq!(consumed, message.len());
     }

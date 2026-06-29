@@ -8,9 +8,8 @@ use serde_json::json;
 
 use super::config::{McpServerConfig, TransportType};
 use super::protocol::{
-    ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, JsonRpcRequest,
-    McpResource, McpToolDef, McpToolResult, ResourcesListResult, ResourcesReadResult,
-    ToolsListResult,
+    ClientCapabilities, ClientInfo, InitializeParams, InitializeResult, JsonRpcRequest, McpResource, McpToolDef,
+    McpToolResult, ResourcesListResult, ResourcesReadResult, ToolsListResult,
 };
 use super::transport::sse::SseTransport;
 use super::transport::stdio::StdioTransport;
@@ -86,11 +85,7 @@ impl McpManager {
     }
 
     fn startup_timeout(config: &McpServerConfig) -> Duration {
-        Duration::from_millis(
-            config
-                .startup_timeout_ms
-                .unwrap_or(DEFAULT_STARTUP_TIMEOUT_MS),
-        )
+        Duration::from_millis(config.startup_timeout_ms.unwrap_or(DEFAULT_STARTUP_TIMEOUT_MS))
     }
 
     async fn with_startup_timeout<Fut>(
@@ -113,13 +108,8 @@ impl McpManager {
 
     /// Connect a single additional MCP server after initial setup.
     /// Returns the list of tool names exposed by the server.
-    pub async fn connect_one(
-        &mut self,
-        name: String,
-        config: &McpServerConfig,
-    ) -> Result<Vec<String>, McpError> {
-        let server =
-            Self::with_startup_timeout(&name, config, Self::connect_server(&name, config)).await?;
+    pub async fn connect_one(&mut self, name: String, config: &McpServerConfig) -> Result<Vec<String>, McpError> {
+        let server = Self::with_startup_timeout(&name, config, Self::connect_server(&name, config)).await?;
         let tool_names: Vec<String> = server.tools.iter().map(|t| t.name.clone()).collect();
         tracing::info!(target: "aion_mcp", server = %name, tools = server.tools.len(), resources = server.supports_resources, "mcp server connected");
         self.servers.insert(name, server);
@@ -133,9 +123,10 @@ impl McpManager {
         // 1. Create transport
         let transport: Box<dyn McpTransport> = match config.transport {
             TransportType::Stdio => {
-                let command = config.command.as_deref().ok_or_else(|| {
-                    McpError::InitFailed("stdio transport requires 'command'".into())
-                })?;
+                let command = config
+                    .command
+                    .as_deref()
+                    .ok_or_else(|| McpError::InitFailed("stdio transport requires 'command'".into()))?;
                 let args = config.args.as_deref().unwrap_or(&[]);
                 let env = config.env.as_ref().unwrap_or(&empty_map);
                 Box::new(StdioTransport::spawn(command, args, env).await?)
@@ -149,9 +140,10 @@ impl McpManager {
                 Box::new(SseTransport::connect(url, headers).await?)
             }
             TransportType::StreamableHttp => {
-                let url = config.url.as_deref().ok_or_else(|| {
-                    McpError::InitFailed("streamable-http transport requires 'url'".into())
-                })?;
+                let url = config
+                    .url
+                    .as_deref()
+                    .ok_or_else(|| McpError::InitFailed("streamable-http transport requires 'url'".into()))?;
                 let headers = config.headers.as_ref().unwrap_or(&empty_map);
                 Box::new(StreamableHttpTransport::connect(url, headers).await?)
             }
@@ -160,9 +152,7 @@ impl McpManager {
         // 2. Initialize handshake
         let init_params = InitializeParams {
             protocol_version: "2025-03-26".to_string(),
-            capabilities: ClientCapabilities {
-                tools: Some(json!({})),
-            },
+            capabilities: ClientCapabilities { tools: Some(json!({})) },
             client_info: ClientInfo {
                 name: "aionrs".to_string(),
                 version: "0.3.0".to_string(),
@@ -172,9 +162,10 @@ impl McpManager {
         let init_req = JsonRpcRequest::new(
             1,
             "initialize",
-            Some(serde_json::to_value(&init_params).map_err(|e| {
-                McpError::InitFailed(format!("Failed to serialize init params: {}", e))
-            })?),
+            Some(
+                serde_json::to_value(&init_params)
+                    .map_err(|e| McpError::InitFailed(format!("Failed to serialize init params: {}", e)))?,
+            ),
         );
 
         let init_response = transport.request(&init_req).await?;
@@ -193,8 +184,7 @@ impl McpManager {
             .unwrap_or(false);
 
         // 3. Send initialized notification
-        let initialized_notification =
-            JsonRpcRequest::notification("notifications/initialized", None);
+        let initialized_notification = JsonRpcRequest::notification("notifications/initialized", None);
         transport.notify(&initialized_notification).await?;
 
         // 4. List tools
@@ -228,9 +218,7 @@ impl McpManager {
 
     /// Check if a tool name exists across any server
     pub fn has_tool_name(&self, name: &str) -> bool {
-        self.servers
-            .values()
-            .any(|s| s.tools.iter().any(|t| t.name == name))
+        self.servers.values().any(|s| s.tools.iter().any(|t| t.name == name))
     }
 
     /// Count how many servers have a tool with the given name
@@ -359,9 +347,7 @@ impl McpManager {
 
     /// Test-only constructor: build a manager from pre-configured servers.
     #[cfg(any(test, feature = "test-utils"))]
-    pub fn new_for_test(
-        entries: Vec<(&str, bool, Box<dyn super::transport::McpTransport>)>,
-    ) -> Self {
+    pub fn new_for_test(entries: Vec<(&str, bool, Box<dyn super::transport::McpTransport>)>) -> Self {
         let mut servers = HashMap::new();
         for (name, supports_resources, transport) in entries {
             servers.insert(
@@ -416,11 +402,7 @@ mod tests {
     impl McpTransport for MockTransport {
         async fn request(&self, _req: &JsonRpcRequest) -> Result<JsonRpcResponse, McpError> {
             let mut guard = self.responses.lock().unwrap();
-            let value = if guard.is_empty() {
-                json!(null)
-            } else {
-                guard.remove(0)
-            };
+            let value = if guard.is_empty() { json!(null) } else { guard.remove(0) };
             Ok(JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 id: Some(1),
@@ -485,10 +467,7 @@ mod tests {
         }
     }
 
-    async fn delayed_test_connect(
-        name: String,
-        config: McpServerConfig,
-    ) -> Result<McpServer, McpError> {
+    async fn delayed_test_connect(name: String, config: McpServerConfig) -> Result<McpServer, McpError> {
         let delay_ms = config
             .args
             .as_ref()
@@ -556,11 +535,7 @@ mod tests {
     #[test]
     fn tc_2_1_server_supports_resources_true() {
         // [黑盒] TC-2.1: server with resources capability returns true
-        let manager = make_manager_with_servers(vec![(
-            "test-server",
-            true,
-            Box::new(MockTransport::new(vec![])),
-        )]);
+        let manager = make_manager_with_servers(vec![("test-server", true, Box::new(MockTransport::new(vec![])))]);
 
         assert!(manager.server_supports_resources("test-server"));
     }
@@ -626,11 +601,7 @@ mod tests {
     #[test]
     fn tc_2_wb_server_names_returns_owned_strings() {
         // [白盒] Decision 1: server_names() returns Vec<String> not Vec<&str>
-        let manager = make_manager_with_servers(vec![(
-            "my-server",
-            false,
-            Box::new(MockTransport::new(vec![])),
-        )]);
+        let manager = make_manager_with_servers(vec![("my-server", false, Box::new(MockTransport::new(vec![])))]);
 
         let names: Vec<String> = manager.server_names();
         assert_eq!(names, vec!["my-server"]);
@@ -707,22 +678,16 @@ mod tests {
             Box::new(MockTransport::new(vec![read_response])),
         )]);
 
-        let result = manager
-            .read_resource("test-server", "skill://my-skill")
-            .await
-            .unwrap();
+        let result = manager.read_resource("test-server", "skill://my-skill").await.unwrap();
         assert!(result.contains("description: A skill"));
     }
 
     #[tokio::test]
     async fn tc_2_8_read_resource_transport_error() {
         // [黑盒] TC-2.8: read_resource returns error when server returns transport error
-        let manager =
-            make_manager_with_servers(vec![("test-server", true, Box::new(ErrorTransport))]);
+        let manager = make_manager_with_servers(vec![("test-server", true, Box::new(ErrorTransport))]);
 
-        let result = manager
-            .read_resource("test-server", "skill://nonexistent")
-            .await;
+        let result = manager.read_resource("test-server", "skill://nonexistent").await;
         assert!(result.is_err());
     }
 
@@ -731,9 +696,7 @@ mod tests {
         // [黑盒] TC-2.9: read_resource returns error when server does not exist
         let manager = make_manager_with_servers(vec![]);
 
-        let result = manager
-            .read_resource("nonexistent", "skill://my-skill")
-            .await;
+        let result = manager.read_resource("nonexistent", "skill://my-skill").await;
         assert!(result.is_err());
         match result.unwrap_err() {
             McpError::ServerNotFound(name) => assert_eq!(name, "nonexistent"),
@@ -774,10 +737,7 @@ mod tests {
             Box::new(MockTransport::new(vec![read_response])),
         )]);
 
-        let result = manager
-            .read_resource("test-server", "skill://x")
-            .await
-            .unwrap();
+        let result = manager.read_resource("test-server", "skill://x").await.unwrap();
         assert_eq!(result, "actual content");
     }
 
@@ -786,12 +746,8 @@ mod tests {
         // [白盒] Decision 4: AtomicU64 counter starts at 10 to avoid conflict with connect_server IDs 1/2
         let manager = make_manager_with_servers(vec![]);
         // next_id is private — we verify by doing two fetch_adds and checking values are 10 and 11
-        let id1 = manager
-            .next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let id2 = manager
-            .next_id
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id1 = manager.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id2 = manager.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         assert_eq!(id1, 10, "first ID should be 10");
         assert_eq!(id2, 11, "second ID should be 11");
     }

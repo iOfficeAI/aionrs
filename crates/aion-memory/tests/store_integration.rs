@@ -31,14 +31,8 @@ fn tc_3_1_write_then_read_full_memory() {
     let read_back = store::read_memory(&path).unwrap();
 
     assert_eq!(read_back.frontmatter.name, entry.frontmatter.name);
-    assert_eq!(
-        read_back.frontmatter.description,
-        entry.frontmatter.description
-    );
-    assert_eq!(
-        read_back.frontmatter.memory_type,
-        entry.frontmatter.memory_type
-    );
+    assert_eq!(read_back.frontmatter.description, entry.frontmatter.description);
+    assert_eq!(read_back.frontmatter.memory_type, entry.frontmatter.memory_type);
     assert_eq!(read_back.content, entry.content);
 }
 
@@ -164,16 +158,8 @@ fn tc_4_1_scan_multiple_files() {
         "---\ntype: user\ndescription: role\n---\nBody",
     )
     .unwrap();
-    fs::write(
-        dir.join("feedback_testing.md"),
-        "---\ntype: feedback\n---\nBody",
-    )
-    .unwrap();
-    fs::write(
-        dir.join("project_status.md"),
-        "---\ntype: project\n---\nBody",
-    )
-    .unwrap();
+    fs::write(dir.join("feedback_testing.md"), "---\ntype: feedback\n---\nBody").unwrap();
+    fs::write(dir.join("project_status.md"), "---\ntype: project\n---\nBody").unwrap();
     fs::write(dir.join("MEMORY.md"), "# Index\n- [role](user_role.md)").unwrap();
 
     let headers = store::scan_memory_files(dir).unwrap();

@@ -80,9 +80,8 @@ impl OpenAiTransport {
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         let mut headers = HeaderMap::new();
         let bearer = format!("Bearer {}", self.api_key);
-        let auth = HeaderValue::from_str(&bearer).map_err(|error| {
-            ProviderError::Connection(format!("Invalid authorization header: {error}"))
-        })?;
+        let auth = HeaderValue::from_str(&bearer)
+            .map_err(|error| ProviderError::Connection(format!("Invalid authorization header: {error}")))?;
         headers.insert(AUTHORIZATION, auth);
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
@@ -95,10 +94,7 @@ impl OpenAiTransport {
         })
     }
 
-    pub(crate) async fn send(
-        &self,
-        request: ProjectedHttpRequest,
-    ) -> Result<reqwest::Response, ProviderError> {
+    pub(crate) async fn send(&self, request: ProjectedHttpRequest) -> Result<reqwest::Response, ProviderError> {
         send_projected_json_request(&self.client, request).await
     }
 }
@@ -119,17 +115,13 @@ impl AnthropicTransport {
         tool_wire_shape: ResolvedToolWireShape,
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         let mut headers = HeaderMap::new();
-        let api_key = HeaderValue::from_str(&self.api_key).map_err(|error| {
-            ProviderError::Connection(format!("Invalid x-api-key header: {error}"))
-        })?;
+        let api_key = HeaderValue::from_str(&self.api_key)
+            .map_err(|error| ProviderError::Connection(format!("Invalid x-api-key header: {error}")))?;
         headers.insert("x-api-key", api_key);
         headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         if self.cache_enabled {
-            headers.insert(
-                "anthropic-beta",
-                HeaderValue::from_static("prompt-caching-2024-07-31"),
-            );
+            headers.insert("anthropic-beta", HeaderValue::from_static("prompt-caching-2024-07-31"));
         }
 
         Ok(ProjectedHttpRequest {
@@ -141,10 +133,7 @@ impl AnthropicTransport {
         })
     }
 
-    pub(crate) async fn send(
-        &self,
-        request: ProjectedHttpRequest,
-    ) -> Result<reqwest::Response, ProviderError> {
+    pub(crate) async fn send(&self, request: ProjectedHttpRequest) -> Result<reqwest::Response, ProviderError> {
         send_projected_json_request(&self.client, request).await
     }
 }
@@ -154,18 +143,14 @@ impl ProviderTransport {
     pub(crate) fn wire_protocol(&self) -> WireProtocol {
         match self {
             Self::OpenAi(_) => WireProtocol::OpenAiChat,
-            Self::Anthropic(_) | Self::Vertex(_) | Self::Bedrock(_) => {
-                WireProtocol::AnthropicMessages
-            }
+            Self::Anthropic(_) | Self::Vertex(_) | Self::Bedrock(_) => WireProtocol::AnthropicMessages,
         }
     }
 
     pub(crate) fn retry_policy(&self) -> RetryPolicy {
         match self {
             Self::OpenAi(_) => RetryPolicy::new(MAX_STREAM_RETRIES, true, true),
-            Self::Anthropic(_) | Self::Vertex(_) => {
-                RetryPolicy::new(MAX_STREAM_RETRIES, false, true)
-            }
+            Self::Anthropic(_) | Self::Vertex(_) => RetryPolicy::new(MAX_STREAM_RETRIES, false, true),
             Self::Bedrock(_) => RetryPolicy::new(0, false, false),
         }
     }
@@ -187,8 +172,7 @@ impl ProviderTransport {
     ) -> Result<(Value, ResolvedToolWireShape), ProviderError> {
         match self {
             Self::OpenAi(_) => {
-                let body = OpenAiProjector::project(request, compat)
-                    .map_err(projection_to_provider_error)?;
+                let body = OpenAiProjector::project(request, compat).map_err(projection_to_provider_error)?;
                 Ok((body, OpenAiProjector::resolved_tool_wire_shape(compat)))
             }
 
@@ -201,35 +185,21 @@ impl ProviderTransport {
                     cache_enabled: transport.cache_enabled,
                     sanitize_schema: false,
                 };
-                let body = AnthropicWireProjector::project(request, compat, params)
-                    .map_err(projection_to_provider_error)?;
-                Ok((
-                    body,
-                    AnthropicWireProjector::resolved_tool_wire_shape(compat),
-                ))
+                let body =
+                    AnthropicWireProjector::project(request, compat, params).map_err(projection_to_provider_error)?;
+                Ok((body, AnthropicWireProjector::resolved_tool_wire_shape(compat)))
             }
 
             Self::Vertex(transport) => {
-                let body =
-                    AnthropicWireProjector::project(request, compat, transport.inner.wire_params())
-                        .map_err(projection_to_provider_error)?;
-                Ok((
-                    body,
-                    AnthropicWireProjector::resolved_tool_wire_shape(compat),
-                ))
+                let body = AnthropicWireProjector::project(request, compat, transport.inner.wire_params())
+                    .map_err(projection_to_provider_error)?;
+                Ok((body, AnthropicWireProjector::resolved_tool_wire_shape(compat)))
             }
 
             Self::Bedrock(transport) => {
-                let body = AnthropicWireProjector::project(
-                    request,
-                    compat,
-                    transport.inner.wire_params(compat),
-                )
-                .map_err(projection_to_provider_error)?;
-                Ok((
-                    body,
-                    AnthropicWireProjector::resolved_tool_wire_shape(compat),
-                ))
+                let body = AnthropicWireProjector::project(request, compat, transport.inner.wire_params(compat))
+                    .map_err(projection_to_provider_error)?;
+                Ok((body, AnthropicWireProjector::resolved_tool_wire_shape(compat)))
             }
         }
     }
@@ -242,27 +212,18 @@ impl ProviderTransport {
         tool_wire_shape: ResolvedToolWireShape,
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         match self {
-            Self::OpenAi(transport) => {
-                transport.build_projected_request(body, compat, tool_wire_shape)
-            }
+            Self::OpenAi(transport) => transport.build_projected_request(body, compat, tool_wire_shape),
             Self::Anthropic(transport) => transport.build_projected_request(body, tool_wire_shape),
-            Self::Vertex(transport) => {
-                transport
-                    .inner
-                    .build_projected_request(model, body, compat, tool_wire_shape)
-            }
-            Self::Bedrock(transport) => {
-                transport
-                    .inner
-                    .build_projected_request(model, body, compat, tool_wire_shape)
-            }
+            Self::Vertex(transport) => transport
+                .inner
+                .build_projected_request(model, body, compat, tool_wire_shape),
+            Self::Bedrock(transport) => transport
+                .inner
+                .build_projected_request(model, body, compat, tool_wire_shape),
         }
     }
 
-    pub(crate) async fn send(
-        &self,
-        request: ProjectedHttpRequest,
-    ) -> Result<reqwest::Response, ProviderError> {
+    pub(crate) async fn send(&self, request: ProjectedHttpRequest) -> Result<reqwest::Response, ProviderError> {
         match self {
             Self::OpenAi(transport) => transport.send(request).await,
             Self::Anthropic(transport) => transport.send(request).await,
@@ -293,25 +254,15 @@ async fn send_projected_json_request(
     let status = response.status();
     if !status.is_success() {
         let body_text = response.text().await.unwrap_or_default();
-        return Err(map_common_status(
-            status.as_u16(),
-            body_text,
-            tool_wire_shape,
-        ));
+        return Err(map_common_status(status.as_u16(), body_text, tool_wire_shape));
     }
 
     Ok(response)
 }
 
-fn map_common_status(
-    status: u16,
-    body_text: String,
-    tool_wire_shape: ResolvedToolWireShape,
-) -> ProviderError {
+fn map_common_status(status: u16, body_text: String, tool_wire_shape: ResolvedToolWireShape) -> ProviderError {
     if status == 429 {
-        return ProviderError::RateLimited {
-            retry_after_ms: 5000,
-        };
+        return ProviderError::RateLimited { retry_after_ms: 5000 };
     }
 
     if let Some(message) = classify_tools_wire_shape_mismatch(status, &body_text, tool_wire_shape) {
@@ -375,8 +326,7 @@ mod tests {
 
     #[test]
     fn openai_transport_selects_chat_wire_and_openai_decoder() {
-        let transport =
-            ProviderTransport::OpenAi(OpenAiTransport::new("test-key", "https://example.test"));
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", "https://example.test"));
         let compat = ProviderCompat::openai_defaults();
 
         assert_eq!(transport.wire_protocol(), WireProtocol::OpenAiChat);
@@ -388,11 +338,7 @@ mod tests {
 
     #[test]
     fn anthropic_transport_selects_messages_wire_and_anthropic_decoder() {
-        let transport = ProviderTransport::Anthropic(AnthropicTransport::new(
-            "test-key",
-            "https://example.test",
-            true,
-        ));
+        let transport = ProviderTransport::Anthropic(AnthropicTransport::new("test-key", "https://example.test", true));
         let compat = ProviderCompat::anthropic_defaults();
 
         assert_eq!(transport.wire_protocol(), WireProtocol::AnthropicMessages);
@@ -402,12 +348,7 @@ mod tests {
     #[test]
     fn vertex_transport_projects_vertex_anthropic_body_shape() {
         let transport = ProviderTransport::Vertex(VertexTransport {
-            inner: VertexTransportState::new(
-                "test-project",
-                "us-central1",
-                GcpAuth::ApplicationDefault,
-                false,
-            ),
+            inner: VertexTransportState::new("test-project", "us-central1", GcpAuth::ApplicationDefault, false),
         });
         let request = test_request(vec![test_tool()]);
         let compat = ProviderCompat::anthropic_defaults();
@@ -451,17 +392,12 @@ mod tests {
         assert_eq!(body["anthropic_version"], "bedrock-2023-05-31");
         assert!(body.get("model").is_none());
         assert!(body.get("stream").is_none());
-        assert!(
-            body["tools"][0]["input_schema"]
-                .get("additionalProperties")
-                .is_none()
-        );
+        assert!(body["tools"][0]["input_schema"].get("additionalProperties").is_none());
     }
 
     #[test]
     fn openai_transport_projects_openai_chat_body_shape() {
-        let transport =
-            ProviderTransport::OpenAi(OpenAiTransport::new("test-key", "https://example.test"));
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", "https://example.test"));
         let request = test_request(vec![test_tool()]);
         let compat = ProviderCompat::openai_defaults();
 
@@ -500,12 +436,7 @@ mod tests {
             .await
             .expect_err("429 should map to rate limited");
 
-        assert!(matches!(
-            error,
-            ProviderError::RateLimited {
-                retry_after_ms: 5000
-            }
-        ));
+        assert!(matches!(error, ProviderError::RateLimited { retry_after_ms: 5000 }));
     }
 
     #[tokio::test]
@@ -525,10 +456,7 @@ mod tests {
             .build_projected_request("test-model", body, &compat, tool_wire_shape)
             .expect("projected request should build");
 
-        let error = transport
-            .send(request)
-            .await
-            .expect_err("500 should map to api error");
+        let error = transport.send(request).await.expect_err("500 should map to api error");
 
         assert!(matches!(
             error,
@@ -542,13 +470,11 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
             .respond_with(
-                ResponseTemplate::new(400)
-                    .set_body_string("invalid_request_error: body.tools[0].function is missing"),
+                ResponseTemplate::new(400).set_body_string("invalid_request_error: body.tools[0].function is missing"),
             )
             .mount(&server)
             .await;
-        let transport =
-            ProviderTransport::Anthropic(AnthropicTransport::new("test-key", &server.uri(), false));
+        let transport = ProviderTransport::Anthropic(AnthropicTransport::new("test-key", &server.uri(), false));
         let compat = ProviderCompat::anthropic_defaults();
         let (body, tool_wire_shape) = transport
             .project_body(&test_request(vec![test_tool()]), &compat)
@@ -576,20 +502,12 @@ mod tests {
         let compat = ProviderCompat::anthropic_defaults();
         let body = json!({"model": "test-model"});
         let tool_wire_shape = ResolvedToolWireShape::AnthropicInputSchema;
-        let enabled = ProviderTransport::Anthropic(AnthropicTransport::new(
-            "test-key",
-            "https://example.test",
-            true,
-        ))
-        .build_projected_request("test-model", body.clone(), &compat, tool_wire_shape)
-        .expect("projected request should build");
-        let disabled = ProviderTransport::Anthropic(AnthropicTransport::new(
-            "test-key",
-            "https://example.test",
-            false,
-        ))
-        .build_projected_request("test-model", body, &compat, tool_wire_shape)
-        .expect("projected request should build");
+        let enabled = ProviderTransport::Anthropic(AnthropicTransport::new("test-key", "https://example.test", true))
+            .build_projected_request("test-model", body.clone(), &compat, tool_wire_shape)
+            .expect("projected request should build");
+        let disabled = ProviderTransport::Anthropic(AnthropicTransport::new("test-key", "https://example.test", false))
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
 
         assert_eq!(
             enabled
@@ -623,12 +541,7 @@ mod tests {
         );
 
         let request = bedrock
-            .build_projected_request(
-                "test-model",
-                body,
-                &compat,
-                ResolvedToolWireShape::AnthropicInputSchema,
-            )
+            .build_projected_request("test-model", body, &compat, ResolvedToolWireShape::AnthropicInputSchema)
             .expect("bedrock projected request should build");
 
         assert_eq!(request.body_bytes, Some(expected_body_bytes));
@@ -682,9 +595,7 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/bedrock"))
             .and(body_bytes(expected_body_bytes.clone()))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_raw("data: [DONE]\n\n", "application/json"),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_raw("data: [DONE]\n\n", "application/json"))
             .expect(1)
             .mount(&server)
             .await;
@@ -723,9 +634,7 @@ mod tests {
             .and(path("/v1/chat/completions"))
             .and(header("authorization", "Bearer test-key"))
             .and(header("content-type", "application/json"))
-            .respond_with(
-                ResponseTemplate::new(200).set_body_raw("data: [DONE]\n\n", "text/event-stream"),
-            )
+            .respond_with(ResponseTemplate::new(200).set_body_raw("data: [DONE]\n\n", "text/event-stream"))
             .expect(1)
             .mount(&server)
             .await;

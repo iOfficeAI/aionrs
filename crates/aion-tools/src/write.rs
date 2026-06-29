@@ -118,10 +118,7 @@ impl Tool for WriteTool {
             }
 
             return ToolResult {
-                content: format!(
-                    "Updated {} (rename failed: {}, used direct write)",
-                    file_path, e
-                ),
+                content: format!("Updated {} (rename failed: {}, used direct write)", file_path, e),
                 is_error: false,
             };
         }
@@ -147,10 +144,7 @@ impl Tool for WriteTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let path = input
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
+        let path = input.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
         format!("Write to {}", path)
     }
 }
@@ -189,11 +183,7 @@ mod tests {
         let tool = WriteTool::new(None);
         let result = tool.execute(input).await;
 
-        assert!(
-            !result.is_error,
-            "expected success, got: {}",
-            result.content
-        );
+        assert!(!result.is_error, "expected success, got: {}", result.content);
         assert!(file_path.exists(), "file should exist after write");
         assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "hello world");
     }
@@ -211,19 +201,9 @@ mod tests {
         let tool = WriteTool::new(None);
         let result = tool.execute(input).await;
 
-        assert!(
-            !result.is_error,
-            "expected success, got: {}",
-            result.content
-        );
-        assert!(
-            file_path.parent().unwrap().exists(),
-            "parent dirs should be created"
-        );
-        assert_eq!(
-            std::fs::read_to_string(&file_path).unwrap(),
-            "nested content"
-        );
+        assert!(!result.is_error, "expected success, got: {}", result.content);
+        assert!(file_path.parent().unwrap().exists(), "parent dirs should be created");
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "nested content");
     }
 
     #[tokio::test]
@@ -266,11 +246,7 @@ mod tests {
         let tool = WriteTool::new(None);
         let result = tool.execute(input).await;
 
-        assert!(
-            !result.is_error,
-            "expected success, got: {}",
-            result.content
-        );
+        assert!(!result.is_error, "expected success, got: {}", result.content);
 
         let read_back = std::fs::read_to_string(&file_path).unwrap();
         assert_eq!(
@@ -299,9 +275,7 @@ mod tests {
         // Cache should have an entry with correct mtime.
         let disk_mtime = file_mtime_ms(&file_path).unwrap();
         let mut c = cache.write().unwrap();
-        let cached = c
-            .get(&file_path)
-            .expect("file should be in cache after write");
+        let cached = c.get(&file_path).expect("file should be in cache after write");
         assert_eq!(cached.mtime_ms, disk_mtime);
         assert!(cached.content.contains("cached content"));
     }
@@ -331,10 +305,7 @@ mod tests {
         });
         let er = edit_tool.execute(edit_input).await;
         assert!(!er.is_error, "edit after write failed: {}", er.content);
-        assert_eq!(
-            std::fs::read_to_string(&file_path).unwrap(),
-            "goodbye world"
-        );
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "goodbye world");
     }
 
     #[tokio::test]
@@ -372,9 +343,6 @@ mod tests {
             c.get(&file_path).unwrap().mtime_ms
         };
 
-        assert!(
-            mtime2 >= mtime1,
-            "cache mtime should update after overwrite"
-        );
+        assert!(mtime2 >= mtime1, "cache mtime should update after overwrite");
     }
 }

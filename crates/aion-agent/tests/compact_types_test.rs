@@ -9,26 +9,15 @@ use aion_types::message::{ContentBlock, Message, Role};
 /// TC-2.2-04: Message timestamp serialization — ISO 8601 format.
 #[test]
 fn tc_2_2_04_message_timestamp_serialization() {
-    let msg = Message::now(
-        Role::User,
-        vec![ContentBlock::Text {
-            text: "hello".into(),
-        }],
-    );
+    let msg = Message::now(Role::User, vec![ContentBlock::Text { text: "hello".into() }]);
 
     let json = serde_json::to_string(&msg).unwrap();
-    assert!(
-        json.contains("\"timestamp\""),
-        "JSON should contain timestamp"
-    );
+    assert!(json.contains("\"timestamp\""), "JSON should contain timestamp");
 
     // Verify ISO 8601 format (contains 'T' separator and '+' or 'Z' timezone)
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     let ts_str = value["timestamp"].as_str().unwrap();
-    assert!(
-        ts_str.contains('T'),
-        "timestamp should be ISO 8601 with T separator"
-    );
+    assert!(ts_str.contains('T'), "timestamp should be ISO 8601 with T separator");
 }
 
 /// TC-2.2-05: Message timestamp backward compatibility — old JSON without

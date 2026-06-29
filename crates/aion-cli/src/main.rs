@@ -194,7 +194,7 @@ async fn main() -> anyhow::Result<()> {
     let mut config = Config::resolve(&cli_args)?;
 
     if let Some(ref level_str) = cli.compaction {
-        match level_str.parse::<aion_compact::CompactionLevel>() {
+        match level_str.parse::<aion_compact::CompactLevel>() {
             Ok(level) => config.compact.compaction = level,
             Err(e) => anyhow::bail!("Invalid --compaction value: {e}"),
         }
@@ -207,9 +207,7 @@ async fn main() -> anyhow::Result<()> {
         use tracing_subscriber::layer::SubscriberExt;
         use tracing_subscriber::util::SubscriberInitExt;
 
-        let resolved = config
-            .logging
-            .resolve(cli.log_dir.as_deref(), cli.log_level.as_deref());
+        let resolved = config.logging.resolve(cli.log_dir.as_deref(), cli.log_level.as_deref());
         if resolved.enabled {
             match aion_config::logging::create_file_layer(&resolved) {
                 Ok((layer, guard)) => {
@@ -230,18 +228,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Handle --list-sessions
     if cli.list_sessions {
-        let session_mgr = session::SessionManager::new(
-            config.session.directory.clone().into(),
-            config.session.max_sessions,
-        );
+        let session_mgr =
+            session::SessionManager::new(config.session.directory.clone().into(), config.session.max_sessions);
         let sessions = session_mgr.list()?;
         if sessions.is_empty() {
             eprintln!("No saved sessions.");
         } else {
-            eprintln!(
-                "{:<8} {:<12} {:<30} {:>5}  Summary",
-                "ID", "Date", "Model", "Msgs"
-            );
+            eprintln!("{:<8} {:<12} {:<30} {:>5}  Summary", "ID", "Date", "Model", "Msgs");
             for s in &sessions {
                 eprintln!(
                     "{:<8} {:<12} {:<30} {:>5}  {}",
@@ -268,10 +261,7 @@ async fn main() -> anyhow::Result<()> {
 
     if let Some(resume_id) = &cli.resume {
         let cfg = bootstrap.config();
-        let session_mgr = session::SessionManager::new(
-            cfg.session.directory.clone().into(),
-            cfg.session.max_sessions,
-        );
+        let session_mgr = session::SessionManager::new(cfg.session.directory.clone().into(), cfg.session.max_sessions);
         let session = session_mgr.load(resume_id)?;
         terminal.formatter().session_info(&format!(
             "Resumed session {} ({} messages, {} model)",
@@ -355,9 +345,7 @@ async fn repl_loop(
 }
 
 fn print_skills_paths() {
-    use aion_skills::paths::{
-        project_commands_dirs, project_skills_dirs, user_commands_dir, user_skills_dir,
-    };
+    use aion_skills::paths::{project_commands_dirs, project_skills_dirs, user_commands_dir, user_skills_dir};
 
     fn status(p: &Path) -> &'static str {
         if p.is_dir() { "exists" } else { "not found" }
@@ -450,10 +438,7 @@ async fn run_json_stream_mode(
 
     if let Some(resume_id) = &resume {
         let cfg = bootstrap.config();
-        let session_mgr = session::SessionManager::new(
-            cfg.session.directory.clone().into(),
-            cfg.session.max_sessions,
-        );
+        let session_mgr = session::SessionManager::new(cfg.session.directory.clone().into(), cfg.session.max_sessions);
         let session = session_mgr.load(resume_id)?;
         bootstrap = bootstrap.resume(session);
     }
@@ -467,12 +452,7 @@ async fn run_json_stream_mode(
     }
 
     let sid = engine.current_session_id();
-    protocol_sink.emit_ready(
-        engine.compat(),
-        initial_has_mcp,
-        sid,
-        &approval_manager.current_mode(),
-    );
+    protocol_sink.emit_ready(engine.compat(), initial_has_mcp, sid, &approval_manager.current_mode());
 
     engine.set_approval_manager(approval_manager.clone());
     engine.set_protocol_writer(writer.clone());
@@ -495,25 +475,20 @@ async fn run_json_stream_mode(
                 headers,
             } => {
                 tracing::info!(target: "aion_mcp", %name, %transport, ?command, "AddMcpServer received");
-                let config =
-                    match to_mcp_server_config(&transport, command, args, env, url, headers) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            output.emit_error(&format!("AddMcpServer '{name}': {e}"));
-                            continue;
-                        }
-                    };
+                let config = match to_mcp_server_config(&transport, command, args, env, url, headers) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        output.emit_error(&format!("AddMcpServer '{name}': {e}"));
+                        continue;
+                    }
+                };
 
                 let mut single_configs = HashMap::new();
                 single_configs.insert(name.clone(), config.clone());
                 tracing::info!(target: "aion_mcp", %name, "connecting to mcp server");
                 match McpManager::connect_all(&single_configs).await {
                     Ok(mgr) => {
-                        let tool_names: Vec<String> = mgr
-                            .all_tools()
-                            .iter()
-                            .map(|(_, t)| t.name.clone())
-                            .collect();
+                        let tool_names: Vec<String> = mgr.all_tools().iter().map(|(_, t)| t.name.clone()).collect();
                         tracing::info!(target: "aion_mcp", %name, tools = tool_names.len(), "mcp server connected");
                         let mgr_arc = Arc::new(mgr);
                         let builtin_names = engine.tool_names();
@@ -631,33 +606,17 @@ async fn run_json_stream_mode(
                     }
                 }
 
-                if let Some((model, thinking, thinking_budget, effort, compaction)) =
-                    pending_config.take()
-                {
-                    let changes = engine.apply_config_update(
-                        model,
-                        thinking,
-                        thinking_budget,
-                        effort,
-                        compaction,
-                    );
+                if let Some((model, thinking, thinking_budget, effort, compaction)) = pending_config.take() {
+                    let changes = engine.apply_config_update(model, thinking, thinking_budget, effort, compaction);
                     if !changes.is_empty() {
                         let _ = writer.emit(&aion_protocol::events::ProtocolEvent::Info {
                             msg_id: String::new(),
                             message: format!("config applied: {}", changes.join(", ")),
                         });
                     }
-                    protocol_sink.emit_config_changed(
-                        engine.compat(),
-                        has_mcp,
-                        &approval_manager.current_mode(),
-                    );
+                    protocol_sink.emit_config_changed(engine.compat(), has_mcp, &approval_manager.current_mode());
                 } else if mode_changed {
-                    protocol_sink.emit_config_changed(
-                        engine.compat(),
-                        has_mcp,
-                        &approval_manager.current_mode(),
-                    );
+                    protocol_sink.emit_config_changed(engine.compat(), has_mcp, &approval_manager.current_mode());
                 }
                 if stopped {
                     break;
@@ -685,11 +644,7 @@ async fn run_json_stream_mode(
                     msg_id: String::new(),
                     message: format!("mode updated: {}", approval_manager.current_mode()),
                 });
-                protocol_sink.emit_config_changed(
-                    engine.compat(),
-                    has_mcp,
-                    &approval_manager.current_mode(),
-                );
+                protocol_sink.emit_config_changed(engine.compat(), has_mcp, &approval_manager.current_mode());
                 tracing::debug!(target: "aion_protocol", mode = %mode_str, "SetMode applied");
             }
             ProtocolCommand::SetConfig {
@@ -699,13 +654,7 @@ async fn run_json_stream_mode(
                 effort,
                 compaction,
             } => {
-                let changes = engine.apply_config_update(
-                    model,
-                    thinking,
-                    thinking_budget,
-                    effort,
-                    compaction,
-                );
+                let changes = engine.apply_config_update(model, thinking, thinking_budget, effort, compaction);
                 let message = if changes.is_empty() {
                     "set_config: no changes".to_string()
                 } else {
@@ -715,11 +664,7 @@ async fn run_json_stream_mode(
                     msg_id: String::new(),
                     message,
                 });
-                protocol_sink.emit_config_changed(
-                    engine.compat(),
-                    has_mcp,
-                    &approval_manager.current_mode(),
-                );
+                protocol_sink.emit_config_changed(engine.compat(), has_mcp, &approval_manager.current_mode());
             }
             ProtocolCommand::AddMcpServer { name, .. } => {
                 output.emit_error(&format!(

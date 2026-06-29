@@ -43,10 +43,7 @@ impl ResolvedShell {
     pub fn derive_exec_args(&self, command: &str, login: bool) -> Vec<String> {
         match self.kind {
             ShellKind::Bash | ShellKind::Zsh | ShellKind::Sh => {
-                vec![
-                    if login { "-lc" } else { "-c" }.to_string(),
-                    command.to_string(),
-                ]
+                vec![if login { "-lc" } else { "-c" }.to_string(), command.to_string()]
             }
             ShellKind::PowerShell => {
                 let command = prefix_powershell_script_with_utf8(command);
@@ -107,10 +104,7 @@ pub fn resolve_shell_config(config: &ShellConfig) -> Result<ResolvedShell, Shell
 }
 
 pub fn resolve_shell(requested: Option<&str>) -> Result<ResolvedShell, ShellError> {
-    let requested = requested
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("auto");
+    let requested = requested.map(str::trim).filter(|s| !s.is_empty()).unwrap_or("auto");
 
     if requested.eq_ignore_ascii_case("auto") {
         return Ok(default_shell());
@@ -130,8 +124,7 @@ pub fn resolve_shell(requested: Option<&str>) -> Result<ResolvedShell, ShellErro
 
     let path = PathBuf::from(requested);
     if path.components().count() > 1 || path.is_absolute() || requested.contains('\\') {
-        let kind = detect_shell_kind(&path)
-            .ok_or_else(|| ShellError::UnsupportedShell(requested.to_string()))?;
+        let kind = detect_shell_kind(&path).ok_or_else(|| ShellError::UnsupportedShell(requested.to_string()))?;
         if !path.is_file() {
             return Err(ShellError::PathUnavailable(requested.to_string()));
         }
@@ -171,9 +164,7 @@ pub fn shell_command_builder(shell: &ResolvedShell, command_str: &str, login: bo
 
 pub async fn shell_command(command_str: &str) -> std::io::Result<Output> {
     let shell = default_shell();
-    shell_command_builder(&shell, command_str, false)
-        .output()
-        .await
+    shell_command_builder(&shell, command_str, false).output().await
 }
 
 pub fn render_shell_prompt(shell: &ResolvedShell) -> String {
@@ -226,9 +217,7 @@ fn resolve_kind(kind: ShellKind, requested: Option<&str>) -> Option<ResolvedShel
     let requested_path = requested.map(Path::new);
     let candidates: Vec<PathBuf> = match (kind, requested, requested_path) {
         (_, Some(path), Some(path_ref))
-            if path_ref.components().count() > 1
-                || path_ref.is_absolute()
-                || path.contains('\\') =>
+            if path_ref.components().count() > 1 || path_ref.is_absolute() || path.contains('\\') =>
         {
             vec![PathBuf::from(path)]
         }
@@ -286,9 +275,7 @@ fn user_shell_path() -> Option<PathBuf> {
 }
 
 fn prefix_powershell_script_with_utf8(command: &str) -> String {
-    format!(
-        "try {{ [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 }} catch {{}}\n{command}"
-    )
+    format!("try {{ [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 }} catch {{}}\n{command}")
 }
 
 #[cfg(test)]
@@ -303,10 +290,7 @@ mod tests {
         assert_eq!(detect_shell_kind("/bin/zsh"), Some(ShellKind::Zsh));
         assert_eq!(detect_shell_kind("/bin/sh"), Some(ShellKind::Sh));
         assert_eq!(detect_shell_kind("pwsh"), Some(ShellKind::PowerShell));
-        assert_eq!(
-            detect_shell_kind("powershell.exe"),
-            Some(ShellKind::PowerShell)
-        );
+        assert_eq!(detect_shell_kind("powershell.exe"), Some(ShellKind::PowerShell));
         assert_eq!(
             detect_shell_kind(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"),
             Some(ShellKind::PowerShell)
@@ -318,23 +302,14 @@ mod tests {
 
     #[test]
     fn detect_shell_kind_recognizes_unicode_paths() {
-        assert_eq!(
-            detect_shell_kind(r"C:\用户\工具\pwsh.exe"),
-            Some(ShellKind::PowerShell)
-        );
+        assert_eq!(detect_shell_kind(r"C:\用户\工具\pwsh.exe"), Some(ShellKind::PowerShell));
     }
 
     #[test]
     fn derive_exec_args_uses_shell_specific_flags() {
         let bash = ResolvedShell::new(ShellKind::Bash, PathBuf::from("/bin/bash"));
-        assert_eq!(
-            bash.derive_exec_args("echo ok", false),
-            vec!["-c", "echo ok"]
-        );
-        assert_eq!(
-            bash.derive_exec_args("echo ok", true),
-            vec!["-lc", "echo ok"]
-        );
+        assert_eq!(bash.derive_exec_args("echo ok", false), vec!["-c", "echo ok"]);
+        assert_eq!(bash.derive_exec_args("echo ok", true), vec!["-lc", "echo ok"]);
 
         let powershell = ResolvedShell::new(ShellKind::PowerShell, PathBuf::from("pwsh"));
         assert_eq!(
@@ -347,17 +322,12 @@ mod tests {
         );
 
         let cmd = ResolvedShell::new(ShellKind::Cmd, PathBuf::from("cmd.exe"));
-        assert_eq!(
-            cmd.derive_exec_args("echo ok", false),
-            vec!["/C", "echo ok"]
-        );
+        assert_eq!(cmd.derive_exec_args("echo ok", false), vec!["/C", "echo ok"]);
     }
 
     #[tokio::test]
     async fn shell_command_runs_echo() {
-        let output = shell_command("echo hello")
-            .await
-            .expect("shell_command failed");
+        let output = shell_command("echo hello").await.expect("shell_command failed");
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(stdout.contains("hello"));
     }

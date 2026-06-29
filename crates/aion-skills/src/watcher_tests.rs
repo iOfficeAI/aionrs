@@ -92,10 +92,7 @@ async fn diag_basic_event_received() {
     eprintln!("[diag] file written, waiting up to 1s...");
 
     let result = timeout(Duration::from_millis(1000), rx.changed()).await;
-    eprintln!(
-        "[diag] timeout result (true=got event): {:?}",
-        result.is_ok()
-    );
+    eprintln!("[diag] timeout result (true=got event): {:?}", result.is_ok());
     let after = *rx.borrow();
     eprintln!("[diag] version after: {after}");
 
@@ -124,10 +121,7 @@ async fn diag_multi_thread_event_received() {
     eprintln!("[diag-mt] file written, waiting up to 2s...");
 
     let result = timeout(Duration::from_millis(2000), rx.changed()).await;
-    eprintln!(
-        "[diag-mt] timeout result (true=got event): {:?}",
-        result.is_ok()
-    );
+    eprintln!("[diag-mt] timeout result (true=got event): {:?}", result.is_ok());
     let after = *rx.borrow();
     eprintln!("[diag-mt] version after: {after}");
 
@@ -579,11 +573,7 @@ async fn tc20_version_monotonically_increasing() {
 
     for round in 0..3u32 {
         // Each round: create a unique file, then wait for the notification.
-        fs::write(
-            dir.join(format!("round_{round}.md")),
-            format!("# round {round}"),
-        )
-        .unwrap();
+        fs::write(dir.join(format!("round_{round}.md")), format!("# round {round}")).unwrap();
 
         let result = timeout(Duration::from_millis(DEBOUNCE_EXPECT_MS), rx.changed()).await;
 

@@ -22,11 +22,7 @@ pub(crate) struct RetryPolicy {
 }
 
 impl RetryPolicy {
-    pub(crate) const fn new(
-        max_stream_retries: u32,
-        initial_connect: bool,
-        can_resign: bool,
-    ) -> Self {
+    pub(crate) const fn new(max_stream_retries: u32, initial_connect: bool, can_resign: bool) -> Self {
         Self {
             max_stream_retries,
             initial_connect,
@@ -97,8 +93,7 @@ where
                                         || !policy.can_resign
                                         || attempt == policy.max_stream_retries
                                     {
-                                        let _ =
-                                            tx.send(LlmEvent::Error(final_err.to_string())).await;
+                                        let _ = tx.send(LlmEvent::Error(final_err.to_string())).await;
                                         return;
                                     }
                                 }
@@ -106,9 +101,7 @@ where
                         }
                         Err(err) => {
                             final_err = err;
-                            if !is_retryable_resend_error(&final_err)
-                                || attempt == policy.max_stream_retries
-                            {
+                            if !is_retryable_resend_error(&final_err) || attempt == policy.max_stream_retries {
                                 let _ = tx.send(LlmEvent::Error(final_err.to_string())).await;
                                 return;
                             }
@@ -168,9 +161,7 @@ mod tests {
                     async move {
                         process_count.fetch_add(1, Ordering::SeqCst);
                         if attempt == 0 {
-                            StreamOutcome::FailedEmpty(ProviderError::Connection(
-                                "disconnect".into(),
-                            ))
+                            StreamOutcome::FailedEmpty(ProviderError::Connection("disconnect".into()))
                         } else {
                             tx.send(LlmEvent::TextDelta("ok".into())).await.unwrap();
                             StreamOutcome::Ok
@@ -221,9 +212,7 @@ mod tests {
                     async move {
                         process_count.fetch_add(1, Ordering::SeqCst);
                         if response == 0 {
-                            StreamOutcome::FailedEmpty(ProviderError::Connection(
-                                "disconnect".into(),
-                            ))
+                            StreamOutcome::FailedEmpty(ProviderError::Connection("disconnect".into()))
                         } else {
                             tx.send(LlmEvent::TextDelta("ok".into())).await.unwrap();
                             StreamOutcome::Ok
@@ -308,9 +297,7 @@ mod tests {
                     }
                 }
             },
-            move |(), _tx| async move {
-                StreamOutcome::FailedPartial(ProviderError::Connection("disconnect".into()))
-            },
+            move |(), _tx| async move { StreamOutcome::FailedPartial(ProviderError::Connection("disconnect".into())) },
             RetryPolicy::new(2, false, true),
         )
         .await
@@ -343,9 +330,7 @@ mod tests {
                 }
             },
             move |(), tx| async move {
-                tx.send(LlmEvent::TextDelta("connected".into()))
-                    .await
-                    .unwrap();
+                tx.send(LlmEvent::TextDelta("connected".into())).await.unwrap();
                 StreamOutcome::Ok
             },
             RetryPolicy::new(2, true, true),
@@ -404,9 +389,7 @@ mod tests {
                     }
                 }
             },
-            move |(), _tx| async move {
-                StreamOutcome::FailedEmpty(ProviderError::Connection("disconnect".into()))
-            },
+            move |(), _tx| async move { StreamOutcome::FailedEmpty(ProviderError::Connection("disconnect".into())) },
             RetryPolicy::new(2, false, false),
         )
         .await

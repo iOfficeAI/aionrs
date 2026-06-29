@@ -50,10 +50,7 @@ fn deserializes_protocol_commands(#[case] json: &str, #[case] expected: Protocol
 
 #[rstest]
 #[case(r#"{"type":"tool_approve","call_id":"c1"}"#, ApprovalScope::Once)]
-#[case(
-    r#"{"type":"tool_approve","call_id":"c1","scope":"always"}"#,
-    ApprovalScope::Always
-)]
+#[case(r#"{"type":"tool_approve","call_id":"c1","scope":"always"}"#, ApprovalScope::Always)]
 fn deserializes_tool_approve_scope(#[case] json: &str, #[case] expected_scope: ApprovalScope) {
     let cmd: ProtocolCommand = serde_json::from_str(json).expect("tool approve should deserialize");
 
@@ -68,10 +65,7 @@ fn deserializes_tool_approve_scope(#[case] json: &str, #[case] expected_scope: A
 
 #[rstest]
 #[case(r#"{"type":"tool_deny","call_id":"c1"}"#, "")]
-#[case(
-    r#"{"type":"tool_deny","call_id":"c1","reason":"not allowed"}"#,
-    "not allowed"
-)]
+#[case(r#"{"type":"tool_deny","call_id":"c1","reason":"not allowed"}"#, "not allowed")]
 fn deserializes_tool_deny_reason(#[case] json: &str, #[case] expected_reason: &str) {
     let cmd: ProtocolCommand = serde_json::from_str(json).expect("tool deny should deserialize");
 

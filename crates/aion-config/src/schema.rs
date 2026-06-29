@@ -5,9 +5,7 @@ pub const JSON_SCHEMA_DRAFT_2020_12: &str = "https://json-schema.org/draft/2020-
 /// Apply provider-neutral JSON Schema fixes required for tool declarations.
 pub fn legalize_json_schema(schema: &Value) -> Value {
     match schema {
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => {
-            empty_object_schema()
-        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Array(_) => empty_object_schema(),
         Value::Object(object) if object.is_empty() => empty_object_schema(),
         Value::Object(_) => {
             if has_non_object_root_type(schema) {
@@ -20,9 +18,7 @@ pub fn legalize_json_schema(schema: &Value) -> Value {
                     object.insert("type".to_string(), Value::String("object".to_string()));
                 }
 
-                if object.get("type").and_then(Value::as_str) == Some("object")
-                    && !object.contains_key("properties")
-                {
+                if object.get("type").and_then(Value::as_str) == Some("object") && !object.contains_key("properties") {
                     object.insert("properties".to_string(), Value::Object(Map::new()));
                 }
 

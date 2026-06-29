@@ -22,10 +22,7 @@ impl ToolRegistry {
 
     /// Find a tool by name
     pub fn get(&self, name: &str) -> Option<&dyn Tool> {
-        self.tools
-            .iter()
-            .find(|t| t.name() == name)
-            .map(|t| t.as_ref())
+        self.tools.iter().find(|t| t.name() == name).map(|t| t.as_ref())
     }
 
     /// Get all registered tool names
@@ -120,11 +117,7 @@ mod tests {
         })
     }
 
-    fn make_tool_with_category(
-        name: &str,
-        description: &str,
-        category: ToolCategory,
-    ) -> Box<MockTool> {
+    fn make_tool_with_category(name: &str, description: &str, category: ToolCategory) -> Box<MockTool> {
         Box::new(MockTool {
             tool_name: name.to_string(),
             tool_description: description.to_string(),
@@ -138,10 +131,7 @@ mod tests {
         registry.register(make_tool("my_tool", "does something"));
 
         let found = registry.get("my_tool");
-        assert!(
-            found.is_some(),
-            "registered tool should be retrievable by name"
-        );
+        assert!(found.is_some(), "registered tool should be retrievable by name");
         assert_eq!(found.unwrap().name(), "my_tool");
     }
 
@@ -150,10 +140,7 @@ mod tests {
         let registry = ToolRegistry::new();
 
         let result = registry.get("ghost");
-        assert!(
-            result.is_none(),
-            "looking up an unregistered name should return None"
-        );
+        assert!(result.is_none(), "looking up an unregistered name should return None");
     }
 
     #[test]
@@ -182,10 +169,7 @@ mod tests {
         );
 
         // Collect (name, description) pairs for assertion independent of order
-        let mut pairs: Vec<(&str, &str)> = defs
-            .iter()
-            .map(|d| (d.name.as_str(), d.description.as_str()))
-            .collect();
+        let mut pairs: Vec<(&str, &str)> = defs.iter().map(|d| (d.name.as_str(), d.description.as_str())).collect();
         pairs.sort();
 
         assert_eq!(pairs[0], ("tool_a", "description A"));
@@ -203,16 +187,8 @@ mod tests {
     #[test]
     fn filtered_by_category_returns_matching_tools() {
         let mut registry = ToolRegistry::new();
-        registry.register(make_tool_with_category(
-            "Read",
-            "read files",
-            ToolCategory::Info,
-        ));
-        registry.register(make_tool_with_category(
-            "Write",
-            "write files",
-            ToolCategory::Edit,
-        ));
+        registry.register(make_tool_with_category("Read", "read files", ToolCategory::Info));
+        registry.register(make_tool_with_category("Write", "write files", ToolCategory::Edit));
         registry.register(make_tool_with_category(
             "ExecCommand",
             "run commands",

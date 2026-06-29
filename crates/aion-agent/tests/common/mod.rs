@@ -91,10 +91,7 @@ impl MockLlmProvider {
 
 #[async_trait]
 impl LlmProvider for MockLlmProvider {
-    async fn stream(
-        &self,
-        _request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, _request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let events = {
             let mut responses = self.responses.lock().unwrap();
             if responses.is_empty() {

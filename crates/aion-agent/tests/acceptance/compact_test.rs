@@ -54,10 +54,7 @@ fn microcompact_clears_old_tool_results() {
     let mut messages: Vec<Message> = Vec::with_capacity(total_results * 2);
     for i in 0..total_results {
         let id = format!("tool_{i}");
-        messages.push(Message::new(
-            Role::Assistant,
-            vec![tool_use_block(&id, "Read")],
-        ));
+        messages.push(Message::new(Role::Assistant, vec![tool_use_block(&id, "Read")]));
         messages.push(Message::new(
             Role::User,
             vec![tool_result_block(&id, &format!("content of file {i}"))],
@@ -174,12 +171,7 @@ async fn autocompact_triggers_llm_summary() {
                 text: "What is 2+2?".to_string(),
             }],
         ),
-        Message::new(
-            Role::Assistant,
-            vec![ContentBlock::Text {
-                text: "4".to_string(),
-            }],
-        ),
+        Message::new(Role::Assistant, vec![ContentBlock::Text { text: "4".to_string() }]),
     ];
 
     // Create a real provider and run autocompact
@@ -192,14 +184,7 @@ async fn autocompact_triggers_llm_summary() {
     // autocompact takes &mut state for recording success/failure
     let mut state = state;
 
-    let result = autocompact(
-        provider.as_ref(),
-        &messages,
-        &config.model,
-        &compact_config,
-        &mut state,
-    )
-    .await;
+    let result = autocompact(provider.as_ref(), &messages, &config.model, &compact_config, &mut state).await;
 
     let compact_result = result.expect("autocompact should succeed with a real LLM");
 

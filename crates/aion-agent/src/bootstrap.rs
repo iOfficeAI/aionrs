@@ -95,22 +95,14 @@ impl AgentBootstrap {
         };
 
         let mut registry = aion_tools::registry::ToolRegistry::new();
-        registry.register(Box::new(aion_tools::read::ReadTool::new(
-            file_cache.clone(),
-        )));
-        registry.register(Box::new(aion_tools::write::WriteTool::new(
-            file_cache.clone(),
-        )));
+        registry.register(Box::new(aion_tools::read::ReadTool::new(file_cache.clone())));
+        registry.register(Box::new(aion_tools::write::WriteTool::new(file_cache.clone())));
         registry.register(Box::new(aion_tools::edit::EditTool::new(file_cache)));
         registry.register(Box::new(aion_tools::exec_command::ExecCommandTool::new(
             cwd_path.to_path_buf(),
         )));
-        registry.register(Box::new(aion_tools::grep::GrepTool::new(
-            cwd_path.to_path_buf(),
-        )));
-        registry.register(Box::new(aion_tools::glob::GlobTool::new(
-            cwd_path.to_path_buf(),
-        )));
+        registry.register(Box::new(aion_tools::grep::GrepTool::new(cwd_path.to_path_buf())));
+        registry.register(Box::new(aion_tools::glob::GlobTool::new(cwd_path.to_path_buf())));
 
         let builtin_names: Vec<String> = registry.tool_names();
 
@@ -129,8 +121,7 @@ impl AgentBootstrap {
                     Some(mgr)
                 }
                 Err(e) => {
-                    self.output
-                        .emit_error(&format!("MCP initialization error: {e}"));
+                    self.output.emit_error(&format!("MCP initialization error: {e}"));
                     None
                 }
             }
@@ -139,13 +130,8 @@ impl AgentBootstrap {
         };
         let has_mcp = mcp_manager.is_some();
 
-        let skills = aion_skills::loader::load_all_skills(
-            cwd_path,
-            &self.extra_skill_dirs,
-            false,
-            mcp_manager.as_deref(),
-        )
-        .await;
+        let skills =
+            aion_skills::loader::load_all_skills(cwd_path, &self.extra_skill_dirs, false, mcp_manager.as_deref()).await;
 
         let mut prompt_cache = crate::context::SystemPromptCache::new();
         let system_prompt = crate::context::build_system_prompt_with_shell(
@@ -183,12 +169,12 @@ impl AgentBootstrap {
 
         let plan_active_flag = Arc::new(AtomicBool::new(false));
         if self.config.plan.enabled {
-            registry.register(Box::new(crate::plan::tools::EnterPlanModeTool::new(
-                Arc::clone(&plan_active_flag),
-            )));
-            registry.register(Box::new(crate::plan::tools::ExitPlanModeTool::new(
-                Arc::clone(&plan_active_flag),
-            )));
+            registry.register(Box::new(crate::plan::tools::EnterPlanModeTool::new(Arc::clone(
+                &plan_active_flag,
+            ))));
+            registry.register(Box::new(crate::plan::tools::ExitPlanModeTool::new(Arc::clone(
+                &plan_active_flag,
+            ))));
         }
 
         let tool_defs_snapshot = registry.to_tool_defs();

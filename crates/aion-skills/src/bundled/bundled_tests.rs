@@ -309,10 +309,7 @@ async fn tc_10_15_path_traversal_rejected_integration() {
 async fn tc_10_16_extraction_failure_returns_none() {
     // Pass an empty files slice — extract_bundled_skill_files returns None for empty
     let result = extract_bundled_skill_files("tc-16-empty", &[]).await;
-    assert!(
-        result.is_none(),
-        "empty files should return None without panic"
-    );
+    assert!(result.is_none(), "empty files should return None without panic");
 }
 
 // ---------------------------------------------------------------------------
@@ -373,8 +370,7 @@ fn tc_10_24_concurrent_registration_no_panic() {
             std::thread::spawn(move || {
                 // SAFETY: each thread registers a unique name literal via a
                 // fixed array; we pick from the set of 10 pre-defined literals.
-                let names: [&'static str; 10] =
-                    ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"];
+                let names: [&'static str; 10] = ["t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8", "t9"];
                 register_bundled_skill(minimal_def(names[i as usize]));
             })
         })
@@ -383,11 +379,7 @@ fn tc_10_24_concurrent_registration_no_panic() {
         h.join().expect("thread should not panic");
     }
     let skills = get_bundled_skills();
-    assert_eq!(
-        skills.len(),
-        10,
-        "all 10 concurrent registrations should be present"
-    );
+    assert_eq!(skills.len(), 10, "all 10 concurrent registrations should be present");
 }
 
 // ---------------------------------------------------------------------------
@@ -414,10 +406,7 @@ fn tc_10_25_unknown_context_defaults_to_inline() {
 fn tc_10_27a_resolve_normal_path_ok() {
     let result = resolve_skill_file_path(Path::new("/base"), "sub/file.md");
     assert!(result.is_ok(), "normal relative path should be Ok");
-    assert_eq!(
-        result.unwrap(),
-        std::path::PathBuf::from("/base/sub/file.md")
-    );
+    assert_eq!(result.unwrap(), std::path::PathBuf::from("/base/sub/file.md"));
 }
 
 #[test]
@@ -441,10 +430,7 @@ fn tc_10_27c_resolve_absolute_path_rejected() {
 #[test]
 fn tc_10_27d_resolve_disguised_traversal_rejected() {
     let result = resolve_skill_file_path(Path::new("/base"), "sub/../escape");
-    assert!(
-        result.is_err(),
-        "disguised traversal 'sub/../escape' must be rejected"
-    );
+    assert!(result.is_err(), "disguised traversal 'sub/../escape' must be rejected");
 }
 
 // ---------------------------------------------------------------------------

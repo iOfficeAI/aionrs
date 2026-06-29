@@ -214,10 +214,7 @@ fn grep_description_forbids_bash_grep() {
 fn grep_description_mentions_regex() {
     let tool = GrepTool::new(test_cwd());
     let desc = tool.description();
-    assert!(
-        desc.contains("regex"),
-        "Grep description should mention regex support"
-    );
+    assert!(desc.contains("regex"), "Grep description should mention regex support");
 }
 
 #[test]
@@ -261,9 +258,7 @@ fn tool_def_description_matches_tool_instance() {
     let defs = registry.to_tool_defs();
 
     for def in &defs {
-        let tool = registry
-            .get(&def.name)
-            .expect("tool should exist in registry");
+        let tool = registry.get(&def.name).expect("tool should exist in registry");
         assert_eq!(
             def.description,
             tool.description(),

@@ -183,10 +183,7 @@ pub fn build_system_prompt_with_shell(
 
     // Section: custom prompt (session permanent)
     if let Some(custom) = custom_prompt {
-        let custom_cached = cache
-            .sections
-            .entry("custom")
-            .or_insert_with(|| custom.to_string());
+        let custom_cached = cache.sections.entry("custom").or_insert_with(|| custom.to_string());
         parts.push(custom_cached.clone());
     }
 
@@ -227,11 +224,7 @@ pub fn build_system_prompt_with_shell(
     }
 
     // Section: skills (cached, event-invalidated)
-    let visible_skills: Vec<SkillMetadata> = skills
-        .iter()
-        .filter(|s| !s.disable_model_invocation)
-        .cloned()
-        .collect();
+    let visible_skills: Vec<SkillMetadata> = skills.iter().filter(|s| !s.disable_model_invocation).cloned().collect();
 
     if !visible_skills.is_empty() {
         let skills_section = cache.sections.entry("skills").or_insert_with(|| {
@@ -295,12 +288,7 @@ mod tests {
                     text: "hello".to_string(),
                 }],
             ),
-            Message::new(
-                Role::Assistant,
-                vec![ContentBlock::Text {
-                    text: "hi".to_string(),
-                }],
-            ),
+            Message::new(Role::Assistant, vec![ContentBlock::Text { text: "hi".to_string() }]),
         ];
         compact_messages(&mut messages, 4);
         assert_eq!(messages.len(), 2); // no change
@@ -311,11 +299,7 @@ mod tests {
         let mut messages: Vec<Message> = (0..10)
             .map(|i| {
                 Message::new(
-                    if i % 2 == 0 {
-                        Role::User
-                    } else {
-                        Role::Assistant
-                    },
+                    if i % 2 == 0 { Role::User } else { Role::Assistant },
                     vec![ContentBlock::Text {
                         text: format!("msg {}", i),
                     }],
@@ -401,11 +385,7 @@ mod tests {
         let mut messages: Vec<Message> = (0..8)
             .map(|i| {
                 Message::new(
-                    if i % 2 == 0 {
-                        Role::User
-                    } else {
-                        Role::Assistant
-                    },
+                    if i % 2 == 0 { Role::User } else { Role::Assistant },
                     vec![ContentBlock::Text {
                         text: format!("msg {}", i),
                     }],
@@ -439,11 +419,7 @@ mod tests {
         let mut messages: Vec<Message> = (0..min_messages)
             .map(|i| {
                 Message::new(
-                    if i % 2 == 0 {
-                        Role::User
-                    } else {
-                        Role::Assistant
-                    },
+                    if i % 2 == 0 { Role::User } else { Role::Assistant },
                     vec![ContentBlock::Text {
                         text: format!("msg {}", i),
                     }],
@@ -465,12 +441,7 @@ mod tests {
 
     use aion_skills::types::{ExecutionContext, LoadedFrom, SkillMetadata, SkillSource};
 
-    fn make_test_skill(
-        name: &str,
-        description: &str,
-        bundled: bool,
-        hidden: bool,
-    ) -> SkillMetadata {
+    fn make_test_skill(name: &str, description: &str, bundled: bool, hidden: bool) -> SkillMetadata {
         SkillMetadata {
             name: name.to_string(),
             display_name: None,
@@ -575,14 +546,8 @@ mod tests {
             false,
             false,
         );
-        assert!(
-            result.contains("visible-skill"),
-            "visible skill should appear"
-        );
-        assert!(
-            !result.contains("hidden-skill"),
-            "hidden skill should be filtered out"
-        );
+        assert!(result.contains("visible-skill"), "visible skill should appear");
+        assert!(!result.contains("hidden-skill"), "hidden skill should be filtered out");
     }
 
     #[test]
@@ -749,10 +714,7 @@ mod tests {
             false,
         );
 
-        assert!(
-            result.contains("AGENTS_CONTENT_HERE"),
-            "should load AGENTS.md content"
-        );
+        assert!(result.contains("AGENTS_CONTENT_HERE"), "should load AGENTS.md content");
         assert!(
             !result.contains("CLAUDE_CONTENT_HERE"),
             "should NOT load CLAUDE.md content"
@@ -761,10 +723,7 @@ mod tests {
             result.contains("(project instructions)"),
             "header should indicate project instructions"
         );
-        assert!(
-            result.contains("AGENTS.md"),
-            "header should contain AGENTS.md filename"
-        );
+        assert!(result.contains("AGENTS.md"), "header should contain AGENTS.md filename");
     }
 
     #[test]
@@ -787,10 +746,7 @@ mod tests {
             false,
         );
 
-        assert!(
-            !result.contains("SHOULD_NOT_APPEAR"),
-            "CLAUDE.md should be ignored"
-        );
+        assert!(!result.contains("SHOULD_NOT_APPEAR"), "CLAUDE.md should be ignored");
         assert!(
             !result.contains("(project instructions)"),
             "no project instructions should be injected"
@@ -849,10 +805,7 @@ mod tests {
             result.contains("Memory types:"),
             "should contain compact memory type summary"
         );
-        assert!(
-            result.contains("user_role.md"),
-            "should contain MEMORY.md content"
-        );
+        assert!(result.contains("user_role.md"), "should contain MEMORY.md content");
     }
 
     #[test]
@@ -932,14 +885,8 @@ mod tests {
         let memory_pos = result.find("auto memory").unwrap();
         let skills_pos = result.find("test-skill").unwrap();
 
-        assert!(
-            agents_pos < memory_pos,
-            "AGENTS.md should appear before memory"
-        );
-        assert!(
-            memory_pos < skills_pos,
-            "memory should appear before skills"
-        );
+        assert!(agents_pos < memory_pos, "AGENTS.md should appear before memory");
+        assert!(memory_pos < skills_pos, "memory should appear before skills");
     }
 
     #[test]
@@ -947,11 +894,7 @@ mod tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let mem_dir = tmp.path().join("memory");
         std::fs::create_dir_all(&mem_dir).unwrap();
-        std::fs::write(
-            mem_dir.join("MEMORY.md"),
-            "- [Test](test.md) \u{2014} entry\n",
-        )
-        .unwrap();
+        std::fs::write(mem_dir.join("MEMORY.md"), "- [Test](test.md) \u{2014} entry\n").unwrap();
 
         let result = build_system_prompt(
             &mut SystemPromptCache::new(),
@@ -965,14 +908,8 @@ mod tests {
             false,
         );
 
-        assert!(
-            !result.contains("~/.claude"),
-            "should not contain bb brand path"
-        );
-        assert!(
-            !result.contains("CLAUDE.md"),
-            "should not reference CLAUDE.md"
-        );
+        assert!(!result.contains("~/.claude"), "should not contain bb brand path");
+        assert!(!result.contains("CLAUDE.md"), "should not reference CLAUDE.md");
     }
 
     // --- Tool usage guidance tests (task 4.3) ---
@@ -1009,22 +946,13 @@ mod tests {
             false,
             false,
         );
-        assert!(
-            result.contains("Glob"),
-            "should mention Glob as find/ls replacement"
-        );
-        assert!(
-            result.contains("Grep"),
-            "should mention Grep as grep/rg replacement"
-        );
+        assert!(result.contains("Glob"), "should mention Glob as find/ls replacement");
+        assert!(result.contains("Grep"), "should mention Grep as grep/rg replacement");
         assert!(
             result.contains("Read"),
             "should mention Read as cat/head/tail replacement"
         );
-        assert!(
-            result.contains("Edit"),
-            "should mention Edit as sed/awk replacement"
-        );
+        assert!(result.contains("Edit"), "should mention Edit as sed/awk replacement");
         assert!(
             result.contains("Write"),
             "should mention Write as echo/heredoc replacement"
@@ -1044,10 +972,7 @@ mod tests {
             false,
             false,
         );
-        assert!(
-            result.contains("parallel"),
-            "should contain parallel call guidance"
-        );
+        assert!(result.contains("parallel"), "should contain parallel call guidance");
         assert!(
             result.contains("sequentially"),
             "should explain when to run sequentially"
@@ -1108,10 +1033,7 @@ mod tests {
         let intro_pos = result.find("Working directory").unwrap();
         let guidance_pos = result.find("# Using your tools").unwrap();
         let custom_pos = result.find("CUSTOM_MARKER_43").unwrap();
-        assert!(
-            guidance_pos > intro_pos,
-            "tool guidance should appear after intro"
-        );
+        assert!(guidance_pos > intro_pos, "tool guidance should appear after intro");
         assert!(
             guidance_pos < custom_pos,
             "tool guidance should appear before custom prompt"
@@ -1176,10 +1098,7 @@ mod tests {
             result.contains("deferred"),
             "tool guidance should mention deferred tools"
         );
-        assert!(
-            result.contains("ToolSearch"),
-            "tool guidance should mention ToolSearch"
-        );
+        assert!(result.contains("ToolSearch"), "tool guidance should mention ToolSearch");
     }
 
     #[test]
@@ -1228,9 +1147,7 @@ mod tests {
     fn cache_invalidate_removes_section_and_joined() {
         let mut cache = SystemPromptCache::new();
         cache.sections.insert("intro", "Hello".to_string());
-        cache
-            .sections
-            .insert("memory", "Memory content".to_string());
+        cache.sections.insert("memory", "Memory content".to_string());
         cache.joined = Some("Hello\n\nMemory content".to_string());
 
         cache.invalidate("memory");
@@ -1272,58 +1189,18 @@ mod tests {
     #[test]
     fn build_system_prompt_uses_cache_on_second_call() {
         let mut cache = SystemPromptCache::new();
-        let first = build_system_prompt(
-            &mut cache,
-            None,
-            "/tmp",
-            "test-model",
-            &[],
-            None,
-            None,
-            false,
-            false,
-        );
+        let first = build_system_prompt(&mut cache, None, "/tmp", "test-model", &[], None, None, false, false);
         assert!(cache.joined.is_some());
 
-        let second = build_system_prompt(
-            &mut cache,
-            None,
-            "/tmp",
-            "test-model",
-            &[],
-            None,
-            None,
-            false,
-            false,
-        );
+        let second = build_system_prompt(&mut cache, None, "/tmp", "test-model", &[], None, None, false, false);
         assert_eq!(first, second);
     }
 
     #[test]
     fn build_system_prompt_plan_mode_change_rebuilds() {
         let mut cache = SystemPromptCache::new();
-        let without_plan = build_system_prompt(
-            &mut cache,
-            None,
-            "/tmp",
-            "test-model",
-            &[],
-            None,
-            None,
-            false,
-            false,
-        );
-        let with_plan = build_system_prompt(
-            &mut cache,
-            None,
-            "/tmp",
-            "test-model",
-            &[],
-            None,
-            None,
-            true,
-            false,
-        );
+        let without_plan = build_system_prompt(&mut cache, None, "/tmp", "test-model", &[], None, None, false, false);
+        let with_plan = build_system_prompt(&mut cache, None, "/tmp", "test-model", &[], None, None, true, false);
         assert_ne!(without_plan, with_plan);
     }
 

@@ -119,10 +119,7 @@ impl RecordingRequestProvider {
 
 #[async_trait]
 impl LlmProvider for RecordingRequestProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.requests.lock().unwrap().push(request.messages.clone());
         let events = self.responses.lock().unwrap().remove(0);
         let (tx, rx) = mpsc::channel(64);
@@ -161,10 +158,7 @@ impl FullRecordingRequestProvider {
 
 #[async_trait]
 impl LlmProvider for FullRecordingRequestProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         self.requests.lock().unwrap().push(RecordedRequest {
             messages: request.messages.clone(),
             tool_count: request.tools.len(),
@@ -201,8 +195,7 @@ async fn test_engine_text_response_ends_turn() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine.run("Hi", "").await.expect("engine should succeed");
 
     assert_eq!(result.text, "Hello, world!");
@@ -257,12 +250,8 @@ async fn test_engine_tool_use_executes_and_continues() {
     registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
-    let result = engine
-        .run("Use the tool", "")
-        .await
-        .expect("engine should succeed");
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let result = engine.run("Use the tool", "").await.expect("engine should succeed");
 
     assert_eq!(result.turns, 2);
     assert_eq!(result.text, "Done");
@@ -298,18 +287,10 @@ async fn test_engine_round_trips_thinking_signature_into_tool_followup_request()
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("mock_tool", "tool result", false)));
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        test_config(),
-        registry,
-        silent_output(),
-        std::env::temp_dir(),
-    );
+    let mut engine =
+        AgentEngine::new_with_provider(provider, test_config(), registry, silent_output(), std::env::temp_dir());
 
-    let result = engine
-        .run("use tool", "")
-        .await
-        .expect("engine should succeed");
+    let result = engine.run("use tool", "").await.expect("engine should succeed");
 
     assert_eq!(result.text, "done");
     let requests = requests.lock().unwrap();
@@ -322,10 +303,7 @@ async fn test_engine_round_trips_thinking_signature_into_tool_followup_request()
         .expect("assistant message should be present");
 
     match &assistant_message.content[0] {
-        ContentBlock::Thinking {
-            thinking,
-            signature,
-        } => {
+        ContentBlock::Thinking { thinking, signature } => {
             assert_eq!(thinking, "need a tool");
             assert_eq!(signature.as_deref(), Some("sig-123"));
         }
@@ -377,17 +355,8 @@ async fn duplicate_tool_names_emit_distinct_tool_use_ids() {
     registry.register(Box::new(MockTool::new("Glob", "tool output", false)));
     let output = Arc::new(RecordingOutputSink::default());
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config,
-        registry,
-        output.clone(),
-        std::env::temp_dir(),
-    );
-    let result = engine
-        .run("Use Glob twice", "")
-        .await
-        .expect("engine should succeed");
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output.clone(), std::env::temp_dir());
+    let result = engine.run("Use Glob twice", "").await.expect("engine should succeed");
 
     assert_eq!(result.text, "Done");
     assert_eq!(
@@ -447,8 +416,7 @@ async fn test_engine_max_tokens_handling() {
     registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Give me a long answer", "")
         .await
@@ -499,12 +467,8 @@ async fn empty_final_gets_one_visible_answer_nudge() {
     registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
-    let result = engine
-        .run("Answer visibly", "")
-        .await
-        .expect("engine should succeed");
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let result = engine.run("Answer visibly", "").await.expect("engine should succeed");
 
     assert_eq!(result.text, "Visible answer");
     assert_eq!(result.stop_reason, StopReason::EndTurn);
@@ -551,8 +515,7 @@ async fn empty_final_falls_back_after_one_empty_retry() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     engine
         .init_session("test-provider", "/tmp", None)
         .expect("init_session should succeed");
@@ -610,8 +573,7 @@ async fn max_tokens_continuation_does_not_increment_reported_turns() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Give me a long answer", "")
         .await
@@ -655,13 +617,7 @@ async fn max_tokens_finalization_tool_call_falls_back_without_persisting_tool_us
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config,
-        registry,
-        silent_output(),
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, silent_output(), std::env::temp_dir());
     engine
         .init_session("test-provider", "/tmp", None)
         .expect("init_session should succeed");
@@ -693,9 +649,10 @@ async fn max_tokens_finalization_tool_call_falls_back_without_persisting_tool_us
     assert!(
         !session.messages.iter().any(|message| {
             message.role == Role::Assistant
-                && message.content.iter().any(
-                    |block| matches!(block, ContentBlock::ToolUse { id, .. } if id == "bad-tool"),
-                )
+                && message
+                    .content
+                    .iter()
+                    .any(|block| matches!(block, ContentBlock::ToolUse { id, .. } if id == "bad-tool"))
         }),
         "invalid finalization tool call must not be persisted"
     );
@@ -774,23 +731,14 @@ async fn test_engine_message_accumulation() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config.clone(),
-        registry,
-        output,
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider, config.clone(), registry, output, std::env::temp_dir());
 
     // Initialize session so save_session() has a session to persist
     engine
         .init_session("test-provider", "/tmp", None)
         .expect("init_session should succeed");
 
-    engine
-        .run("First message", "")
-        .await
-        .expect("first run should succeed");
+    engine.run("First message", "").await.expect("first run should succeed");
     engine
         .run("Second message", "")
         .await
@@ -798,9 +746,7 @@ async fn test_engine_message_accumulation() {
 
     // Load the persisted session and count accumulated messages
     let session_manager = SessionManager::new(dir.path().to_path_buf(), 10);
-    let session = session_manager
-        .load("latest")
-        .expect("session should be loadable");
+    let session = session_manager.load("latest").expect("session should be loadable");
 
     // Expected layout: user, assistant, user, assistant
     assert_eq!(
@@ -857,12 +803,8 @@ async fn test_engine_token_usage_tracking() {
     registry.register(Box::new(MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
-    let result = engine
-        .run("Do work", "")
-        .await
-        .expect("engine should succeed");
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let result = engine.run("Do work", "").await.expect("engine should succeed");
 
     assert_eq!(
         result.usage.input_tokens, 180,
@@ -922,8 +864,7 @@ async fn test_engine_max_turns_runs_one_grace_finalization() {
     registry.register(Box::new(MockTool::new("mock_tool", "result", false)));
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let result = engine
         .run("Keep calling tools", "")
         .await
@@ -1004,19 +945,9 @@ async fn repeated_tool_call_failure_turns_stop_before_another_provider_request()
     config.max_turns = Some(10);
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(MockTool::new(
-        "mock_tool",
-        "permission denied",
-        true,
-    )));
+    registry.register(Box::new(MockTool::new("mock_tool", "permission denied", true)));
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config,
-        registry,
-        silent_output(),
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, silent_output(), std::env::temp_dir());
     let err = engine
         .run("keep retrying a failing tool", "")
         .await
@@ -1046,28 +977,15 @@ async fn repeated_tool_call_failure_threshold_one_stops_immediately() {
     config.max_tool_call_failure_turns = Some(1);
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(MockTool::new(
-        "mock_tool",
-        "permission denied",
-        true,
-    )));
+    registry.register(Box::new(MockTool::new("mock_tool", "permission denied", true)));
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config,
-        registry,
-        silent_output(),
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, silent_output(), std::env::temp_dir());
     let err = engine
         .run("keep retrying a failing tool", "")
         .await
         .expect_err("engine should stop repeated tool-call-failure loops");
 
-    assert!(matches!(
-        err,
-        AgentError::ToolCallFailures { count: 1, limit: 1 }
-    ));
+    assert!(matches!(err, AgentError::ToolCallFailures { count: 1, limit: 1 }));
     assert_eq!(requests.lock().unwrap().len(), 1);
 }
 
@@ -1091,19 +1009,9 @@ async fn repeated_tool_call_failure_disabled_runs_grace_finalization() {
     config.max_tool_call_failure_turns = Some(0);
 
     let mut registry = ToolRegistry::new();
-    registry.register(Box::new(MockTool::new(
-        "mock_tool",
-        "permission denied",
-        true,
-    )));
+    registry.register(Box::new(MockTool::new("mock_tool", "permission denied", true)));
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config,
-        registry,
-        silent_output(),
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, silent_output(), std::env::temp_dir());
     let result = engine
         .run("keep retrying a failing tool", "")
         .await
@@ -1172,10 +1080,7 @@ async fn repeated_tool_call_malformed_stops_on_default_third_turn() {
         .await
         .expect_err("engine should surface repeated tool-call-malformed loop");
 
-    assert!(matches!(
-        err,
-        AgentError::ToolCallMalformed { count: 3, limit: 3 }
-    ));
+    assert!(matches!(err, AgentError::ToolCallMalformed { count: 3, limit: 3 }));
     assert_eq!(
         requests.lock().unwrap().len(),
         3,
@@ -1212,9 +1117,7 @@ async fn repeated_tool_call_malformed_stops_on_default_third_turn() {
     assert_eq!(tool_results.len(), 3);
     assert!(
         tool_results.iter().all(|(id, content, is_error)| {
-            id.as_str() == "bad"
-                && **is_error
-                && content.contains("Malformed tool call: empty function name")
+            id.as_str() == "bad" && **is_error && content.contains("Malformed tool call: empty function name")
         }),
         "tool-call malformed uses should have paired synthetic error results"
     );
@@ -1243,10 +1146,7 @@ async fn repeated_tool_call_malformed_threshold_one_stops_immediately() {
         .await
         .expect_err("engine should surface repeated tool-call-malformed loop");
 
-    assert!(matches!(
-        err,
-        AgentError::ToolCallMalformed { count: 1, limit: 1 }
-    ));
+    assert!(matches!(err, AgentError::ToolCallMalformed { count: 1, limit: 1 }));
     assert_eq!(requests.lock().unwrap().len(), 1);
 }
 
@@ -1272,13 +1172,7 @@ async fn repeated_tool_call_malformed_disabled_runs_grace_finalization() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("mock_tool", "unused", false)));
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config,
-        registry,
-        silent_output(),
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, silent_output(), std::env::temp_dir());
     let result = engine
         .run("repeat malformed", "")
         .await
@@ -1350,13 +1244,7 @@ async fn mixed_valid_and_tool_call_malformed_calls_do_not_trip_breaker() {
     let mut registry = ToolRegistry::new();
     registry.register(Box::new(MockTool::new("mock_tool", "tool output", false)));
 
-    let mut engine = AgentEngine::new_with_provider(
-        provider,
-        config,
-        registry,
-        output.clone(),
-        std::env::temp_dir(),
-    );
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output.clone(), std::env::temp_dir());
     let result = engine
         .run("mixed tool calls", "")
         .await
@@ -1391,8 +1279,7 @@ async fn test_engine_api_error_handling() {
     let registry = ToolRegistry::new();
     let output = silent_output();
 
-    let mut engine =
-        AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
+    let mut engine = AgentEngine::new_with_provider(provider, config, registry, output, std::env::temp_dir());
     let err = engine
         .run("Hello", "")
         .await

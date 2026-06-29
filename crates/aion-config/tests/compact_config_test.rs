@@ -44,10 +44,7 @@ enabled = false
     assert_eq!(config.compact.max_failures, 5);
     assert_eq!(config.compact.micro_keep_recent, 3);
     assert_eq!(config.compact.micro_gap_seconds, 1800);
-    assert_eq!(
-        config.compact.compactable_tools,
-        vec!["Read", "ExecCommand"]
-    );
+    assert_eq!(config.compact.compactable_tools, vec!["Read", "ExecCommand"]);
     assert!(!config.compact.enabled);
 }
 

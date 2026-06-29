@@ -1,6 +1,6 @@
 use super::types::{
-    BoolOrString, EffortLevel, ExecutionContext, FrontmatterData, LoadedFrom, ParsedMarkdown,
-    SkillMetadata, SkillSource, StringOrNumber, StringOrVec,
+    BoolOrString, EffortLevel, ExecutionContext, FrontmatterData, LoadedFrom, ParsedMarkdown, SkillMetadata,
+    SkillSource, StringOrNumber, StringOrVec,
 };
 
 // ---------------------------------------------------------------------------
@@ -109,9 +109,7 @@ fn extract_frontmatter_bounds(input: &str) -> Option<(&str, &str)> {
     // We work on the original bytes but accept both endings at fence lines.
 
     // Opening fence must be the very first line
-    let after_open = input
-        .strip_prefix("---\n")
-        .or_else(|| input.strip_prefix("---\r\n"))?;
+    let after_open = input.strip_prefix("---\n").or_else(|| input.strip_prefix("---\r\n"))?;
 
     // Scan line by line for the closing fence
     let mut pos = 0;
@@ -184,9 +182,7 @@ fn parse_yaml_with_fallback(yaml_text: &str) -> FrontmatterData {
 /// - the line has no leading whitespace (top-level only — nested structures
 ///   like hooks blocks are left untouched to preserve their syntax)
 fn quote_problematic_values(yaml_text: &str) -> String {
-    const SPECIAL_CHARS: &[char] = &[
-        '{', '}', '[', ']', '*', '&', '#', '!', '|', '>', '%', '@', '`',
-    ];
+    const SPECIAL_CHARS: &[char] = &['{', '}', '[', ']', '*', '&', '#', '!', '|', '>', '%', '@', '`'];
 
     let mut result = String::with_capacity(yaml_text.len() + 64);
 
@@ -449,10 +445,7 @@ Do the thing.
 "#;
         let parsed = parse_frontmatter(input);
         assert_eq!(parsed.frontmatter.name.as_deref(), Some("my-skill"));
-        assert_eq!(
-            parsed.frontmatter.description.as_deref(),
-            Some("Does something useful")
-        );
+        assert_eq!(parsed.frontmatter.description.as_deref(), Some("Does something useful"));
         assert!(parsed.content.contains("Skill body"));
     }
 
@@ -574,22 +567,10 @@ Do the thing.
 
     #[test]
     fn test_parse_effort_numbers() {
-        assert_eq!(
-            parse_effort(&Some(StringOrNumber::Num(0))),
-            Some(EffortLevel::Low)
-        );
-        assert_eq!(
-            parse_effort(&Some(StringOrNumber::Num(1))),
-            Some(EffortLevel::Medium)
-        );
-        assert_eq!(
-            parse_effort(&Some(StringOrNumber::Num(2))),
-            Some(EffortLevel::High)
-        );
-        assert_eq!(
-            parse_effort(&Some(StringOrNumber::Num(99))),
-            Some(EffortLevel::Max)
-        );
+        assert_eq!(parse_effort(&Some(StringOrNumber::Num(0))), Some(EffortLevel::Low));
+        assert_eq!(parse_effort(&Some(StringOrNumber::Num(1))), Some(EffortLevel::Medium));
+        assert_eq!(parse_effort(&Some(StringOrNumber::Num(2))), Some(EffortLevel::High));
+        assert_eq!(parse_effort(&Some(StringOrNumber::Num(99))), Some(EffortLevel::Max));
     }
 
     #[test]
@@ -607,10 +588,7 @@ Do the thing.
 
     #[test]
     fn test_parse_string_or_vec_multiple() {
-        let v = parse_string_or_vec(&Some(StringOrVec::Multiple(vec![
-            "Read".into(),
-            "Write".into(),
-        ])));
+        let v = parse_string_or_vec(&Some(StringOrVec::Multiple(vec!["Read".into(), "Write".into()])));
         assert_eq!(v, vec!["Read", "Write"]);
     }
 

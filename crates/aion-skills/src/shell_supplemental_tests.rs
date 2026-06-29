@@ -177,10 +177,7 @@ async fn tc_4_3_stderr_captured_and_formatted() {
         "!`echo stderr_msg >&2`"
     };
     let result = run(content).await.unwrap();
-    assert!(
-        result.contains("[stderr]"),
-        "stderr prefix missing: {result}"
-    );
+    assert!(result.contains("[stderr]"), "stderr prefix missing: {result}");
     assert!(result.contains("stderr_msg"));
 }
 
@@ -190,10 +187,7 @@ async fn tc_4_4_command_fail_no_output_returns_err() {
     // `exit 1` exits with code 1 and produces no output (cross-platform)
     let content = "!`exit 1`";
     let result = run(content).await;
-    assert!(
-        result.is_err(),
-        "command with exit 1 and no output should return Err"
-    );
+    assert!(result.is_err(), "command with exit 1 and no output should return Err");
 }
 
 // TC-4.4b: 命令失败但有输出 → Ok（D-3 偏离验证）
@@ -322,10 +316,7 @@ async fn tc_6_1_mcp_skill_unchanged() {
     let result = execute_shell_commands(content, LoadedFrom::Mcp, tmp.to_str().unwrap())
         .await
         .unwrap();
-    assert_eq!(
-        result, content,
-        "MCP skill content should be returned unchanged"
-    );
+    assert_eq!(result, content, "MCP skill content should be returned unchanged");
 }
 
 // TC-6.2: 无 shell 命令 → 原文不变
@@ -407,10 +398,7 @@ fn tc_7_1_command_failed_message_contains_pattern() {
         output: "exit code 1".to_string(),
     };
     let msg = err.to_string();
-    assert!(
-        msg.contains("my-cmd"),
-        "error message should contain pattern: {msg}"
-    );
+    assert!(msg.contains("my-cmd"), "error message should contain pattern: {msg}");
 }
 
 // TC-7.2: McpBlocked 消息
@@ -470,10 +458,7 @@ async fn tc_15_6_same_command_repeated() {
     let content = "!`echo x` and !`echo x`";
     let result = run(content).await.unwrap();
     // Both occurrences of !`echo x` should be replaced
-    assert!(
-        !result.contains("!`"),
-        "both occurrences should be replaced: {result}"
-    );
+    assert!(!result.contains("!`"), "both occurrences should be replaced: {result}");
     // Should contain "x" — at least once from each replacement
     // On Windows cmd, echo may include trailing space; just verify no backtick syntax remains
     assert!(result.contains('x'), "expected 'x' in result: {result}");

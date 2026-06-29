@@ -79,9 +79,7 @@ impl CommandRunner {
             }
             Err(_) => {
                 containment.terminate(&mut child, child_id)?;
-                if let Ok(status) =
-                    tokio::time::timeout(self.post_process_drain, child.wait()).await
-                {
+                if let Ok(status) = tokio::time::timeout(self.post_process_drain, child.wait()).await {
                     status?;
                 }
                 tokio::join!(
@@ -133,10 +131,7 @@ async fn drain_reader(reader: Option<JoinHandle<Result<()>>>, drain: Duration) {
     let _reader_result = drain_reader_with_result(reader, drain).await;
 }
 
-async fn drain_reader_with_result(
-    reader: Option<JoinHandle<Result<()>>>,
-    drain: Duration,
-) -> Result<()> {
+async fn drain_reader_with_result(reader: Option<JoinHandle<Result<()>>>, drain: Duration) -> Result<()> {
     if let Some(mut reader) = reader {
         tokio::select! {
             _ = tokio::time::sleep(drain) => {
@@ -218,17 +213,12 @@ mod tests {
     #[tokio::test]
     async fn runner_returns_exit_code_and_output_for_completed_command() {
         #[cfg(windows)]
-        let script =
-            "Write-Output runner_completed_stdout; Write-Error runner_completed_stderr; exit 7";
+        let script = "Write-Output runner_completed_stdout; Write-Error runner_completed_stderr; exit 7";
         #[cfg(not(windows))]
-        let script =
-            "printf 'runner_completed_stdout\n'; printf 'runner_completed_stderr\n' >&2; exit 7";
+        let script = "printf 'runner_completed_stdout\n'; printf 'runner_completed_stderr\n' >&2; exit 7";
 
         let command = shell_command(script);
-        let result = CommandRunner::new(command)
-            .run()
-            .await
-            .expect("runner should complete");
+        let result = CommandRunner::new(command).run().await.expect("runner should complete");
 
         assert!(!result.timed_out);
         assert_eq!(result.exit_code, Some(7));
@@ -370,10 +360,7 @@ mod tests {
             return true;
         }
 
-        !matches!(
-            std::io::Error::last_os_error().raw_os_error(),
-            Some(libc::ESRCH)
-        )
+        !matches!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH))
     }
 
     #[cfg(windows)]
@@ -397,8 +384,7 @@ mod tests {
 
         const SYNCHRONIZE: u32 = 0x0010_0000;
 
-        let handle =
-            unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
         if handle.is_null() {
             return false;
         }
@@ -412,9 +398,7 @@ mod tests {
     #[cfg(windows)]
     fn terminate_process(pid: u32) {
         use windows_sys::Win32::Foundation::CloseHandle;
-        use windows_sys::Win32::System::Threading::{
-            OpenProcess, PROCESS_TERMINATE, TerminateProcess,
-        };
+        use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_TERMINATE, TerminateProcess};
 
         let handle = unsafe { OpenProcess(PROCESS_TERMINATE, 0, pid) };
         if handle.is_null() {

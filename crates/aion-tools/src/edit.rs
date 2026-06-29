@@ -178,10 +178,7 @@ impl Tool for EditTool {
         }
 
         ToolResult {
-            content: format!(
-                "Edited {}: replaced {} occurrence(s)",
-                file_path, match_count
-            ),
+            content: format!("Edited {}: replaced {} occurrence(s)", file_path, match_count),
             is_error: false,
         }
     }
@@ -195,10 +192,7 @@ impl Tool for EditTool {
     }
 
     fn describe(&self, input: &Value) -> String {
-        let path = input
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
+        let path = input.get("file_path").and_then(|v| v.as_str()).unwrap_or("unknown");
         format!("Edit {}", path)
     }
 }
@@ -362,10 +356,7 @@ mod tests {
         let result = tool.execute(input).await;
 
         assert!(!result.is_error, "unexpected error: {}", result.content);
-        assert_eq!(
-            std::fs::read_to_string(&file_path).unwrap(),
-            "goodbye world"
-        );
+        assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "goodbye world");
     }
 
     #[tokio::test]
@@ -443,11 +434,7 @@ mod tests {
         });
 
         let result = tool.execute(input).await;
-        assert!(
-            !result.is_error,
-            "expected success without cache: {}",
-            result.content
-        );
+        assert!(!result.is_error, "expected success without cache: {}", result.content);
         assert_eq!(std::fs::read_to_string(&file_path).unwrap(), "bye");
     }
 

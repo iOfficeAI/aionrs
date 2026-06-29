@@ -41,11 +41,7 @@ pub trait SlashCommand: Send + Sync {
         &[]
     }
     fn description(&self) -> &str;
-    async fn execute(
-        &self,
-        ctx: &mut CommandContext<'_>,
-        args: &str,
-    ) -> anyhow::Result<CommandResult>;
+    async fn execute(&self, ctx: &mut CommandContext<'_>, args: &str) -> anyhow::Result<CommandResult>;
 }
 
 /// Registry of all available slash commands.
@@ -55,9 +51,7 @@ pub struct CommandRegistry {
 
 impl CommandRegistry {
     pub fn new() -> Self {
-        Self {
-            commands: Vec::new(),
-        }
+        Self { commands: Vec::new() }
     }
 
     pub fn register(&mut self, cmd: Box<dyn SlashCommand>) {

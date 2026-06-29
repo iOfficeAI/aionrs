@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
-pub enum CompactionLevel {
+pub enum CompactLevel {
     Off,
     #[default]
     Safe,
     Full,
 }
 
-impl fmt::Display for CompactionLevel {
+impl fmt::Display for CompactLevel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Off => write!(f, "off"),
@@ -22,7 +22,7 @@ impl fmt::Display for CompactionLevel {
     }
 }
 
-impl FromStr for CompactionLevel {
+impl FromStr for CompactLevel {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -43,70 +43,44 @@ mod tests {
 
     #[test]
     fn default_is_safe() {
-        assert_eq!(CompactionLevel::default(), CompactionLevel::Safe);
+        assert_eq!(CompactLevel::default(), CompactLevel::Safe);
     }
 
     #[test]
     fn display_fromstr_roundtrip() {
-        for level in [
-            CompactionLevel::Off,
-            CompactionLevel::Safe,
-            CompactionLevel::Full,
-        ] {
+        for level in [CompactLevel::Off, CompactLevel::Safe, CompactLevel::Full] {
             let s = level.to_string();
-            let parsed: CompactionLevel = s.parse().unwrap();
+            let parsed: CompactLevel = s.parse().unwrap();
             assert_eq!(parsed, level);
         }
     }
 
     #[test]
     fn case_insensitive_parsing() {
-        assert_eq!(
-            "OFF".parse::<CompactionLevel>().unwrap(),
-            CompactionLevel::Off
-        );
-        assert_eq!(
-            "Safe".parse::<CompactionLevel>().unwrap(),
-            CompactionLevel::Safe
-        );
-        assert_eq!(
-            "FULL".parse::<CompactionLevel>().unwrap(),
-            CompactionLevel::Full
-        );
+        assert_eq!("OFF".parse::<CompactLevel>().unwrap(), CompactLevel::Off);
+        assert_eq!("Safe".parse::<CompactLevel>().unwrap(), CompactLevel::Safe);
+        assert_eq!("FULL".parse::<CompactLevel>().unwrap(), CompactLevel::Full);
     }
 
     #[test]
     fn invalid_input_error() {
-        let err = "unknown".parse::<CompactionLevel>().unwrap_err();
+        let err = "unknown".parse::<CompactLevel>().unwrap_err();
         assert!(err.contains("unknown compaction level"));
     }
 
     #[test]
     fn serde_roundtrip() {
-        for level in [
-            CompactionLevel::Off,
-            CompactionLevel::Safe,
-            CompactionLevel::Full,
-        ] {
+        for level in [CompactLevel::Off, CompactLevel::Safe, CompactLevel::Full] {
             let json = serde_json::to_string(&level).unwrap();
-            let back: CompactionLevel = serde_json::from_str(&json).unwrap();
+            let back: CompactLevel = serde_json::from_str(&json).unwrap();
             assert_eq!(back, level);
         }
     }
 
     #[test]
     fn serde_lowercase_format() {
-        assert_eq!(
-            serde_json::to_string(&CompactionLevel::Off).unwrap(),
-            "\"off\""
-        );
-        assert_eq!(
-            serde_json::to_string(&CompactionLevel::Safe).unwrap(),
-            "\"safe\""
-        );
-        assert_eq!(
-            serde_json::to_string(&CompactionLevel::Full).unwrap(),
-            "\"full\""
-        );
+        assert_eq!(serde_json::to_string(&CompactLevel::Off).unwrap(), "\"off\"");
+        assert_eq!(serde_json::to_string(&CompactLevel::Safe).unwrap(), "\"safe\"");
+        assert_eq!(serde_json::to_string(&CompactLevel::Full).unwrap(), "\"full\"");
     }
 }

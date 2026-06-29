@@ -40,24 +40,15 @@ fn tc_7_1_memory_dir_with_content_injects_prompt() {
         result.contains("auto memory"),
         "should contain memory system display name"
     );
-    assert!(
-        result.contains("Memory types:"),
-        "should contain compact type summary"
-    );
+    assert!(result.contains("Memory types:"), "should contain compact type summary");
     assert!(
         result.contains("MEMORY.md is the index"),
         "should contain compact save guidance"
     );
 
     // Should contain MEMORY.md content
-    assert!(
-        result.contains("user_role.md"),
-        "should contain MEMORY.md entries"
-    );
-    assert!(
-        result.contains("senior engineer"),
-        "should contain entry descriptions"
-    );
+    assert!(result.contains("user_role.md"), "should contain MEMORY.md entries");
+    assert!(result.contains("senior engineer"), "should contain entry descriptions");
 }
 
 // ---------------------------------------------------------------------------
@@ -148,12 +139,8 @@ fn tc_7_3_section_ordering() {
     let agents_pos = result
         .find("PROJECT_RULES_CONTENT")
         .expect("AGENTS.md content should be present");
-    let memory_pos = result
-        .find("auto memory")
-        .expect("memory section should be present");
-    let skills_pos = result
-        .find("test-skill")
-        .expect("skills section should be present");
+    let memory_pos = result.find("auto memory").expect("memory section should be present");
+    let skills_pos = result.find("test-skill").expect("skills section should be present");
 
     assert!(
         agents_pos < memory_pos,
@@ -223,18 +210,9 @@ fn tc_7_5_memory_md_content_injected() {
         false,
     );
 
-    assert!(
-        result.contains("user_role.md"),
-        "should contain first entry"
-    );
-    assert!(
-        result.contains("feedback_tests.md"),
-        "should contain second entry"
-    );
-    assert!(
-        result.contains("project_sprint.md"),
-        "should contain third entry"
-    );
+    assert!(result.contains("user_role.md"), "should contain first entry");
+    assert!(result.contains("feedback_tests.md"), "should contain second entry");
+    assert!(result.contains("project_sprint.md"), "should contain third entry");
     assert!(
         result.contains("sprint 42 ends Friday"),
         "should contain entry descriptions"
@@ -279,11 +257,7 @@ fn tc_7_7_no_bb_brand_in_integrated_prompt() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mem_dir = tmp.path().join("memory");
     fs::create_dir_all(&mem_dir).unwrap();
-    fs::write(
-        mem_dir.join("MEMORY.md"),
-        "- [Test](test.md) \u{2014} entry\n",
-    )
-    .unwrap();
+    fs::write(mem_dir.join("MEMORY.md"), "- [Test](test.md) \u{2014} entry\n").unwrap();
 
     let result = build_system_prompt(
         &mut SystemPromptCache::new(),
@@ -301,8 +275,5 @@ fn tc_7_7_no_bb_brand_in_integrated_prompt() {
         !result.contains("~/.claude"),
         "should not contain bb brand path ~/.claude"
     );
-    assert!(
-        !result.contains("CLAUDE.md"),
-        "should not reference CLAUDE.md"
-    );
+    assert!(!result.contains("CLAUDE.md"), "should not reference CLAUDE.md");
 }
