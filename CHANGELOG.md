@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.36](https://github.com/iOfficeAI/aionrs/compare/v0.1.35...v0.1.36) (2026-06-29)
+
+
+### Bug Fixes
+
+* **config:** leave max turns unlimited by default ([#159](https://github.com/iOfficeAI/aionrs/issues/159)) ([e351951](https://github.com/iOfficeAI/aionrs/commit/e351951a151235c672bfee71460822e5d00d7d42))
+
 ## [0.1.35](https://github.com/iOfficeAI/aionrs/compare/v0.1.34...v0.1.35) (2026-06-29)
 
 
