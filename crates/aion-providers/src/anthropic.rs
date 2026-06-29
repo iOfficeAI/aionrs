@@ -1,113 +1,63 @@
 use async_trait::async_trait;
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+#[cfg(test)]
 use serde_json::Value;
 use tokio::sync::mpsc;
 
 use aion_types::llm::{LlmEvent, LlmRequest};
 
-use super::anthropic_shared;
-use crate::projector::{
-    AnthropicWireProjector, ResolvedToolWireShape, WireParams, WireProvider,
-    classify_tools_wire_shape_mismatch, projection_to_provider_error,
-};
-use crate::stream_runner::{RetryPolicy, run_stream};
+use crate::composed::ComposedProvider;
+use crate::transport::{AnthropicTransport, ProviderTransport};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
 
 pub struct AnthropicProvider {
-    client: reqwest::Client,
+    inner: ComposedProvider,
     api_key: String,
     base_url: String,
-    cache_enabled: bool,
     compat: ProviderCompat,
+    cache_enabled: bool,
 }
 
 impl AnthropicProvider {
     pub fn new(api_key: &str, base_url: &str, compat: ProviderCompat) -> Self {
+        let cache_enabled = true;
+        let inner = Self::build_inner(api_key, base_url, cache_enabled, &compat);
+
         Self {
-            client: reqwest::Client::new(),
+            inner,
             api_key: api_key.to_string(),
             base_url: base_url.to_string(),
-            cache_enabled: true,
             compat,
+            cache_enabled,
         }
     }
 
     pub fn with_cache(mut self, enabled: bool) -> Self {
         self.cache_enabled = enabled;
+        self.inner = Self::build_inner(
+            &self.api_key,
+            &self.base_url,
+            self.cache_enabled,
+            &self.compat,
+        );
         self
     }
 
-    fn build_headers(&self) -> Result<HeaderMap, ProviderError> {
-        let mut headers = HeaderMap::new();
-        let api_key = HeaderValue::from_str(&self.api_key)
-            .map_err(|e| ProviderError::Connection(format!("Invalid x-api-key header: {}", e)))?;
-        headers.insert("x-api-key", api_key);
-        headers.insert("anthropic-version", HeaderValue::from_static("2023-06-01"));
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-        if self.cache_enabled {
-            headers.insert(
-                "anthropic-beta",
-                HeaderValue::from_static("prompt-caching-2024-07-31"),
-            );
-        }
-        Ok(headers)
+    fn build_inner(
+        api_key: &str,
+        base_url: &str,
+        cache_enabled: bool,
+        compat: &ProviderCompat,
+    ) -> ComposedProvider {
+        let transport =
+            ProviderTransport::Anthropic(AnthropicTransport::new(api_key, base_url, cache_enabled));
+        ComposedProvider::new(transport, compat.clone())
     }
 
+    #[cfg(test)]
     fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
-        AnthropicWireProjector::project(
-            request,
-            &self.compat,
-            WireParams {
-                provider: WireProvider::Anthropic,
-                anthropic_version: None,
-                include_model_in_body: true,
-                include_stream: true,
-                cache_enabled: self.cache_enabled,
-                sanitize_schema: false,
-            },
-        )
-        .map_err(projection_to_provider_error)
+        self.inner.build_request_body(request)
     }
-}
-
-async fn send_anthropic_stream_request(
-    client: reqwest::Client,
-    url: String,
-    headers: HeaderMap,
-    body: Value,
-    tool_wire_shape: ResolvedToolWireShape,
-) -> Result<reqwest::Response, ProviderError> {
-    let response = client
-        .post(&url)
-        .headers(headers)
-        .json(&body)
-        .send()
-        .await?;
-
-    let status = response.status();
-    if !status.is_success() {
-        let body_text = response.text().await.unwrap_or_default();
-        if status.as_u16() == 429 {
-            return Err(ProviderError::RateLimited {
-                retry_after_ms: 5000,
-            });
-        }
-        if let Some(message) =
-            classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape)
-        {
-            return Err(ProviderError::Api {
-                status: status.as_u16(),
-                message,
-            });
-        }
-        return Err(ProviderError::Api {
-            status: status.as_u16(),
-            message: body_text,
-        });
-    }
-
-    Ok(response)
 }
 
 #[async_trait]
@@ -116,37 +66,7 @@ impl LlmProvider for AnthropicProvider {
         &self,
         request: &LlmRequest,
     ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
-        let url = format!("{}/v1/messages", self.base_url);
-        let body = self.build_request_body(request)?;
-
-        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
-
-        let client = self.client.clone();
-        let headers = self.build_headers()?;
-        let tool_wire_shape = AnthropicWireProjector::resolved_tool_wire_shape(&self.compat);
-        let send = {
-            let url = url.clone();
-            let body = body.clone();
-            move || {
-                let client = client.clone();
-                let url = url.clone();
-                let headers = headers.clone();
-                let body = body.clone();
-                async move {
-                    send_anthropic_stream_request(client, url, headers, body, tool_wire_shape).await
-                }
-            }
-        };
-        let process = move |response, tx| async move {
-            anthropic_shared::process_sse_stream(response, &tx).await
-        };
-
-        run_stream(
-            send,
-            process,
-            RetryPolicy::new(crate::retry::MAX_STREAM_RETRIES, false, true),
-        )
-        .await
+        self.inner.stream(request).await
     }
 }
 

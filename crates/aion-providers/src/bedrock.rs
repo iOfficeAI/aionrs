@@ -7,30 +7,59 @@ use aws_sigv4::http_request::{
     self as sigv4_http, PayloadChecksumKind, SignableBody, SignableRequest, SignatureLocation,
     SigningSettings,
 };
-use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+use aws_sigv4::sign::v4::SigningParams;
+use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
+use std::thread;
 use std::time::SystemTime;
+use tokio::runtime::{Handle, Runtime};
 use tokio::sync::mpsc;
 
+use aion_config::config::BedrockConfig;
 use aion_types::llm::{LlmEvent, LlmRequest};
-use aion_types::message::{StopReason, TokenUsage};
 
-use crate::framing::bedrock_payload_to_frame;
-use crate::parser::ResponseParser;
+use crate::composed::ComposedProvider;
 use crate::projector::{
-    AnthropicWireProjector, WireParams, WireProvider, classify_tools_wire_shape_mismatch,
-    projection_to_provider_error,
+    ResolvedToolWireShape, WireParams, WireProvider, classify_tools_wire_shape_mismatch,
 };
-use crate::stream_runner::StreamOutcome;
+use crate::transport::{BedrockTransport, ProjectedHttpRequest, ProviderTransport};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
 
 pub struct BedrockProvider {
-    client: reqwest::Client,
-    region: String,
-    credentials: AwsCredentials,
-    cache_enabled: bool,
-    compat: ProviderCompat,
+    inner: ComposedProvider,
+}
+
+impl BedrockProvider {
+    pub fn new(
+        region: &str,
+        credentials: AwsCredentials,
+        cache_enabled: bool,
+        compat: ProviderCompat,
+    ) -> Self {
+        let transport_state = BedrockTransportState::new(region, credentials, cache_enabled);
+        let transport = ProviderTransport::Bedrock(BedrockTransport {
+            inner: transport_state.clone(),
+        });
+        let inner = ComposedProvider::new(transport, compat.clone());
+
+        Self { inner }
+    }
+
+    #[cfg(test)]
+    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
+        self.inner.build_request_body(request)
+    }
+}
+
+#[async_trait]
+impl LlmProvider for BedrockProvider {
+    async fn stream(
+        &self,
+        request: &LlmRequest,
+    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        self.inner.stream(request).await
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -44,36 +73,33 @@ pub enum AwsCredentials {
     Environment,
 }
 
-impl BedrockProvider {
-    pub fn new(
-        region: &str,
-        credentials: AwsCredentials,
-        cache_enabled: bool,
-        compat: ProviderCompat,
-    ) -> Self {
+#[derive(Clone)]
+pub(crate) struct BedrockTransportState {
+    client: reqwest::Client,
+    region: String,
+    credentials: AwsCredentials,
+    cache_enabled: bool,
+}
+
+impl BedrockTransportState {
+    pub(crate) fn new(region: &str, credentials: AwsCredentials, cache_enabled: bool) -> Self {
         Self {
             client: reqwest::Client::new(),
             region: region.to_string(),
             credentials,
             cache_enabled,
-            compat,
         }
     }
 
-    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
-        AnthropicWireProjector::project(
-            request,
-            &self.compat,
-            WireParams {
-                provider: WireProvider::Bedrock,
-                anthropic_version: Some("bedrock-2023-05-31"),
-                include_model_in_body: false,
-                include_stream: false,
-                cache_enabled: self.cache_enabled,
-                sanitize_schema: self.compat.sanitize_schema(),
-            },
-        )
-        .map_err(projection_to_provider_error)
+    pub(crate) fn wire_params(&self, compat: &ProviderCompat) -> WireParams {
+        WireParams {
+            provider: WireProvider::Bedrock,
+            anthropic_version: Some("bedrock-2023-05-31"),
+            include_model_in_body: false,
+            include_stream: false,
+            cache_enabled: self.cache_enabled,
+            sanitize_schema: compat.sanitize_schema(),
+        }
     }
 
     fn build_url(&self, model: &str) -> String {
@@ -104,7 +130,7 @@ impl BedrockProvider {
     fn credentials_from_sdk(profile: Option<String>) -> Result<Credentials, ProviderError> {
         // Use a short-lived tokio runtime to resolve credentials synchronously.
         // This is called once per LLM request so the overhead is acceptable.
-        let rt = tokio::runtime::Handle::try_current();
+        let rt = Handle::try_current();
 
         let resolve = async move {
             let mut loader = aws_config::defaults(aws_config::BehaviorVersion::latest());
@@ -138,9 +164,9 @@ impl BedrockProvider {
         match rt {
             Ok(_handle) => {
                 // Already inside a tokio runtime — use spawn_blocking to avoid nested block_on
-                std::thread::scope(|s| {
+                thread::scope(|s| {
                     s.spawn(|| {
-                        tokio::runtime::Runtime::new()
+                        Runtime::new()
                             .map_err(|e| {
                                 ProviderError::Connection(format!("Runtime error: {}", e))
                             })?
@@ -152,7 +178,7 @@ impl BedrockProvider {
             }
             Err(_) => {
                 // No runtime — safe to create one
-                tokio::runtime::Runtime::new()
+                Runtime::new()
                     .map_err(|e| ProviderError::Connection(format!("Runtime error: {}", e)))?
                     .block_on(resolve)
             }
@@ -172,7 +198,7 @@ impl BedrockProvider {
         signing_settings.signature_location = SignatureLocation::Headers;
 
         let identity = credentials.clone().into();
-        let signing_params = aws_sigv4::sign::v4::SigningParams::builder()
+        let signing_params = SigningParams::builder()
             .identity(&identity)
             .region(&self.region)
             .name("bedrock")
@@ -203,7 +229,7 @@ impl BedrockProvider {
         let mut signed_headers = headers.clone();
         for (name, value) in signing_instructions.headers() {
             signed_headers.insert(
-                reqwest::header::HeaderName::from_bytes(name.as_bytes())
+                HeaderName::from_bytes(name.as_bytes())
                     .map_err(|e| ProviderError::Connection(format!("Header name error: {}", e)))?,
                 HeaderValue::from_str(value)
                     .map_err(|e| ProviderError::Connection(format!("Header value error: {}", e)))?,
@@ -212,24 +238,18 @@ impl BedrockProvider {
 
         Ok(signed_headers)
     }
-}
 
-#[async_trait]
-impl LlmProvider for BedrockProvider {
-    async fn stream(
+    pub(crate) fn build_projected_request(
         &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
-        let url = self.build_url(&request.model);
-        let body = self.build_request_body(request)?;
-        let tool_wire_shape = AnthropicWireProjector::resolved_tool_wire_shape(&self.compat);
-
-        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
-
+        model: &str,
+        body: Value,
+        _compat: &ProviderCompat,
+        tool_wire_shape: ResolvedToolWireShape,
+    ) -> Result<ProjectedHttpRequest, ProviderError> {
         let body_bytes = serde_json::to_vec(&body)
             .map_err(|e| ProviderError::Connection(format!("JSON serialize error: {}", e)))?;
-
         let credentials = self.resolve_credentials()?;
+        let url = self.build_url(model);
 
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -237,10 +257,36 @@ impl LlmProvider for BedrockProvider {
         let signed_headers =
             self.sign_request("POST", &url, &headers, &body_bytes, &credentials)?;
 
+        Ok(ProjectedHttpRequest {
+            url,
+            headers: signed_headers,
+            body,
+            body_bytes: Some(body_bytes),
+            tool_wire_shape,
+        })
+    }
+
+    pub(crate) async fn send(
+        &self,
+        request: ProjectedHttpRequest,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let ProjectedHttpRequest {
+            url,
+            headers,
+            body_bytes,
+            tool_wire_shape,
+            ..
+        } = request;
+        let body_bytes = body_bytes.ok_or_else(|| {
+            ProviderError::Connection(
+                "Bedrock projected request missing signed request body bytes".to_string(),
+            )
+        })?;
+
         let response = self
             .client
             .post(&url)
-            .headers(signed_headers)
+            .headers(headers)
             .body(body_bytes)
             .send()
             .await?;
@@ -268,134 +314,7 @@ impl LlmProvider for BedrockProvider {
             });
         }
 
-        let (tx, rx) = mpsc::channel(64);
-
-        // AWS event stream uses binary framing
-        tokio::spawn(async move {
-            match process_aws_event_stream(response, &tx).await {
-                StreamOutcome::Ok => {}
-                StreamOutcome::FailedPartial(e) | StreamOutcome::FailedEmpty(e) => {
-                    // Bedrock retry requires re-signing; not implemented yet.
-                    let _ = tx.send(LlmEvent::Error(e.to_string())).await;
-                }
-            }
-        });
-
-        Ok(rx)
-    }
-}
-
-/// Process the AWS event stream (binary framed) from Bedrock
-async fn process_aws_event_stream(
-    response: reqwest::Response,
-    tx: &mpsc::Sender<LlmEvent>,
-) -> StreamOutcome {
-    use futures::StreamExt;
-
-    let parser = crate::parser::AnthropicParser;
-    let mut state = parser.new_state();
-    let mut buffer = Vec::new();
-    let mut stream = response.bytes_stream();
-    let mut emitted_content = false;
-    let mut emitted_done = false;
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = match chunk {
-            Ok(c) => c,
-            Err(e) => {
-                let err = ProviderError::Connection(e.to_string());
-                return if emitted_content {
-                    StreamOutcome::FailedPartial(err)
-                } else {
-                    StreamOutcome::FailedEmpty(err)
-                };
-            }
-        };
-        buffer.extend_from_slice(&chunk);
-
-        // Parse complete AWS event stream messages from buffer
-        while let Some((event_data, consumed)) = parse_aws_event(&buffer) {
-            buffer = buffer[consumed..].to_vec();
-
-            let Some(payload) = event_data else {
-                continue;
-            };
-
-            if let Some(frame) = bedrock_payload_to_frame(&payload) {
-                tracing::debug!(target: "aion_providers", chunk = %frame.data, "bedrock event chunk");
-                let events = parser.parse_frame(&frame, &mut state);
-                for event in events {
-                    if matches!(
-                        event,
-                        LlmEvent::TextDelta(_)
-                            | LlmEvent::ThinkingDelta(_)
-                            | LlmEvent::ThinkingSignature(_)
-                            | LlmEvent::ToolUse { .. }
-                    ) {
-                        emitted_content = true;
-                    }
-                    if matches!(event, LlmEvent::Done { .. }) {
-                        emitted_done = true;
-                    }
-                    if tx.send(event).await.is_err() {
-                        return StreamOutcome::Ok;
-                    }
-                }
-            }
-        }
-    }
-
-    // If we haven't sent a Done event, send one now
-    if !emitted_done && (state.input_tokens > 0 || state.output_tokens > 0) {
-        let _ = tx
-            .send(LlmEvent::Done {
-                stop_reason: StopReason::EndTurn,
-                usage: TokenUsage {
-                    input_tokens: state.input_tokens,
-                    output_tokens: state.output_tokens,
-                    cache_creation_tokens: state.cache_creation_tokens,
-                    cache_read_tokens: state.cache_read_tokens,
-                },
-            })
-            .await;
-    }
-
-    StreamOutcome::Ok
-}
-
-/// Parse one AWS event stream message from the buffer.
-/// Returns (Some(payload), bytes_consumed) if a complete message is found,
-/// or None if more data is needed.
-///
-/// AWS event stream binary format:
-/// - Prelude: total_len (4 bytes, big-endian) + headers_len (4 bytes) + prelude_crc (4 bytes)
-/// - Headers: variable length
-/// - Payload: variable length
-/// - Message CRC: 4 bytes
-fn parse_aws_event(buffer: &[u8]) -> Option<(Option<Vec<u8>>, usize)> {
-    if buffer.len() < 12 {
-        return None; // Need at least the prelude
-    }
-
-    let total_len = u32::from_be_bytes([buffer[0], buffer[1], buffer[2], buffer[3]]) as usize;
-    let headers_len = u32::from_be_bytes([buffer[4], buffer[5], buffer[6], buffer[7]]) as usize;
-
-    if buffer.len() < total_len {
-        return None; // Incomplete message
-    }
-
-    // Prelude is 12 bytes (total_len + headers_len + prelude_crc)
-    // Payload starts after prelude + headers
-    let payload_start = 12 + headers_len;
-    // Payload ends 4 bytes before total_len (message CRC)
-    let payload_end = total_len - 4;
-
-    if payload_start <= payload_end {
-        let payload = buffer[payload_start..payload_end].to_vec();
-        Some((Some(payload), total_len))
-    } else {
-        // Empty payload (e.g., initial response event)
-        Some((None, total_len))
+        Ok(response)
     }
 }
 
@@ -442,7 +361,7 @@ fn format_bedrock_error(status: u16, body: &str) -> String {
 }
 
 /// Build AwsCredentials from aion-config's BedrockConfig
-pub fn credentials_from_config(bc: &aion_config::config::BedrockConfig) -> AwsCredentials {
+pub fn credentials_from_config(bc: &BedrockConfig) -> AwsCredentials {
     if let (Some(key_id), Some(secret)) = (&bc.access_key_id, &bc.secret_access_key) {
         AwsCredentials::Explicit {
             access_key_id: key_id.clone(),
@@ -461,10 +380,7 @@ mod tests {
     use super::*;
     use aion_types::message::{ContentBlock, Message, Role};
     use aion_types::tool::ToolDef;
-    use base64::Engine as _;
     use serde_json::json;
-    use wiremock::matchers::{method, path};
-    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     // --- Golden body snapshots (baseline for compat-split / seam-extraction refactors) ---
 
@@ -506,46 +422,6 @@ mod tests {
         }]
     }
 
-    fn aws_event_message(payload: &[u8]) -> Vec<u8> {
-        let total_len = 12 + payload.len() + 4;
-        let mut message = Vec::with_capacity(total_len);
-        message.extend_from_slice(&(total_len as u32).to_be_bytes());
-        message.extend_from_slice(&0u32.to_be_bytes());
-        message.extend_from_slice(&0u32.to_be_bytes());
-        message.extend_from_slice(payload);
-        message.extend_from_slice(&0u32.to_be_bytes());
-        message
-    }
-
-    fn bedrock_event_payload(inner: &str) -> Vec<u8> {
-        json!({
-            "bytes": base64::engine::general_purpose::STANDARD.encode(inner)
-        })
-        .to_string()
-        .into_bytes()
-    }
-
-    async fn mock_response(body: Vec<u8>) -> reqwest::Response {
-        let server = MockServer::start().await;
-        Mock::given(method("GET"))
-            .and(path("/stream"))
-            .respond_with(ResponseTemplate::new(200).set_body_bytes(body))
-            .mount(&server)
-            .await;
-
-        reqwest::get(format!("{}/stream", server.uri()))
-            .await
-            .expect("mock response should be available")
-    }
-
-    async fn collect_events(mut rx: mpsc::Receiver<LlmEvent>) -> Vec<LlmEvent> {
-        let mut events = Vec::new();
-        while let Some(event) = rx.recv().await {
-            events.push(event);
-        }
-        events
-    }
-
     #[test]
     fn golden_bedrock_basic() {
         let p = bedrock_test_provider();
@@ -582,66 +458,5 @@ mod tests {
             p.build_request_body(&r)
                 .expect("request body projection should succeed")
         );
-    }
-
-    #[tokio::test]
-    async fn bedrock_event_stream_decodes_payloads_into_llm_events() {
-        let mut body = Vec::new();
-        for inner in [
-            r#"{"type":"message_start","message":{"usage":{"input_tokens":12}}}"#,
-            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
-            r#"{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}"#,
-        ] {
-            body.extend(aws_event_message(&bedrock_event_payload(inner)));
-        }
-
-        let response = mock_response(body).await;
-        let (tx, rx) = mpsc::channel(8);
-
-        let outcome = process_aws_event_stream(response, &tx).await;
-        drop(tx);
-        let events = collect_events(rx).await;
-
-        assert!(matches!(outcome, StreamOutcome::Ok));
-        assert_eq!(events.len(), 2);
-        assert!(matches!(&events[0], LlmEvent::TextDelta(text) if text == "Hello"));
-        match &events[1] {
-            LlmEvent::Done { stop_reason, usage } => {
-                assert_eq!(*stop_reason, StopReason::EndTurn);
-                assert_eq!(usage.input_tokens, 12);
-                assert_eq!(usage.output_tokens, 7);
-            }
-            event => panic!("expected Done event, got {event:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn bedrock_event_stream_synthesizes_done_when_message_delta_is_missing() {
-        let mut body = Vec::new();
-        for inner in [
-            r#"{"type":"message_start","message":{"usage":{"input_tokens":12}}}"#,
-            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
-        ] {
-            body.extend(aws_event_message(&bedrock_event_payload(inner)));
-        }
-
-        let response = mock_response(body).await;
-        let (tx, rx) = mpsc::channel(8);
-
-        let outcome = process_aws_event_stream(response, &tx).await;
-        drop(tx);
-        let events = collect_events(rx).await;
-
-        assert!(matches!(outcome, StreamOutcome::Ok));
-        assert_eq!(events.len(), 2);
-        assert!(matches!(&events[0], LlmEvent::TextDelta(text) if text == "Hello"));
-        match &events[1] {
-            LlmEvent::Done { stop_reason, usage } => {
-                assert_eq!(*stop_reason, StopReason::EndTurn);
-                assert_eq!(usage.input_tokens, 12);
-                assert_eq!(usage.output_tokens, 0);
-            }
-            event => panic!("expected synthesized Done event, got {event:?}"),
-        }
     }
 }

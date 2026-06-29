@@ -15,9 +15,6 @@ pub(crate) struct OpenAiParser {
     pub auto_tool_id: bool,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct AnthropicParser;
-
 impl ResponseParser for OpenAiParser {
     type State = crate::openai::StreamState;
 
@@ -38,6 +35,9 @@ impl ResponseParser for OpenAiParser {
         Vec::new()
     }
 }
+
+#[derive(Clone, Copy)]
+pub(crate) struct AnthropicParser;
 
 impl ResponseParser for AnthropicParser {
     type State = crate::anthropic_shared::StreamState;

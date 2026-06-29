@@ -3,17 +3,12 @@
 
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet, VecDeque};
-use tokio::sync::mpsc;
 
 use aion_types::llm::LlmEvent;
 use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 use aion_types::tool::ToolDef;
 
-use crate::error::ProviderError;
-use crate::framing::SseBlockFramer;
-use crate::parser::{AnthropicParser, ResponseParser};
 use crate::projector::{ResolvedToolWireShape, project_tools};
-pub(crate) use crate::stream_runner::StreamOutcome;
 use crate::tool_call_sanitize::{DroppedToolCallReason, format_dropped_tool_call};
 use aion_config::compat::ProviderCompat;
 
@@ -290,61 +285,6 @@ impl StreamState {
             cache_read_tokens: 0,
         }
     }
-}
-
-/// Process the SSE stream from an Anthropic-compatible API
-pub(crate) async fn process_sse_stream(
-    response: reqwest::Response,
-    tx: &mpsc::Sender<LlmEvent>,
-) -> StreamOutcome {
-    use futures::StreamExt;
-
-    let parser = AnthropicParser;
-    let mut state = parser.new_state();
-    let mut framer = SseBlockFramer::default();
-    let mut stream = response.bytes_stream();
-    let mut emitted_content = false;
-
-    while let Some(chunk) = stream.next().await {
-        let chunk = match chunk {
-            Ok(c) => c,
-            Err(e) => {
-                let err = ProviderError::Connection(e.to_string());
-                return if emitted_content {
-                    StreamOutcome::FailedPartial(err)
-                } else {
-                    StreamOutcome::FailedEmpty(err)
-                };
-            }
-        };
-        let text = String::from_utf8_lossy(&chunk);
-        for frame in framer.push_text(&text) {
-            tracing::debug!(target: "aion_providers", chunk = %frame.data, "sse chunk received");
-            let events = parser.parse_frame(&frame, &mut state);
-            for event in events {
-                if matches!(
-                    event,
-                    LlmEvent::TextDelta(_)
-                        | LlmEvent::ThinkingDelta(_)
-                        | LlmEvent::ThinkingSignature(_)
-                        | LlmEvent::ToolUse { .. }
-                ) {
-                    emitted_content = true;
-                }
-                if tx.send(event).await.is_err() {
-                    return StreamOutcome::Ok; // receiver dropped
-                }
-            }
-        }
-    }
-
-    for event in parser.finish(&mut state) {
-        if tx.send(event).await.is_err() {
-            return StreamOutcome::Ok;
-        }
-    }
-
-    StreamOutcome::Ok
 }
 
 /// Parse a single SSE data payload into zero or more LlmEvents

@@ -6,43 +6,25 @@ use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fs::read_to_string;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
+use aion_config::config::VertexConfig;
 use aion_types::llm::{LlmEvent, LlmRequest};
 
-use super::anthropic_shared;
+use crate::composed::ComposedProvider;
 use crate::projector::{
-    AnthropicWireProjector, ResolvedToolWireShape, WireParams, WireProvider,
-    classify_tools_wire_shape_mismatch, projection_to_provider_error,
+    ResolvedToolWireShape, WireParams, WireProvider, classify_tools_wire_shape_mismatch,
 };
-use crate::stream_runner::{RetryPolicy, run_stream};
+use crate::transport::{ProjectedHttpRequest, ProviderTransport, VertexTransport};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
 
 #[derive(Clone)]
 pub struct VertexProvider {
-    client: reqwest::Client,
-    project_id: String,
-    region: String,
-    auth: GcpAuth,
-    cache_enabled: bool,
-    compat: ProviderCompat,
-    /// Cached access token
-    cached_token: Arc<Mutex<Option<CachedToken>>>,
-}
-
-#[derive(Debug, Clone)]
-pub enum GcpAuth {
-    ServiceAccount { key_file: String },
-    ApplicationDefault,
-    MetadataServer,
-}
-
-struct CachedToken {
-    token: String,
-    expires_at: u64,
+    inner: ComposedProvider,
 }
 
 impl VertexProvider {
@@ -53,14 +35,69 @@ impl VertexProvider {
         cache_enabled: bool,
         compat: ProviderCompat,
     ) -> Self {
+        let transport_state = VertexTransportState::new(project_id, region, auth, cache_enabled);
+        let transport = ProviderTransport::Vertex(VertexTransport {
+            inner: transport_state.clone(),
+        });
+        let inner = ComposedProvider::new(transport, compat.clone());
+
+        Self { inner }
+    }
+
+    #[cfg(test)]
+    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
+        self.inner.build_request_body(request)
+    }
+}
+
+#[async_trait]
+impl LlmProvider for VertexProvider {
+    async fn stream(
+        &self,
+        request: &LlmRequest,
+    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        self.inner.stream(request).await
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum GcpAuth {
+    ServiceAccount { key_file: String },
+    ApplicationDefault,
+    MetadataServer,
+}
+
+#[derive(Clone)]
+pub(crate) struct VertexTransportState {
+    client: reqwest::Client,
+    project_id: String,
+    region: String,
+    auth: GcpAuth,
+    cache_enabled: bool,
+    /// Cached access token
+    cached_token: Arc<Mutex<Option<CachedToken>>>,
+}
+
+impl VertexTransportState {
+    pub(crate) fn new(project_id: &str, region: &str, auth: GcpAuth, cache_enabled: bool) -> Self {
         Self {
             client: reqwest::Client::new(),
             project_id: project_id.to_string(),
             region: region.to_string(),
             auth,
             cache_enabled,
-            compat,
             cached_token: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    pub(crate) fn wire_params(&self) -> WireParams {
+        WireParams {
+            provider: WireProvider::Vertex,
+            anthropic_version: Some("vertex-2023-10-16"),
+            include_model_in_body: false,
+            include_stream: true,
+            cache_enabled: self.cache_enabled,
+            sanitize_schema: false,
         }
     }
 
@@ -71,20 +108,20 @@ impl VertexProvider {
         )
     }
 
-    fn build_request_body(&self, request: &LlmRequest) -> Result<Value, ProviderError> {
-        AnthropicWireProjector::project(
-            request,
-            &self.compat,
-            WireParams {
-                provider: WireProvider::Vertex,
-                anthropic_version: Some("vertex-2023-10-16"),
-                include_model_in_body: false,
-                include_stream: true,
-                cache_enabled: self.cache_enabled,
-                sanitize_schema: false,
-            },
-        )
-        .map_err(projection_to_provider_error)
+    pub(crate) fn build_projected_request(
+        &self,
+        model: &str,
+        body: Value,
+        _compat: &ProviderCompat,
+        tool_wire_shape: ResolvedToolWireShape,
+    ) -> Result<ProjectedHttpRequest, ProviderError> {
+        Ok(ProjectedHttpRequest {
+            url: self.build_url(model),
+            headers: HeaderMap::new(),
+            body,
+            body_bytes: None,
+            tool_wire_shape,
+        })
     }
 
     async fn get_access_token(&self) -> Result<String, ProviderError> {
@@ -132,7 +169,7 @@ impl VertexProvider {
         &self,
         key_file: &str,
     ) -> Result<(String, u64), ProviderError> {
-        let key_json = std::fs::read_to_string(key_file)
+        let key_json = read_to_string(key_file)
             .map_err(|e| ProviderError::Connection(format!("Failed to read key file: {}", e)))?;
 
         let sa: ServiceAccountKey = serde_json::from_str(&key_json)
@@ -184,7 +221,7 @@ impl VertexProvider {
             .ok_or_else(|| ProviderError::Connection("Cannot determine home dir".into()))?
             .join(".config/gcloud/application_default_credentials.json");
 
-        let adc_json = std::fs::read_to_string(&adc_path).map_err(|e| {
+        let adc_json = read_to_string(&adc_path).map_err(|e| {
             ProviderError::Connection(format!(
                 "Failed to read ADC at {}: {}. Run 'gcloud auth application-default login'.",
                 adc_path.display(),
@@ -232,6 +269,20 @@ impl VertexProvider {
             .map_err(|e| ProviderError::Connection(format!("Token parse error: {}", e)))?;
 
         Ok((token_resp.access_token, token_resp.expires_in))
+    }
+
+    pub(crate) async fn send(
+        &self,
+        request: ProjectedHttpRequest,
+    ) -> Result<reqwest::Response, ProviderError> {
+        let ProjectedHttpRequest {
+            url,
+            body,
+            tool_wire_shape,
+            ..
+        } = request;
+
+        self.send_stream_request(&url, &body, tool_wire_shape).await
     }
 
     async fn send_stream_request(
@@ -284,45 +335,9 @@ impl VertexProvider {
     }
 }
 
-#[async_trait]
-impl LlmProvider for VertexProvider {
-    async fn stream(
-        &self,
-        request: &LlmRequest,
-    ) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
-        let url = self.build_url(&request.model);
-        let body = self.build_request_body(request)?;
-        let tool_wire_shape = AnthropicWireProjector::resolved_tool_wire_shape(&self.compat);
-
-        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
-
-        let provider = self.clone();
-        let send = {
-            let provider = provider.clone();
-            let url = url.clone();
-            let body = body.clone();
-            move || {
-                let provider = provider.clone();
-                let url = url.clone();
-                let body = body.clone();
-                async move {
-                    provider
-                        .send_stream_request(&url, &body, tool_wire_shape)
-                        .await
-                }
-            }
-        };
-        let process = move |response, tx| async move {
-            anthropic_shared::process_sse_stream(response, &tx).await
-        };
-
-        run_stream(
-            send,
-            process,
-            RetryPolicy::new(crate::retry::MAX_STREAM_RETRIES, false, true),
-        )
-        .await
-    }
+struct CachedToken {
+    token: String,
+    expires_at: u64,
 }
 
 // --- Internal types ---
@@ -362,7 +377,7 @@ struct AdcCredentials {
 }
 
 /// Build GcpAuth from aion-config's VertexConfig
-pub fn auth_from_config(vc: &aion_config::config::VertexConfig) -> GcpAuth {
+pub fn auth_from_config(vc: &VertexConfig) -> GcpAuth {
     if let Some(creds_file) = &vc.credentials_file {
         GcpAuth::ServiceAccount {
             key_file: creds_file.clone(),
@@ -378,6 +393,12 @@ mod tests {
     use aion_config::compat::ProviderCompat;
     use aion_types::message::{ContentBlock, Message, Role};
     use aion_types::tool::ToolDef;
+    use serde_json::json;
+    use wiremock::matchers::{header, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use crate::projector::ResolvedToolWireShape;
+    use crate::transport::{ProjectedHttpRequest, ProviderTransport, VertexTransport};
 
     // --- Golden body snapshots (baseline for compat-split / seam-extraction refactors) ---
 
@@ -404,6 +425,13 @@ mod tests {
     }
 
     #[test]
+    fn vertex_provider_preserves_clone_api() {
+        fn assert_clone<T: Clone>() {}
+
+        assert_clone::<VertexProvider>();
+    }
+
+    #[test]
     fn golden_vertex_basic() {
         let p = vertex_test_provider();
         let r = vertex_req(
@@ -420,5 +448,90 @@ mod tests {
             p.build_request_body(&r)
                 .expect("request body projection should succeed")
         );
+    }
+
+    #[test]
+    fn vertex_transport_builds_projected_request_with_vertex_url_and_preserves_body() {
+        let state = VertexTransportState::new(
+            "test-project",
+            "us-central1",
+            GcpAuth::ApplicationDefault,
+            false,
+        );
+        let transport = ProviderTransport::Vertex(VertexTransport { inner: state });
+        let compat = ProviderCompat::anthropic_defaults();
+        let body = json!({
+            "anthropic_version": "vertex-2023-10-16",
+            "messages": [{"role": "user", "content": "Hello"}],
+            "stream": true
+        });
+        let tool_wire_shape = ResolvedToolWireShape::AnthropicInputSchema;
+
+        let request = transport
+            .build_projected_request("claude-test-model", body.clone(), &compat, tool_wire_shape)
+            .expect("vertex projected request should build");
+
+        assert_eq!(
+            request.url,
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/test-project/locations/us-central1/publishers/anthropic/models/claude-test-model:streamRawPredict"
+        );
+        assert!(request.headers.is_empty());
+        assert_eq!(request.body, body);
+        assert!(request.body_bytes.is_none());
+        assert_eq!(request.tool_wire_shape, tool_wire_shape);
+    }
+
+    #[tokio::test]
+    async fn vertex_transport_send_maps_tool_shape_mismatch_to_actionable_api_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/streamRawPredict"))
+            .and(header("authorization", "Bearer cached-token"))
+            .and(header("content-type", "application/json"))
+            .respond_with(
+                ResponseTemplate::new(400)
+                    .set_body_string("invalid_request_error: body.tools[0].function is missing"),
+            )
+            .mount(&server)
+            .await;
+
+        let state = VertexTransportState::new(
+            "test-project",
+            "us-central1",
+            GcpAuth::ApplicationDefault,
+            false,
+        );
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock should be after unix epoch")
+            .as_secs();
+        *state
+            .cached_token
+            .lock()
+            .expect("token cache lock should not be poisoned") = Some(CachedToken {
+            token: "cached-token".to_string(),
+            expires_at: now + 3600,
+        });
+        let transport = ProviderTransport::Vertex(VertexTransport { inner: state });
+        let request = ProjectedHttpRequest {
+            url: format!("{}/streamRawPredict", server.uri()),
+            headers: HeaderMap::new(),
+            body: json!({"messages": []}),
+            body_bytes: None,
+            tool_wire_shape: ResolvedToolWireShape::AnthropicInputSchema,
+        };
+
+        let error = transport
+            .send(request)
+            .await
+            .expect_err("tool shape mismatch should map to api error");
+
+        assert!(matches!(
+            error,
+            ProviderError::Api { status: 400, message }
+                if message.contains("tools wire shape mismatch")
+                    && message.contains("anthropic_input_schema")
+                    && message.contains("openai_function")
+        ));
     }
 }

@@ -6,8 +6,7 @@ use serde_json::{Value, json};
 use std::fmt;
 
 use crate::ProviderError;
-use crate::anthropic_shared;
-use crate::openai::OpenAIProvider;
+use crate::{anthropic_shared, openai_messages};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WireProvider {
@@ -161,7 +160,7 @@ impl OpenAiProjector {
 
         let mut body = json!({
             "model": request.model,
-            "messages": OpenAIProvider::build_messages(
+            "messages": openai_messages::build_messages(
                 &request.messages,
                 &request.system,
                 compat,
@@ -402,6 +401,75 @@ mod tests {
                 deferred: false,
             })
             .collect()
+    }
+
+    #[test]
+    fn test_build_tools_deferred_has_empty_parameters() {
+        let tools = vec![
+            ToolDef {
+                name: "Read".into(),
+                description: "Read a file".into(),
+                input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "SpawnTool".into(),
+                description: "Spawn sub-agents".into(),
+                input_schema: json!({"type": "object", "properties": {"agents": {"type": "array"}}}),
+                deferred: true,
+            },
+        ];
+        let result = project_tools(&tools, ResolvedToolWireShape::OpenAiFunction);
+
+        let read_params = &result[0]["function"]["parameters"];
+        assert!(read_params["properties"].get("path").is_some());
+
+        let spawn_params = &result[1]["function"]["parameters"];
+        assert!(spawn_params["properties"].as_object().unwrap().is_empty());
+        let spawn_desc = result[1]["function"]["description"].as_str().unwrap();
+        assert!(spawn_desc.contains("ToolSearch"));
+    }
+
+    #[test]
+    fn test_build_tools_legalizes_null_and_empty_parameters() {
+        let tools = vec![
+            ToolDef {
+                name: "NullSchema".into(),
+                description: "Null schema".into(),
+                input_schema: Value::Null,
+                deferred: false,
+            },
+            ToolDef {
+                name: "EmptySchema".into(),
+                description: "Empty schema".into(),
+                input_schema: json!({}),
+                deferred: false,
+            },
+            ToolDef {
+                name: "StringSchema".into(),
+                description: "String schema".into(),
+                input_schema: json!("raw"),
+                deferred: false,
+            },
+            ToolDef {
+                name: "StringRootType".into(),
+                description: "String root type".into(),
+                input_schema: json!({"type": "string"}),
+                deferred: false,
+            },
+        ];
+        let result = project_tools(&tools, ResolvedToolWireShape::OpenAiFunction);
+
+        for tool in result {
+            assert_eq!(
+                tool["function"]["parameters"],
+                json!({
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "type": "object",
+                    "properties": {}
+                })
+            );
+        }
     }
 
     #[test]
