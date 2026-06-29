@@ -13,6 +13,8 @@
 # Job 2 "update-pr" — runs on EVERY OTHER commit:
 #   Creates/updates the release PR. Skipped on release commits to avoid
 #   the duplicate PR problem (googleapis/release-please#713).
+#   After release-please updates Cargo.toml, refreshes Cargo.lock on the
+#   release PR branch because this workspace uses version.workspace = true.
 
 name: Release Please
 
@@ -59,7 +61,46 @@ jobs:
     if: "!startsWith(github.event.head_commit.message, 'chore: release') && !startsWith(github.event.head_commit.message, 'chore(main): release')"
     steps:
       - uses: googleapis/release-please-action@v5
+        id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Resolve release PR branch
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        id: release-pr
+        env:
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: |
+          branch="$(jq -r '.headBranchName' <<<"${RELEASE_PR}")"
+          if [[ -z "${branch}" || "${branch}" == "null" ]]; then
+            echo "release-please did not expose a PR branch" >&2
+            exit 1
+          fi
+          echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+
+      - name: Checkout release PR branch
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.release-pr.outputs.branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync Cargo.lock versions
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        run: cargo update --workspace
+
+      - name: Commit Cargo.lock if changed
+        if: ${{ steps.release.outputs.prs_created == 'true' }}
+        run: |
+          if git diff --quiet -- Cargo.lock; then
+            echo "Cargo.lock already matches Cargo.toml"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.lock
+          git commit -m "chore: sync Cargo.lock for release"
+          git push origin HEAD:${{ steps.release-pr.outputs.branch }}
