@@ -129,7 +129,7 @@ workspace-hack = { path = "workspace-hack" }
 wiremock    = "0.6"
 tokio-test  = "0.4"
 tempfile    = "3"
-mockall     = "0.14"
+mockall     = "0.15"
 rstest      = "0.26"
 serial_test = "3"
 insta       = { version = "1", features = ["json"] }
