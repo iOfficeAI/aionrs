@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.35](https://github.com/iOfficeAI/aionrs/compare/v0.1.34...v0.1.35) (2026-06-29)
+
+
+### Code Refactoring
+
+* **providers:** compose transports ([#157](https://github.com/iOfficeAI/aionrs/issues/157)) ([f7089de](https://github.com/iOfficeAI/aionrs/commit/f7089deb3090bda08a8119d0cd422a64fbae3aac))
+
 ## [0.1.34](https://github.com/iOfficeAI/aionrs/compare/v0.1.33...v0.1.34) (2026-06-26)
 
 
