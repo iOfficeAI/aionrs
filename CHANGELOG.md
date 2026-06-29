@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.37](https://github.com/iOfficeAI/aionrs/compare/v0.1.36...v0.1.37) (2026-06-29)
+
+
+### Bug Fixes
+
+* **shell:** preserve Windows command stdout ([8215d3c](https://github.com/iOfficeAI/aionrs/commit/8215d3c28bb40ce99abd8966cd90d48f69bfe5c8))
+
 ## [0.1.36](https://github.com/iOfficeAI/aionrs/compare/v0.1.35...v0.1.36) (2026-06-29)
 
 
