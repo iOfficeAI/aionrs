@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::context_modifier::effort_to_string;
 use crate::shell::{ShellExecutionError, execute_shell_commands};
 use crate::substitution::substitute_arguments;
@@ -16,7 +18,7 @@ pub async fn prepare_inline_content(
     skill: &SkillMetadata,
     args: Option<&str>,
     session_id: Option<&str>,
-    cwd: &str,
+    cwd: &Path,
 ) -> Result<String, ShellExecutionError> {
     // Prepend base directory header so the model can resolve relative paths
     // (e.g. `./schemas/foo.json`). Matches TS `processPromptSlashCommand`.
@@ -76,7 +78,7 @@ pub async fn execute_fork(
     skill: &SkillMetadata,
     args: Option<&str>,
     session_id: Option<&str>,
-    cwd: &str,
+    cwd: &Path,
     spawner: &dyn Spawner,
 ) -> Result<String, String> {
     // Prepare content (substitution + shell) — same pipeline as inline mode
@@ -146,14 +148,18 @@ mod tests {
     #[tokio::test]
     async fn test_prepare_inline_no_args() {
         let skill = make_skill("Do the thing.", None);
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         assert_eq!(result, "Do the thing.");
     }
 
     #[tokio::test]
     async fn test_prepare_inline_with_base_directory_header() {
         let skill = make_skill("Content here.", Some("/my/skill/dir"));
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         assert!(
             result.starts_with("Base directory for this skill: /my/skill/dir\n\n"),
             "expected base directory header, got: {result}"
@@ -164,14 +170,18 @@ mod tests {
     #[tokio::test]
     async fn test_prepare_inline_substitutes_arguments() {
         let skill = make_skill("Target: $ARGUMENTS", None);
-        let result = prepare_inline_content(&skill, Some("foo"), None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, Some("foo"), None, Path::new("/tmp"))
+            .await
+            .unwrap();
         assert_eq!(result, "Target: foo");
     }
 
     #[tokio::test]
     async fn test_prepare_inline_substitutes_skill_dir() {
         let skill = make_skill("Dir: ${AIONRS_SKILL_DIR}", Some("/skills/mine"));
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         // Header + substituted dir
         assert!(result.contains("Dir: /skills/mine"));
     }
@@ -179,7 +189,7 @@ mod tests {
     #[tokio::test]
     async fn test_prepare_inline_substitutes_session_id() {
         let skill = make_skill("Session: ${AIONRS_SESSION_ID}", None);
-        let result = prepare_inline_content(&skill, None, Some("sess-abc"), "/tmp")
+        let result = prepare_inline_content(&skill, None, Some("sess-abc"), Path::new("/tmp"))
             .await
             .unwrap();
         assert!(result.contains("Session: sess-abc"));
@@ -247,7 +257,7 @@ mod supplemental_tests {
     #[tokio::test]
     async fn tc_10_1_prepare_inline_substitutes_arguments() {
         let skill = make_skill_full("s", "Search $ARGUMENTS", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, Some("rust"), None, "/tmp")
+        let result = prepare_inline_content(&skill, Some("rust"), None, Path::new("/tmp"))
             .await
             .unwrap();
         assert_eq!(result, "Search rust");
@@ -257,7 +267,9 @@ mod supplemental_tests {
     #[tokio::test]
     async fn tc_10_2_no_args_no_placeholder_unchanged() {
         let skill = make_skill_full("s", "Just content.", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         assert_eq!(result, "Just content.");
     }
 
@@ -271,7 +283,9 @@ mod supplemental_tests {
             vec![],
             ExecutionContext::Inline,
         );
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         assert!(
             result.starts_with("Base directory for this skill: /path/to/skill"),
             "expected header, got: {result}"
@@ -283,7 +297,7 @@ mod supplemental_tests {
     #[tokio::test]
     async fn tc_10_x_session_id_substituted() {
         let skill = make_skill_full("s", "${AIONRS_SESSION_ID}", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, None, Some("sess-xyz"), "/tmp")
+        let result = prepare_inline_content(&skill, None, Some("sess-xyz"), Path::new("/tmp"))
             .await
             .unwrap();
         assert_eq!(result, "sess-xyz");
@@ -294,7 +308,7 @@ mod supplemental_tests {
     async fn tc_10_x_argument_names_from_metadata() {
         let names = vec!["query".to_string()];
         let skill = make_skill_full("s", "Find $query in codebase", None, names, ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, Some("main function"), None, "/tmp")
+        let result = prepare_inline_content(&skill, Some("main function"), None, Path::new("/tmp"))
             .await
             .unwrap();
         assert_eq!(result, "Find main in codebase");
@@ -333,7 +347,9 @@ mod supplemental_tests {
             vec![],
             ExecutionContext::Inline,
         );
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         assert!(result.contains("shell_output"), "block shell output missing: {result}");
         assert!(!result.contains("```!"), "block syntax should be replaced: {result}");
     }
@@ -343,7 +359,9 @@ mod supplemental_tests {
     #[cfg(not(windows))] // Uses Unix shell syntax (!` inline)
     async fn tc_10_5_inline_shell_executed_in_prepare() {
         let skill = make_skill_full("s", "Dir: !`echo /inline_dir`", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         assert!(result.contains("/inline_dir"), "inline shell output missing: {result}");
         assert!(!result.contains("!`"), "inline syntax should be replaced: {result}");
     }
@@ -353,7 +371,9 @@ mod supplemental_tests {
     async fn tc_10_6_mcp_skill_shell_skipped() {
         let mut skill = make_skill_full("s", "run !`pwd` here", None, vec![], ExecutionContext::Inline);
         skill.loaded_from = LoadedFrom::Mcp;
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         // MCP skill: shell command NOT executed, syntax remains
         assert_eq!(
             result, "run !`pwd` here",
@@ -374,7 +394,7 @@ mod supplemental_tests {
             vec![],
             ExecutionContext::Inline,
         );
-        let result = prepare_inline_content(&skill, Some("hello"), None, "/tmp")
+        let result = prepare_inline_content(&skill, Some("hello"), None, Path::new("/tmp"))
             .await
             .unwrap();
         assert!(
@@ -389,7 +409,9 @@ mod supplemental_tests {
     #[cfg(not(windows))] // Uses pwd command (Unix only)
     async fn tc_10_8_cwd_passed_to_shell() {
         let skill = make_skill_full("s", "!`pwd`", None, vec![], ExecutionContext::Inline);
-        let result = prepare_inline_content(&skill, None, None, "/tmp").await.unwrap();
+        let result = prepare_inline_content(&skill, None, None, Path::new("/tmp"))
+            .await
+            .unwrap();
         // /tmp or /private/tmp on macOS
         assert!(
             result.contains("tmp"),
@@ -404,6 +426,7 @@ mod supplemental_tests {
 
 #[cfg(test)]
 mod phase7_tests {
+    use std::path::Path;
     use std::sync::Mutex;
 
     use async_trait::async_trait;
@@ -518,7 +541,7 @@ mod phase7_tests {
     async fn tc_7_10_fork_success_returns_ok() {
         let skill = make_fork_skill("my-fork", "Do the task.");
         let spawner = MockSpawner::success("agent completed task");
-        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        let result = execute_fork(&skill, None, None, Path::new("/tmp"), &spawner).await;
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         assert_eq!(result.unwrap(), "agent completed task");
     }
@@ -528,7 +551,7 @@ mod phase7_tests {
     async fn tc_7_11_fork_sub_agent_error_returns_err() {
         let skill = make_fork_skill("failing-fork", "Do something.");
         let spawner = MockSpawner::error("sub-agent crashed");
-        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        let result = execute_fork(&skill, None, None, Path::new("/tmp"), &spawner).await;
         assert!(result.is_err(), "expected Err, got: {result:?}");
         assert_eq!(result.unwrap_err(), "sub-agent crashed");
     }
@@ -539,7 +562,9 @@ mod phase7_tests {
         let mut skill = make_fork_skill("model-fork", "content");
         skill.model = Some("claude-sonnet-4-6".to_string());
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let overrides = spawner.take_overrides();
         assert_eq!(overrides.model.as_deref(), Some("claude-sonnet-4-6"));
     }
@@ -550,7 +575,9 @@ mod phase7_tests {
         let mut skill = make_fork_skill("effort-fork", "content");
         skill.effort = Some(EffortLevel::High);
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let overrides = spawner.take_overrides();
         assert_eq!(overrides.effort.as_deref(), Some("high"));
     }
@@ -561,7 +588,9 @@ mod phase7_tests {
         let mut skill = make_fork_skill("tools-fork", "content");
         skill.allowed_tools = vec!["ExecCommand".to_string(), "Read".to_string()];
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let overrides = spawner.take_overrides();
         assert_eq!(overrides.allowed_tools, vec!["ExecCommand", "Read"]);
     }
@@ -572,7 +601,7 @@ mod phase7_tests {
         let mut skill = make_fork_skill("prompt-fork", "Search $ARGUMENTS");
         skill.argument_names = vec![]; // use $ARGUMENTS placeholder
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, Some("rust"), None, "/tmp", &spawner)
+        execute_fork(&skill, Some("rust"), None, Path::new("/tmp"), &spawner)
             .await
             .unwrap();
         let config = spawner.take_config();
@@ -588,7 +617,9 @@ mod phase7_tests {
     async fn tc_7_17_sub_agent_config_name_equals_skill_name() {
         let skill = make_fork_skill("my-skill-name", "content");
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let config = spawner.take_config();
         assert_eq!(config.name, "my-skill-name");
     }
@@ -598,7 +629,7 @@ mod phase7_tests {
     async fn tc_7_40_empty_content_no_error() {
         let skill = make_fork_skill("empty-fork", "");
         let spawner = MockSpawner::success("ok");
-        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        let result = execute_fork(&skill, None, None, Path::new("/tmp"), &spawner).await;
         assert!(result.is_ok(), "empty content should not cause error: {result:?}");
         let config = spawner.take_config();
         assert_eq!(config.prompt, "");
@@ -611,7 +642,7 @@ mod phase7_tests {
         skill.source = SkillSource::Mcp;
         skill.loaded_from = LoadedFrom::Mcp;
         let spawner = MockSpawner::success("mcp result");
-        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        let result = execute_fork(&skill, None, None, Path::new("/tmp"), &spawner).await;
         assert!(result.is_ok(), "MCP fork skill should be allowed: {result:?}");
     }
 
@@ -620,7 +651,9 @@ mod phase7_tests {
     async fn tc_7_42_no_model_no_effort_fork_overrides_empty() {
         let skill = make_fork_skill("plain-fork", "content");
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let overrides = spawner.take_overrides();
         assert!(overrides.model.is_none(), "model should be None");
         assert!(overrides.effort.is_none(), "effort should be None");
@@ -632,7 +665,9 @@ mod phase7_tests {
     async fn tc_7_43_empty_allowed_tools_passthrough() {
         let skill = make_fork_skill("no-tools-fork", "content");
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let overrides = spawner.take_overrides();
         assert!(overrides.allowed_tools.is_empty());
     }
@@ -642,7 +677,7 @@ mod phase7_tests {
     async fn tc_7_44_result_text_propagated() {
         let skill = make_fork_skill("text-fork", "content");
         let spawner = MockSpawner::success("the final answer");
-        let result = execute_fork(&skill, None, None, "/tmp", &spawner).await;
+        let result = execute_fork(&skill, None, None, Path::new("/tmp"), &spawner).await;
         assert_eq!(result.unwrap(), "the final answer");
     }
 
@@ -651,7 +686,9 @@ mod phase7_tests {
     async fn tc_7_45_max_turns_default_is_10() {
         let skill = make_fork_skill("turns-fork", "content");
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let config = spawner.take_config();
         assert_eq!(config.max_turns, 10);
     }
@@ -661,7 +698,9 @@ mod phase7_tests {
     async fn tc_7_46_max_tokens_default_is_16384() {
         let skill = make_fork_skill("tokens-fork", "content");
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let config = spawner.take_config();
         assert_eq!(config.max_tokens, 16384);
     }
@@ -671,7 +710,9 @@ mod phase7_tests {
     async fn tc_7_47_system_prompt_default_is_none() {
         let skill = make_fork_skill("sysprompt-fork", "content");
         let spawner = MockSpawner::success("ok");
-        execute_fork(&skill, None, None, "/tmp", &spawner).await.unwrap();
+        execute_fork(&skill, None, None, Path::new("/tmp"), &spawner)
+            .await
+            .unwrap();
         let config = spawner.take_config();
         assert!(config.system_prompt.is_none(), "system_prompt should default to None");
     }

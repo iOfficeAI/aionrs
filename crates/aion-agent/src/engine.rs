@@ -47,7 +47,6 @@ pub struct AgentResult {
     pub text: String,
     pub stop_reason: StopReason,
     pub usage: TokenUsage,
-    /// Counted normal model turns in this run.
     pub turns: usize,
 }
 
@@ -73,7 +72,7 @@ pub struct AgentEngine {
     /// Cumulative token usage across the active session/run.
     total_usage: TokenUsage,
     /// Output message ID for the currently streaming run.
-    current_msg_id: String,
+    msg_id: String,
     /// Maximum output tokens requested from the provider per turn.
     max_tokens: u32,
     /// Optional cap on counted model turns within a single run.
@@ -168,7 +167,7 @@ impl AgentEngine {
             reasoning_effort: None,
             messages: Vec::new(),
             total_usage: TokenUsage::default(),
-            current_msg_id: String::new(),
+            msg_id: String::new(),
             max_turns_per_run: config.max_turns,
             max_tool_call_malformed_turns: config
                 .max_tool_call_malformed_turns
@@ -242,7 +241,7 @@ impl AgentEngine {
             reasoning_effort: None,
             messages: session.messages.clone(),
             total_usage: session.total_usage.clone(),
-            current_msg_id: String::new(),
+            msg_id: String::new(),
             max_turns_per_run: config.max_turns,
             max_tool_call_malformed_turns: config
                 .max_tool_call_malformed_turns
@@ -340,30 +339,11 @@ impl AgentEngine {
 
     async fn run_inner(&mut self, user_input: &str, msg_id: &str) -> Result<AgentResult, AgentError> {
         // Slash command interception — before any LLM call
-        if let Some(result) = self.handle_command(user_input).await {
-            let cmd_name = user_input.split_whitespace().next().unwrap_or(user_input);
-            return match result {
-                Ok(CommandResult::Continue) => {
-                    info!(command = cmd_name, "Slash command executed");
-                    Ok(AgentResult {
-                        text: String::new(),
-                        stop_reason: StopReason::EndTurn,
-                        usage: TokenUsage::default(),
-                        turns: 0,
-                    })
-                }
-                Ok(CommandResult::Exit) => {
-                    info!(command = cmd_name, "Slash command executed: exit");
-                    Err(AgentError::UserAborted)
-                }
-                Err(e) => {
-                    error!(command = cmd_name, error = %e, "Slash command failed");
-                    Err(AgentError::ApiError(e.to_string()))
-                }
-            };
+        if let Some(result) = self.handle_command(user_input).await? {
+            return Ok(result);
         }
 
-        self.current_msg_id = msg_id.to_string();
+        self.msg_id = msg_id.to_string();
         self.output.emit_stream_start(msg_id);
         self.messages.push(Message::now(
             Role::User,
@@ -392,6 +372,7 @@ impl AgentEngine {
                     turns: guards.counted_turns(),
                 });
             }
+
             let outcome = self.run_turn(TurnKind::Normal).await?;
             guards.record_counted_turn();
 
@@ -436,6 +417,7 @@ impl AgentEngine {
                 }
             };
 
+            // need to execute tool calls before the next turn
             let ToolRoundOutput {
                 tool_results,
                 tool_modifiers,
@@ -562,7 +544,7 @@ impl AgentEngine {
                 &executable_tool_calls,
                 approval_mgr,
                 writer,
-                &self.current_msg_id,
+                &self.msg_id,
                 auto_approve,
                 &self.allow_list,
                 self.hooks.as_mut(),
@@ -699,21 +681,14 @@ impl AgentEngine {
             });
         }
 
-        let fallback = match reason {
-            FinalizationReason::TurnBudget => {
-                "Stopped after reaching the turn budget before the model produced a final answer."
-            }
-            FinalizationReason::MaxTokens => {
-                "The response was cut off by the token limit and could not be completed automatically."
-            }
-            FinalizationReason::EmptyFinal => "The model finished without visible answer text after one retry.",
-        };
+        let fallback = reason.fallback_prompt();
         self.output.emit_error(fallback);
         let fallback_text = if combined_text.trim().is_empty() {
             fallback.to_string()
         } else {
             combined_text
         };
+
         self.messages.push(Message::now(
             Role::Assistant,
             vec![ContentBlock::Text {
@@ -745,7 +720,7 @@ impl AgentEngine {
         while let Some(event) = rx.recv().await {
             match event {
                 LlmEvent::TextDelta(text) => {
-                    self.output.emit_text_delta(&text, &self.current_msg_id);
+                    self.output.emit_text_delta(&text, &self.msg_id);
                     assistant_text.push_str(&text);
                 }
                 LlmEvent::ToolUse { id, name, input, extra } => {
@@ -768,7 +743,7 @@ impl AgentEngine {
                     tool_calls.push(ContentBlock::ToolUse { id, name, input, extra });
                 }
                 LlmEvent::ThinkingDelta(text) => {
-                    self.output.emit_thinking(&text, &self.current_msg_id);
+                    self.output.emit_thinking(&text, &self.msg_id);
                     thinking_text.push_str(&text);
                 }
                 LlmEvent::ThinkingSignature(signature) => {
@@ -1050,15 +1025,37 @@ impl AgentEngine {
     }
 
     /// Handle a slash command. Returns `None` if input is not a recognized command.
-    pub async fn handle_command(&mut self, input: &str) -> Option<Result<CommandResult, AnyhowError>> {
-        let input = input.trim();
-        let without_slash = input.strip_prefix('/')?;
-        let (name, args) = match without_slash.split_once(|c: char| c.is_whitespace()) {
-            Some((n, rest)) => (n, rest.trim()),
-            None => (without_slash, ""),
+    async fn handle_command(&mut self, input: &str) -> Result<Option<AgentResult>, AgentError> {
+        let Some(command) = parse_command_input(input) else {
+            return Ok(None);
+        };
+        let Some(result) = self.execute_command(command).await else {
+            return Ok(None);
         };
 
-        let cmd = self.commands.find(name)?;
+        match result {
+            Ok(CommandResult::Continue) => {
+                info!(command = command.display_name, "Slash command executed");
+                Ok(Some(AgentResult {
+                    text: String::new(),
+                    stop_reason: StopReason::EndTurn,
+                    usage: TokenUsage::default(),
+                    turns: 0,
+                }))
+            }
+            Ok(CommandResult::Exit) => {
+                info!(command = command.display_name, "Slash command executed: exit");
+                Err(AgentError::UserAborted)
+            }
+            Err(e) => {
+                error!(command = command.display_name, error = %e, "Slash command failed");
+                Err(AgentError::ApiError(e.to_string()))
+            }
+        }
+    }
+
+    async fn execute_command(&mut self, command: ParsedSlashCommand<'_>) -> Option<Result<CommandResult, AnyhowError>> {
+        let cmd = self.commands.find(command.name)?;
 
         // We need to borrow self mutably for CommandContext while also
         // borrowing self.commands immutably (already done above via find()).
@@ -1078,7 +1075,7 @@ impl AgentEngine {
 
         // SAFETY: cmd_ptr points to a command inside self.commands which is only
         // borrowed immutably and not mutated during execute().
-        let result = unsafe { &*cmd_ptr }.execute(&mut ctx, args).await;
+        let result = unsafe { &*cmd_ptr }.execute(&mut ctx, command.args).await;
         Some(result)
     }
 
@@ -1241,6 +1238,29 @@ fn build_assistant_content(outcome: &StreamOutcome) -> Vec<ContentBlock> {
     content
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ParsedSlashCommand<'a> {
+    display_name: &'a str,
+    name: &'a str,
+    args: &'a str,
+}
+
+fn parse_command_input(input: &str) -> Option<ParsedSlashCommand<'_>> {
+    let input = input.trim();
+    let display_name = input.split_whitespace().next().unwrap_or(input);
+    let without_slash = input.strip_prefix('/')?;
+    let (name, args) = match without_slash.split_once(|c: char| c.is_whitespace()) {
+        Some((name, rest)) => (name, rest.trim()),
+        None => (without_slash, ""),
+    };
+
+    Some(ParsedSlashCommand {
+        display_name,
+        name,
+        args,
+    })
+}
+
 #[cfg(test)]
-#[path = "engine_test.rs"]
+#[path = "engine.test.rs"]
 mod engine_test;

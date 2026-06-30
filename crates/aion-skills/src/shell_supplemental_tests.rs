@@ -3,7 +3,7 @@ use super::*;
 // Helper: run execute_shell_commands with LoadedFrom::Skills
 async fn run(content: &str) -> Result<String, ShellExecutionError> {
     let tmp = std::env::temp_dir();
-    execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap()).await
+    execute_shell_commands(content, LoadedFrom::Skills, &tmp).await
 }
 
 // -----------------------------------------------------------------------
@@ -221,7 +221,7 @@ async fn tc_4_5_cwd_used() {
         ShellKind::Bash | ShellKind::Zsh | ShellKind::Sh => "pwd",
     };
     let content = format!("!`{command}`");
-    let result = execute_shell_commands(&content, LoadedFrom::Skills, tmp.to_str().unwrap())
+    let result = execute_shell_commands(&content, LoadedFrom::Skills, &tmp)
         .await
         .unwrap();
     // Check that the output contains the temp directory name
@@ -313,9 +313,7 @@ fn tc_5_5_stdout_trailing_newline_trimmed() {
 async fn tc_6_1_mcp_skill_unchanged() {
     let tmp = std::env::temp_dir();
     let content = "run: !`pwd` and ```!\nls\n```";
-    let result = execute_shell_commands(content, LoadedFrom::Mcp, tmp.to_str().unwrap())
-        .await
-        .unwrap();
+    let result = execute_shell_commands(content, LoadedFrom::Mcp, &tmp).await.unwrap();
     assert_eq!(result, content, "MCP skill content should be returned unchanged");
 }
 

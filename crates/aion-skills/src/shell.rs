@@ -1,5 +1,6 @@
 use futures::future::join_all;
 use regex::Regex;
+use std::path::Path;
 use std::sync::OnceLock;
 
 use aion_process::{CommandRunner, DEFAULT_TIMEOUT};
@@ -21,7 +22,7 @@ use crate::types::LoadedFrom;
 pub async fn execute_shell_commands(
     content: &str,
     loaded_from: LoadedFrom,
-    cwd: &str,
+    cwd: &Path,
 ) -> Result<String, ShellExecutionError> {
     if loaded_from == LoadedFrom::Mcp {
         return Ok(content.to_owned());
@@ -186,7 +187,7 @@ fn extract_shell_matches(content: &str) -> Vec<ShellMatch> {
 // ---------------------------------------------------------------------------
 
 /// Execute a single shell command and return its combined stdout/stderr output.
-async fn execute_command(command: &str, cwd: &str) -> Result<String, ShellExecutionError> {
+async fn execute_command(command: &str, cwd: &Path) -> Result<String, ShellExecutionError> {
     let shell = aion_config::shell::default_shell();
     let mut command_builder = aion_config::shell::shell_command_builder(&shell, command, false);
     command_builder.current_dir(cwd);
@@ -248,7 +249,7 @@ mod tests {
     // Helper: run execute_shell_commands with LoadedFrom::Skills
     async fn run(content: &str) -> Result<String, ShellExecutionError> {
         let tmp = std::env::temp_dir();
-        execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap()).await
+        execute_shell_commands(content, LoadedFrom::Skills, &tmp).await
     }
 
     // -----------------------------------------------------------------------
@@ -328,7 +329,7 @@ mod tests {
     async fn test_mcp_skill_returns_unchanged() {
         let content = "!`pwd`";
         let tmp = std::env::temp_dir();
-        let result = execute_shell_commands(content, LoadedFrom::Mcp, tmp.to_str().unwrap()).await;
+        let result = execute_shell_commands(content, LoadedFrom::Mcp, &tmp).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), content);
     }

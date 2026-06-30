@@ -31,6 +31,20 @@ pub(crate) enum FinalizationReason {
     EmptyFinal,
 }
 
+impl FinalizationReason {
+    pub(crate) fn fallback_prompt(self) -> &'static str {
+        match self {
+            FinalizationReason::TurnBudget => {
+                "Stopped after reaching the turn budget before the model produced a final answer."
+            }
+            FinalizationReason::MaxTokens => {
+                "The response was cut off by the token limit and could not be completed automatically."
+            }
+            FinalizationReason::EmptyFinal => "The model finished without visible answer text after one retry.",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TurnKind {
     Normal,

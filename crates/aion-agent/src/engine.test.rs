@@ -53,7 +53,7 @@ mod tests_set_config {
             reasoning_effort: None,
             messages: vec![],
             total_usage: Default::default(),
-            current_msg_id: String::new(),
+            msg_id: String::new(),
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
@@ -368,7 +368,7 @@ mod tests_phase6 {
             reasoning_effort: None,
             messages: vec![],
             total_usage: Default::default(),
-            current_msg_id: String::new(),
+            msg_id: String::new(),
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
@@ -600,7 +600,7 @@ mod tests_compact {
             reasoning_effort: None,
             messages,
             total_usage: Default::default(),
-            current_msg_id: String::new(),
+            msg_id: String::new(),
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
@@ -929,7 +929,7 @@ mod tests_plan_mode {
             reasoning_effort: None,
             messages: vec![],
             total_usage: Default::default(),
-            current_msg_id: String::new(),
+            msg_id: String::new(),
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
@@ -1136,7 +1136,7 @@ mod tests_handle_command {
             reasoning_effort: None,
             messages: vec![],
             total_usage: Default::default(),
-            current_msg_id: String::new(),
+            msg_id: String::new(),
             max_turns_per_run: Some(10),
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
@@ -1163,21 +1163,21 @@ mod tests_handle_command {
     #[tokio::test]
     async fn handle_command_quit() {
         let mut engine = make_engine();
-        let result = engine.handle_command("/quit").await;
-        assert!(matches!(result, Some(Ok(crate::commands::CommandResult::Exit))));
+        let err = engine.handle_command("/quit").await.unwrap_err();
+        assert!(matches!(err, super::AgentError::UserAborted));
     }
 
     #[tokio::test]
     async fn handle_command_exit_alias() {
         let mut engine = make_engine();
-        let result = engine.handle_command("/exit").await;
-        assert!(matches!(result, Some(Ok(crate::commands::CommandResult::Exit))));
+        let err = engine.handle_command("/exit").await.unwrap_err();
+        assert!(matches!(err, super::AgentError::UserAborted));
     }
 
     #[tokio::test]
     async fn handle_command_unknown() {
         let mut engine = make_engine();
-        let result = engine.handle_command("/nonexistent").await;
+        let result = engine.handle_command("/nonexistent").await.unwrap();
         assert!(result.is_none());
     }
 
@@ -1193,7 +1193,8 @@ mod tests_handle_command {
         assert_eq!(engine.messages.len(), 1);
 
         let result = engine.handle_command("/clear").await;
-        assert!(matches!(result, Some(Ok(crate::commands::CommandResult::Continue))));
+        let result = result.unwrap().expect("clear command should be handled");
+        assert_eq!(result.turns, 0);
         assert!(engine.messages.is_empty());
         assert_eq!(engine.compact_state.last_input_tokens, 0);
     }
@@ -1201,14 +1202,18 @@ mod tests_handle_command {
     #[tokio::test]
     async fn handle_command_with_args() {
         let mut engine = make_engine();
-        let result = engine.handle_command("/help compact").await;
-        assert!(matches!(result, Some(Ok(crate::commands::CommandResult::Continue))));
+        let result = engine
+            .handle_command("/help compact")
+            .await
+            .unwrap()
+            .expect("help command should be handled");
+        assert_eq!(result.turns, 0);
     }
 
     #[tokio::test]
     async fn handle_command_not_a_command() {
         let mut engine = make_engine();
-        let result = engine.handle_command("hello world").await;
+        let result = engine.handle_command("hello world").await.unwrap();
         assert!(result.is_none());
     }
 

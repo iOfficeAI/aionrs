@@ -103,7 +103,7 @@ async fn tc_e2e_2_inline_variable_substitution() {
     skill.skill_root = Some(skill_root_str.to_string());
     skill.argument_names = vec!["query".to_string()];
 
-    let result = prepare_inline_content(&skill, Some("hello world"), None, tmp.to_str().unwrap())
+    let result = prepare_inline_content(&skill, Some("hello world"), None, tmp.as_path())
         .await
         .unwrap();
 
@@ -143,9 +143,7 @@ async fn tc_e2e_3_shell_command_execution() {
     skill.loaded_from = LoadedFrom::Skills; // non-MCP so shell is allowed
 
     let tmp = std::env::temp_dir();
-    let result = prepare_inline_content(&skill, None, None, tmp.to_str().unwrap())
-        .await
-        .unwrap();
+    let result = prepare_inline_content(&skill, None, None, tmp.as_path()).await.unwrap();
 
     // AC-6 assertions
     assert!(
@@ -376,9 +374,7 @@ async fn tc_e2e_8_mcp_skill_shell_rejected() {
     skill.loaded_from = LoadedFrom::Mcp;
 
     let tmp = std::env::temp_dir();
-    let result = prepare_inline_content(&skill, None, None, tmp.to_str().unwrap())
-        .await
-        .unwrap();
+    let result = prepare_inline_content(&skill, None, None, tmp.as_path()).await.unwrap();
 
     // AC-11 assertions: shell command NOT executed, syntax preserved
     assert!(
@@ -918,7 +914,7 @@ async fn wb_5a_shell_empty_command_replaced_with_empty() {
     // `cd .` exits 0 with no output on all platforms
     let content = "before !`cd .` after";
     let tmp = std::env::temp_dir();
-    let result = execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap())
+    let result = execute_shell_commands(content, LoadedFrom::Skills, tmp.as_path())
         .await
         .unwrap();
     // The !`cd .` replacement is empty string, so "before  after" (double space)
@@ -931,7 +927,7 @@ async fn wb_5b_shell_block_multiline_command() {
     use crate::shell::execute_shell_commands;
     let content = "```!\necho line1\necho line2\n```";
     let tmp = std::env::temp_dir();
-    let result = execute_shell_commands(content, LoadedFrom::Skills, tmp.to_str().unwrap())
+    let result = execute_shell_commands(content, LoadedFrom::Skills, tmp.as_path())
         .await
         .unwrap();
     assert!(result.contains("line1"));

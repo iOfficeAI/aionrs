@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -24,7 +25,7 @@ use aion_tools::Tool;
 pub struct SkillTool {
     skills: Arc<Vec<SkillMetadata>>,
     /// Working directory for shell command execution inside skill content.
-    cwd: String,
+    cwd: PathBuf,
     /// Permission checker for skill-level deny/allow rules.
     checker: SkillPermissionChecker,
     /// Session ID passed to prepare_inline_content for ${AIONRS_SESSION_ID} substitution.
@@ -35,7 +36,7 @@ pub struct SkillTool {
 }
 
 impl SkillTool {
-    pub fn new(skills: Arc<Vec<SkillMetadata>>, cwd: String, checker: SkillPermissionChecker) -> Self {
+    pub fn new(skills: Arc<Vec<SkillMetadata>>, cwd: PathBuf, checker: SkillPermissionChecker) -> Self {
         Self {
             skills,
             cwd,
@@ -48,7 +49,7 @@ impl SkillTool {
     /// Create a SkillTool with a known session ID.
     pub fn with_session_id(
         skills: Arc<Vec<SkillMetadata>>,
-        cwd: String,
+        cwd: PathBuf,
         checker: SkillPermissionChecker,
         session_id: Option<String>,
     ) -> Self {
@@ -64,7 +65,7 @@ impl SkillTool {
     /// Create a SkillTool with full fork-mode support.
     pub fn with_spawner(
         skills: Arc<Vec<SkillMetadata>>,
-        cwd: String,
+        cwd: PathBuf,
         checker: SkillPermissionChecker,
         session_id: Option<String>,
         spawner: Option<Arc<dyn Spawner>>,
@@ -288,7 +289,7 @@ mod tests {
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
         SkillTool::new(
             Arc::new(skills),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
         )
     }
@@ -376,6 +377,7 @@ mod tests {
 
 #[cfg(test)]
 mod supplemental_tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use serde_json::json;
@@ -417,7 +419,7 @@ mod supplemental_tests {
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
         SkillTool::new(
             Arc::new(skills),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
         )
     }
@@ -595,6 +597,7 @@ mod supplemental_tests {
 
 #[cfg(test)]
 mod supplemental_tests_p6 {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use serde_json::json;
@@ -636,7 +639,7 @@ mod supplemental_tests_p6 {
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
         SkillTool::new(
             Arc::new(skills),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
         )
     }
@@ -724,7 +727,7 @@ mod supplemental_tests_p6 {
         // new() → session_id is None
         let tool_no_session = SkillTool::new(
             skills.clone(),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
         );
         assert!(tool_no_session.session_id.is_none());
@@ -732,7 +735,7 @@ mod supplemental_tests_p6 {
         // with_session_id() → session_id is set
         let tool_with_session = SkillTool::with_session_id(
             skills,
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
             Some("sess-abc".to_string()),
         );
@@ -744,7 +747,7 @@ mod supplemental_tests_p6 {
     fn tc_6_20b_session_id_none_when_not_provided() {
         let tool = SkillTool::with_session_id(
             Arc::new(vec![]),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
             None,
         );
@@ -771,6 +774,7 @@ mod supplemental_tests_p6 {
 
 #[cfg(test)]
 mod permission_tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use serde_json::json;
@@ -815,7 +819,7 @@ mod permission_tests {
         let checker = SkillPermissionChecker::new(vec!["dangerous".to_string()], vec![], false);
         let tool = SkillTool::new(
             Arc::new(vec![make_skill("dangerous", "rm -rf /")]),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             checker,
         );
         let result = tool.execute(json!({"skill": "dangerous"})).await;
@@ -829,7 +833,7 @@ mod permission_tests {
         let checker = SkillPermissionChecker::new(vec![], vec![], false);
         let mut skill = make_skill("hooked", "body");
         skill.hooks_raw = Some(serde_json::json!({ "pre": "echo hi" }));
-        let tool = SkillTool::new(Arc::new(vec![skill]), "/tmp".to_string(), checker);
+        let tool = SkillTool::new(Arc::new(vec![skill]), PathBuf::from("/tmp"), checker);
         let result = tool.execute(json!({"skill": "hooked"})).await;
         assert!(result.is_error);
         assert!(
@@ -846,6 +850,7 @@ mod permission_tests {
 
 #[cfg(test)]
 mod phase7_tests {
+    use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
@@ -987,7 +992,7 @@ mod phase7_tests {
     fn tool_with_spawner(skills: Vec<SkillMetadata>, spawner: Option<Arc<dyn Spawner>>) -> SkillTool {
         SkillTool::with_spawner(
             Arc::new(skills),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
             None,
             spawner,
@@ -1095,7 +1100,7 @@ mod phase7_tests {
         let spawner = MockSpawner::success("fork ok");
         let tool = SkillTool::with_spawner(
             Arc::new(vec![make_fork_skill("fork-allowed", "content")]),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             // deny_list empty, allow_list empty = allow all
             SkillPermissionChecker::new(vec![], vec![], false),
             None,
@@ -1116,7 +1121,7 @@ mod phase7_tests {
         let spawner = MockSpawner::success("should not reach here");
         let tool = SkillTool::with_spawner(
             Arc::new(vec![make_fork_skill("fork-denied", "content")]),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             // deny "fork-denied"
             SkillPermissionChecker::new(vec!["fork-denied".to_string()], vec![], false),
             None,
@@ -1142,7 +1147,7 @@ mod phase7_tests {
         let spawner: Arc<dyn Spawner> = MockSpawner::success("ok");
         let tool = SkillTool::with_spawner(
             Arc::new(vec![]),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
             Some("sess-1".to_string()),
             Some(spawner),
@@ -1158,7 +1163,7 @@ mod phase7_tests {
     fn tc_7_new_constructor_spawner_is_none() {
         let tool = SkillTool::new(
             Arc::new(vec![]),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
         );
         assert!(tool.spawner.is_none());
@@ -1171,6 +1176,7 @@ mod phase7_tests {
 
 #[cfg(test)]
 mod phase11_tests {
+    use std::path::PathBuf;
     use std::sync::Arc;
 
     use serde_json::json;
@@ -1212,7 +1218,7 @@ mod phase11_tests {
     fn tool_with(skills: Vec<SkillMetadata>) -> SkillTool {
         SkillTool::new(
             Arc::new(skills),
-            "/tmp".to_string(),
+            PathBuf::from("/tmp"),
             SkillPermissionChecker::new(vec![], vec![], false),
         )
     }

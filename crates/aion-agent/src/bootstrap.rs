@@ -1,19 +1,46 @@
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, RwLock};
 
 use aion_config::config::Config;
+use aion_config::shell::{ResolvedShell, resolve_shell_config};
 use aion_mcp::manager::McpManager;
-use aion_providers::LlmProvider;
+use aion_mcp::tool_proxy::register_mcp_tools;
+use aion_memory::paths::auto_memory_dir;
+use aion_providers::{LlmProvider, create_provider};
+use aion_skills::loader::load_all_skills;
+use aion_skills::permissions::SkillPermissionChecker;
+use aion_skills::types::SkillMetadata;
+use aion_tools::edit::EditTool;
+use aion_tools::exec_command::ExecCommandTool;
+use aion_tools::file_cache::FileStateCache;
+use aion_tools::glob::GlobTool;
+use aion_tools::grep::GrepTool;
+use aion_tools::read::ReadTool;
+use aion_tools::registry::ToolRegistry;
+use aion_tools::tool_search::ToolSearchTool;
+use aion_tools::write::WriteTool;
+use anyhow::Result;
+use tracing::info;
 
+use crate::context::{SystemPromptCache, build_system_prompt_with_shell};
 use crate::engine::AgentEngine;
 use crate::output::OutputSink;
+use crate::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
 use crate::session::Session;
+use crate::skill_tool::SkillTool;
+use crate::spawn_tool::SpawnTool;
+use crate::spawner::AgentSpawner;
 
 /// Result of bootstrapping an agent engine with all features initialized.
 pub struct BootstrapResult {
+    // Fully initialized runtime.
     pub engine: AgentEngine,
+
+    // Shared provider dependency created or reused during bootstrap.
     pub provider: Arc<dyn LlmProvider>,
+
+    // MCP runtime state discovered during bootstrap.
     pub mcp_managers: Vec<Arc<McpManager>>,
     pub has_mcp: bool,
 }
@@ -28,23 +55,52 @@ pub struct BootstrapResult {
 /// - AGENTS.md is loaded from the workspace hierarchy
 /// - Skills, MCP, plan mode, spawn are enabled based on `Config` fields
 pub struct AgentBootstrap {
+    // Bootstrap configuration.
     config: Config,
-    workspace: String,
+    workspace: PathBuf,
+    extra_skill_dirs: Vec<PathBuf>,
+
+    // Output integration.
     output: Arc<dyn OutputSink>,
+
+    // Optional externally supplied runtime state.
     provider: Option<Arc<dyn LlmProvider>>,
     resume_session: Option<Session>,
-    extra_skill_dirs: Vec<PathBuf>,
+}
+
+struct BootstrapEnvironment {
+    // Workspace context.
+    workspace: PathBuf,
+
+    // Prompt context.
+    resolved_shell: ResolvedShell,
+    memory_dir: Option<PathBuf>,
+}
+
+#[derive(Default)]
+struct McpBootstrap {
+    // Active manager used for MCP-backed skills.
+    manager: Option<Arc<McpManager>>,
+
+    // Managers retained by the caller for lifecycle ownership.
+    managers: Vec<Arc<McpManager>>,
+}
+
+impl McpBootstrap {
+    fn has_mcp(&self) -> bool {
+        self.manager.is_some()
+    }
 }
 
 impl AgentBootstrap {
     pub fn new(config: Config, workspace: impl Into<String>, output: Arc<dyn OutputSink>) -> Self {
         Self {
             config,
-            workspace: workspace.into(),
+            workspace: PathBuf::from(workspace.into()),
+            extra_skill_dirs: Vec::new(),
             output,
             provider: None,
             resume_session: None,
-            extra_skill_dirs: Vec::new(),
         }
     }
 
@@ -72,135 +128,25 @@ impl AgentBootstrap {
     }
 
     /// Build the fully-initialized engine.
-    pub async fn build(mut self) -> anyhow::Result<BootstrapResult> {
-        let cwd = &self.workspace;
-        let cwd_path = std::path::Path::new(cwd);
+    pub async fn build(mut self) -> Result<BootstrapResult> {
+        let workspace = self.resolve_workspace_path();
+        let provider = self.resolve_provider();
+        let environment = self.resolve_environment(workspace)?;
+        let mut registry = self.build_builtin_registry(&environment.workspace);
 
-        tracing::info!(target: "aion_agent", workspace = %cwd, "agent bootstrap: workspace cwd resolved");
+        let builtin_names = registry.tool_names();
+        let mcp = self.connect_mcp(&mut registry, &builtin_names).await;
 
-        let provider = self
-            .provider
-            .unwrap_or_else(|| aion_providers::create_provider(&self.config));
+        let skills = self.load_skills(&environment.workspace, mcp.manager.as_deref()).await;
+        self.configure_system_prompt(&environment, &skills);
 
-        let resolved_shell = aion_config::shell::resolve_shell_config(&self.config.shell)?;
+        self.register_agent_tools(&mut registry, &provider, &environment.workspace, skills);
+        let plan_active_flag = self.register_plan_tools(&mut registry);
+        Self::register_tool_search(&mut registry);
 
-        let memory_dir = aion_memory::paths::auto_memory_dir(cwd_path);
-
-        let file_cache = if self.config.file_cache.enabled {
-            Some(Arc::new(std::sync::RwLock::new(
-                aion_tools::file_cache::FileStateCache::new(&self.config.file_cache),
-            )))
-        } else {
-            None
-        };
-
-        let mut registry = aion_tools::registry::ToolRegistry::new();
-        registry.register(Box::new(aion_tools::read::ReadTool::new(file_cache.clone())));
-        registry.register(Box::new(aion_tools::write::WriteTool::new(file_cache.clone())));
-        registry.register(Box::new(aion_tools::edit::EditTool::new(file_cache)));
-        registry.register(Box::new(aion_tools::exec_command::ExecCommandTool::new(
-            cwd_path.to_path_buf(),
-        )));
-        registry.register(Box::new(aion_tools::grep::GrepTool::new(cwd_path.to_path_buf())));
-        registry.register(Box::new(aion_tools::glob::GlobTool::new(cwd_path.to_path_buf())));
-
-        let builtin_names: Vec<String> = registry.tool_names();
-
-        let mut mcp_managers: Vec<Arc<McpManager>> = Vec::new();
-        let mcp_manager = if !self.config.mcp.servers.is_empty() {
-            match McpManager::connect_all(&self.config.mcp.servers).await {
-                Ok(mgr) => {
-                    let mgr = Arc::new(mgr);
-                    aion_mcp::tool_proxy::register_mcp_tools(
-                        &mut registry,
-                        &mgr,
-                        &builtin_names,
-                        &self.config.mcp.servers,
-                    );
-                    mcp_managers.push(mgr.clone());
-                    Some(mgr)
-                }
-                Err(e) => {
-                    self.output.emit_error(&format!("MCP initialization error: {e}"));
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        let has_mcp = mcp_manager.is_some();
-
-        let skills =
-            aion_skills::loader::load_all_skills(cwd_path, &self.extra_skill_dirs, false, mcp_manager.as_deref()).await;
-
-        let mut prompt_cache = crate::context::SystemPromptCache::new();
-        let system_prompt = crate::context::build_system_prompt_with_shell(
-            &mut prompt_cache,
-            self.config.system_prompt.as_deref(),
-            cwd,
-            &self.config.model,
-            &resolved_shell,
-            &skills,
-            None,
-            memory_dir.as_deref(),
-            false,
-            self.config.compact.toon,
-        );
-        self.config.system_prompt = Some(system_prompt);
-
-        let skills_arc = Arc::new(skills);
-        let skill_checker = aion_skills::permissions::SkillPermissionChecker::new(
-            self.config.tools.skills.deny.clone(),
-            self.config.tools.skills.allow.clone(),
-            self.config.tools.auto_approve,
-        );
-        registry.register(Box::new(crate::skill_tool::SkillTool::new(
-            skills_arc,
-            cwd.to_string(),
-            skill_checker,
-        )));
-
-        let spawner = Arc::new(crate::spawner::AgentSpawner::new(
-            provider.clone(),
-            self.config.clone(),
-            cwd_path.to_path_buf(),
-        ));
-        registry.register(Box::new(crate::spawn_tool::SpawnTool::new(spawner)));
-
-        let plan_active_flag = Arc::new(AtomicBool::new(false));
-        if self.config.plan.enabled {
-            registry.register(Box::new(crate::plan::tools::EnterPlanModeTool::new(Arc::clone(
-                &plan_active_flag,
-            ))));
-            registry.register(Box::new(crate::plan::tools::ExitPlanModeTool::new(Arc::clone(
-                &plan_active_flag,
-            ))));
-        }
-
-        let tool_defs_snapshot = registry.to_tool_defs();
-        registry.register(Box::new(aion_tools::tool_search::ToolSearchTool::new(
-            tool_defs_snapshot,
-        )));
-
-        let mut engine = if let Some(session) = self.resume_session {
-            AgentEngine::resume_with_provider(
-                provider.clone(),
-                self.config,
-                registry,
-                self.output,
-                session,
-                cwd_path.to_path_buf(),
-            )
-        } else {
-            AgentEngine::new_with_provider(
-                provider.clone(),
-                self.config,
-                registry,
-                self.output,
-                cwd_path.to_path_buf(),
-            )
-        };
-        engine.set_plan_active_flag(plan_active_flag);
+        let has_mcp = mcp.has_mcp();
+        let mcp_managers = mcp.managers;
+        let engine = self.into_engine(provider.clone(), registry, plan_active_flag, environment.workspace);
 
         Ok(BootstrapResult {
             engine,
@@ -208,5 +154,145 @@ impl AgentBootstrap {
             mcp_managers,
             has_mcp,
         })
+    }
+
+    fn resolve_workspace_path(&self) -> PathBuf {
+        info!(
+            target: "aion_agent",
+            workspace = %self.workspace.display(),
+            "agent bootstrap: workspace cwd resolved",
+        );
+
+        self.workspace.clone()
+    }
+
+    fn resolve_environment(&self, workspace_path: PathBuf) -> Result<BootstrapEnvironment> {
+        Ok(BootstrapEnvironment {
+            resolved_shell: resolve_shell_config(&self.config.shell)?,
+            memory_dir: auto_memory_dir(&workspace_path),
+            workspace: workspace_path,
+        })
+    }
+
+    fn resolve_provider(&mut self) -> Arc<dyn LlmProvider> {
+        self.provider.take().unwrap_or_else(|| create_provider(&self.config))
+    }
+
+    fn build_builtin_registry(&self, workspace_path: &Path) -> ToolRegistry {
+        let file_cache = self.build_file_cache();
+        let mut registry = ToolRegistry::new();
+
+        registry.register(Box::new(ReadTool::new(file_cache.clone())));
+        registry.register(Box::new(WriteTool::new(file_cache.clone())));
+        registry.register(Box::new(EditTool::new(file_cache)));
+        registry.register(Box::new(ExecCommandTool::new(workspace_path.to_path_buf())));
+        registry.register(Box::new(GrepTool::new(workspace_path.to_path_buf())));
+        registry.register(Box::new(GlobTool::new(workspace_path.to_path_buf())));
+
+        registry
+    }
+
+    fn build_file_cache(&self) -> Option<Arc<RwLock<FileStateCache>>> {
+        self.config
+            .file_cache
+            .enabled
+            .then(|| Arc::new(RwLock::new(FileStateCache::new(&self.config.file_cache))))
+    }
+
+    async fn connect_mcp(&self, registry: &mut ToolRegistry, builtin_names: &[String]) -> McpBootstrap {
+        if self.config.mcp.servers.is_empty() {
+            return McpBootstrap::default();
+        }
+
+        let manager = match McpManager::connect_all(&self.config.mcp.servers).await {
+            Ok(manager) => Arc::new(manager),
+            Err(err) => {
+                self.output.emit_error(&format!("MCP initialization error: {err}"));
+                return McpBootstrap::default();
+            }
+        };
+
+        register_mcp_tools(registry, &manager, builtin_names, &self.config.mcp.servers);
+
+        McpBootstrap {
+            manager: Some(Arc::clone(&manager)),
+            managers: vec![manager],
+        }
+    }
+
+    async fn load_skills(&self, workspace: &Path, mcp_manager: Option<&McpManager>) -> Vec<SkillMetadata> {
+        load_all_skills(workspace, &self.extra_skill_dirs, false, mcp_manager).await
+    }
+
+    fn configure_system_prompt(&mut self, environment: &BootstrapEnvironment, skills: &[SkillMetadata]) {
+        let mut prompt_cache = SystemPromptCache::new();
+        let workspace = self.workspace.to_string_lossy();
+        let system_prompt = build_system_prompt_with_shell(
+            &mut prompt_cache,
+            self.config.system_prompt.as_deref(),
+            &workspace,
+            &self.config.model,
+            &environment.resolved_shell,
+            skills,
+            None,
+            environment.memory_dir.as_deref(),
+            false,
+            self.config.compact.toon,
+        );
+        self.config.system_prompt = Some(system_prompt);
+    }
+
+    fn register_agent_tools(
+        &self,
+        registry: &mut ToolRegistry,
+        provider: &Arc<dyn LlmProvider>,
+        workspace: &Path,
+        skills: Vec<SkillMetadata>,
+    ) {
+        let skill_checker = SkillPermissionChecker::new(
+            self.config.tools.skills.deny.clone(),
+            self.config.tools.skills.allow.clone(),
+            self.config.tools.auto_approve,
+        );
+        registry.register(Box::new(SkillTool::new(
+            Arc::new(skills),
+            self.workspace.to_path_buf(),
+            skill_checker,
+        )));
+
+        let spawner = AgentSpawner::new(Arc::clone(provider), self.config.clone(), workspace.to_path_buf());
+        registry.register(Box::new(SpawnTool::new(Arc::new(spawner))));
+    }
+
+    fn register_plan_tools(&self, registry: &mut ToolRegistry) -> Arc<AtomicBool> {
+        let plan_active_flag = Arc::new(AtomicBool::new(false));
+
+        if self.config.plan.enabled {
+            registry.register(Box::new(EnterPlanModeTool::new(Arc::clone(&plan_active_flag))));
+            registry.register(Box::new(ExitPlanModeTool::new(Arc::clone(&plan_active_flag))));
+        }
+
+        plan_active_flag
+    }
+
+    fn register_tool_search(registry: &mut ToolRegistry) {
+        let tool_defs_snapshot = registry.to_tool_defs();
+        registry.register(Box::new(ToolSearchTool::new(tool_defs_snapshot)));
+    }
+
+    fn into_engine(
+        self,
+        provider: Arc<dyn LlmProvider>,
+        registry: ToolRegistry,
+        plan_active_flag: Arc<AtomicBool>,
+        workspace: PathBuf,
+    ) -> AgentEngine {
+        let mut engine = if let Some(session) = self.resume_session {
+            AgentEngine::resume_with_provider(provider, self.config, registry, self.output, session, workspace)
+        } else {
+            AgentEngine::new_with_provider(provider, self.config, registry, self.output, workspace)
+        };
+        engine.set_plan_active_flag(plan_active_flag);
+        engine
     }
 }
