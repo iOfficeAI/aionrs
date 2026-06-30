@@ -1262,5 +1262,5 @@ fn parse_command_input(input: &str) -> Option<ParsedSlashCommand<'_>> {
 }
 
 #[cfg(test)]
-#[path = "engine.test.rs"]
+#[path = "engine_test.rs"]
 mod engine_test;
