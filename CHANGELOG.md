@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.38](https://github.com/iOfficeAI/aionrs/compare/v0.1.37...v0.1.38) (2026-06-30)
+
+
+### Bug Fixes
+
+* **agent:** report cache full miss as info ([#166](https://github.com/iOfficeAI/aionrs/issues/166)) ([9ffe4d1](https://github.com/iOfficeAI/aionrs/commit/9ffe4d1aa5c2f2aa0f7b4601317e006f6e1d8a14))
+
+
+### Code Refactoring
+
+* organize agent internals ([#164](https://github.com/iOfficeAI/aionrs/issues/164)) ([b670770](https://github.com/iOfficeAI/aionrs/commit/b670770f96877147617c9dcab1310940f40e2f23))
+
 ## [0.1.37](https://github.com/iOfficeAI/aionrs/compare/v0.1.36...v0.1.37) (2026-06-29)
 
 
