@@ -75,6 +75,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tracing",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -251,6 +252,7 @@ dependencies = [
  "chrono",
  "serde",
  "serde_json",
+ "workspace-hack",
 ]
 
 [[package]]
@@ -4163,6 +4165,47 @@ dependencies = [
 [[package]]
 name = "workspace-hack"
 version = "0.1.0"
+dependencies = [
+ "bitflags 2.11.0",
+ "cc",
+ "futures-channel",
+ "futures-core",
+ "futures-sink",
+ "futures-task",
+ "futures-util",
+ "getrandom 0.2.17",
+ "hyper",
+ "hyper-rustls",
+ "hyper-util",
+ "log",
+ "memchr",
+ "mio",
+ "num-traits",
+ "percent-encoding",
+ "proc-macro2",
+ "quote",
+ "regex-automata",
+ "regex-syntax",
+ "rustix",
+ "rustls",
+ "rustls-webpki",
+ "serde_core",
+ "slab",
+ "smallvec",
+ "subtle",
+ "syn",
+ "time",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util",
+ "toml_datetime",
+ "toml_parser",
+ "tracing",
+ "tracing-core",
+ "windows-sys 0.61.2",
+ "winnow",
+ "zeroize",
+]
 
 [[package]]
 name = "writeable"
