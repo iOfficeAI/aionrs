@@ -1,5 +1,3 @@
-use super::*;
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -9,7 +7,7 @@ use super::*;
 mod tests {
     use std::path::Path;
 
-    use super::{compile_patterns, relativize};
+    use super::super::{compile_patterns, relativize};
 
     // --- compile_patterns ---
 
