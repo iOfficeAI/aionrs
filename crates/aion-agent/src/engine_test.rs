@@ -524,7 +524,7 @@ mod tests_compact {
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::message::{ContentBlock, Message, Role};
+    use aion_types::message::{ContentBlock, Message, Role, TokenUsage};
     use serde_json::json;
 
     use super::{CompactLevel, ProviderCompat};
@@ -547,6 +547,8 @@ mod tests_compact {
     #[derive(Default)]
     struct RecordingOutput {
         tool_results: Mutex<Vec<(String, String, bool, String)>>,
+        errors: Mutex<Vec<String>>,
+        infos: Mutex<Vec<String>>,
     }
 
     impl OutputSink for RecordingOutput {
@@ -563,8 +565,14 @@ mod tests_compact {
         }
         fn emit_stream_start(&self, _: &str) {}
         fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
-        fn emit_error(&self, _: &str) {}
-        fn emit_info(&self, _: &str) {}
+
+        fn emit_error(&self, msg: &str) {
+            self.errors.lock().unwrap().push(msg.to_string());
+        }
+
+        fn emit_info(&self, msg: &str) {
+            self.infos.lock().unwrap().push(msg.to_string());
+        }
     }
 
     struct NullProvider;
@@ -718,6 +726,43 @@ mod tests_compact {
                 true,
                 "Tool execution canceled by user".into()
             )
+        );
+    }
+
+    #[test]
+    fn cache_full_miss_is_reported_as_info_not_error() {
+        let output = Arc::new(RecordingOutput::default());
+        let mut engine =
+            make_compact_engine_with_output(CompactConfig::default(), CompactState::new(), vec![], output.clone());
+
+        engine.cache_detector.record_request("prompt", &[]);
+        engine.record_turn_usage(&TokenUsage {
+            input_tokens: 10_000,
+            output_tokens: 100,
+            cache_creation_tokens: 2_000,
+            cache_read_tokens: 8_000,
+        });
+
+        engine.cache_detector.record_request("prompt", &[]);
+        engine.record_turn_usage(&TokenUsage {
+            input_tokens: 10_000,
+            output_tokens: 100,
+            cache_creation_tokens: 10_000,
+            cache_read_tokens: 0,
+        });
+
+        assert!(
+            output.errors.lock().unwrap().is_empty(),
+            "cache diagnostics should not emit terminal errors"
+        );
+        assert!(
+            output
+                .infos
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|msg| msg == "Cache full miss: TtlExpiry"),
+            "full cache misses should remain visible as diagnostics"
         );
     }
 

@@ -805,7 +805,7 @@ impl AgentEngine {
         if let Some(diagnostic) = self.cache_detector.check_response(cache_stats) {
             match &diagnostic {
                 CacheDiagnostic::FullMiss { cause } => {
-                    self.output.emit_error(&format!("Cache full miss: {cause:?}"));
+                    self.output.emit_info(&format!("Cache full miss: {cause:?}"));
                 }
                 CacheDiagnostic::PartialMiss { hit_rate, cause } => {
                     if self.compact_config.cache_diagnostics {
