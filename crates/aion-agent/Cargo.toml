@@ -30,7 +30,6 @@ chrono.workspace      = true
 dirs.workspace        = true
 crossterm.workspace   = true
 is-terminal.workspace = true
-
 workspace-hack.workspace = true
 
 [dev-dependencies]

@@ -110,8 +110,11 @@ fmt-check:
 # ── Workspace-hack (cargo-hakari) ─────────────────────────────────────────
 hakari-generate:
     @just _run "{{ cargo }} hakari generate"
+    @just _run "{{ cargo }} hakari manage-deps --yes"
 
 hakari-verify:
+    @just _run "{{ cargo }} hakari generate --diff"
+    @just _run "{{ cargo }} hakari manage-deps --dry-run"
     @just _run "{{ cargo }} hakari verify"
 
 # ── Security ──────────────────────────────────────────────────────────────
@@ -138,7 +141,7 @@ clean:
     @just _run "{{ cargo }} clean"
 
 # ── Pre-push gate (lint-fix, format, auto-commit fixes, test, then push) ─
-push *ARGS: lint-fix fmt _auto-commit-fixes test
+push *ARGS: lint-fix fmt _auto-commit-fixes test hakari-verify
     git push {{ ARGS }}
 
 # Auto-commit any fmt/clippy fixes. Split by shell so the Windows path works

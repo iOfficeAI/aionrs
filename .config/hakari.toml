@@ -1,0 +1,21 @@
+# This file contains settings for `cargo hakari`.
+# See https://docs.rs/cargo-hakari/latest/cargo_hakari/config for a full list of options.
+
+hakari-package = "workspace-hack"
+
+# Format version for hakari's output. Version 4 requires cargo-hakari 0.9.22 or above.
+dep-format-version = "4"
+
+# Keep dependency lines aligned with the workspace dependency style used by this repo.
+workspace-hack-line-style = "workspace-dotted"
+
+# The workspace uses Cargo's resolver v2 behavior.
+resolver = "2"
+
+# Platforms commonly used by local development and CI.
+platforms = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]

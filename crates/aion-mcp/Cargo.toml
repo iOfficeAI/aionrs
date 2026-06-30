@@ -21,7 +21,6 @@ thiserror.workspace   = true
 anyhow.workspace      = true
 reqwest.workspace     = true
 futures.workspace     = true
-
 workspace-hack.workspace = true
 
 [features]
