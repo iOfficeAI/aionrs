@@ -320,5 +320,5 @@ pub fn clear_bundled_skills() {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[path = "bundled_tests.rs"]
-mod tests;
+#[path = "mod_test.rs"]
+mod mod_test;

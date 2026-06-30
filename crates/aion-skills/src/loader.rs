@@ -435,9 +435,9 @@ async fn find_exact_file(dir: &Path, name: &str) -> Option<PathBuf> {
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
-#[path = "loader_tests.rs"]
-mod tests;
+#[path = "loader_test.rs"]
+mod loader_test;
 
 #[cfg(test)]
-#[path = "loader_supplemental_tests.rs"]
-mod supplemental_tests;
+#[path = "loader_supplemental_test.rs"]
+mod loader_supplemental_test;

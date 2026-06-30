@@ -16,14 +16,17 @@ pub mod types;
 pub mod watcher;
 
 #[cfg(test)]
-mod permissions_supplemental_tests;
+#[path = "permissions_supplemental_test.rs"]
+mod permissions_supplemental_test;
 
 #[cfg(test)]
-#[path = "integration_tests.rs"]
-mod integration_tests;
+#[path = "integration_test.rs"]
+mod integration_test;
 
 #[cfg(test)]
-mod bundled_supplemental_tests;
+#[path = "bundled_supplemental_test.rs"]
+mod bundled_supplemental_test;
 
 #[cfg(test)]
-mod watcher_tests;
+#[path = "watcher_integration_test.rs"]
+mod watcher_integration_test;
