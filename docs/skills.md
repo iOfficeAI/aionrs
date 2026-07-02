@@ -30,7 +30,7 @@ wins for duplicate names):
 > - **Linux:** `~/.config/` (or `$XDG_CONFIG_HOME`)
 > - **Windows:** `C:\Users\<USER>\AppData\Roaming\`
 >
-> Run `aionrs --skills-path` to see the actual paths on your machine.
+> Run `aionrs skills path` to see the actual paths on your machine.
 
 Each skill is either a single `SKILL.md` file inside a named subdirectory, or
 a flat `.md` file in a `commands/` directory:
@@ -201,11 +201,11 @@ preserved.  To stay within budget, keep skill descriptions concise.
 
 ## Troubleshooting
 
-Use `--skills-path` to see which directories are being scanned and whether
+Use `aionrs skills path` to see which directories are being scanned and whether
 they exist on disk:
 
 ```
-$ aionrs --skills-path
+$ aionrs skills path
 User:    ~/Library/Application Support/aionrs/skills  (exists)
 Project: /path/to/repo/.aionrs/skills                 (exists)
 Legacy:  /path/to/repo/.aionrs/commands                (not found)

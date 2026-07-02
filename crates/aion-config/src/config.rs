@@ -557,7 +557,7 @@ fn resolve_api_key(cli_key: Option<&str>, config_key: Option<&str>, provider: Pr
 
     anyhow::bail!(
         "No API key found. Provide via --api-key, config file, environment variable \
-         (API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY), or run 'aionrs --login'."
+         (API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY), or run 'aionrs auth login'."
     )
 }
 
@@ -912,7 +912,7 @@ default = "auto"                 # auto, powershell, pwsh, cmd, bash, zsh, sh, o
 # region = "us-central1"
 # credentials_file = "/path/to/service-account.json"  # or use ADC
 
-# OAuth settings (for --login with Claude.ai account)
+# OAuth settings (for `aionrs auth login` with Claude.ai account)
 # [auth]
 # auth_url = "https://claude.ai/oauth"
 # token_url = "https://claude.ai/oauth/token"

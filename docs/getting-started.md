@@ -21,6 +21,20 @@ aionrs [OPTIONS] [PROMPT]...
 
 > For the full list of CLI parameters, run `aionrs --help`.
 
+### Subcommands
+
+Management operations live under noun subcommands instead of flat flags. A
+subcommand runs its action and exits — it does not start the agent main flow.
+
+| Subcommand | Description |
+|------------|--------------|
+| `aionrs config init` | Generate a default global config file |
+| `aionrs config path` | Print the global config file path |
+| `aionrs auth login` | Login with Anthropic account (OAuth device flow) |
+| `aionrs auth logout` | Logout (remove saved OAuth credentials) |
+| `aionrs session list` | List saved sessions |
+| `aionrs skills path` | Print skill directory paths |
+
 ### Key Parameters
 
 | Parameter | Description |
@@ -46,7 +60,7 @@ aionrs [OPTIONS] [PROMPT]...
 ### Three-Level Cascading
 
 ```
-<global config>                   (global, user-level; run `aionrs --config-path` to find)
+<global config>                   (global, user-level; run `aionrs config path` to find)
     ↓ overridden by
 ./.aionrs.toml                  (project-level, working directory)
     ↓ overridden by
@@ -56,14 +70,14 @@ CLI parameters / env vars        (highest priority)
 ### Generate Default Config
 
 ```bash
-aionrs --init-config
-# Creates the global config file (run `aionrs --config-path` to see the location)
+aionrs config init
+# Creates the global config file (run `aionrs config path` to see the location)
 ```
 
 ### Config File Format
 
 ```toml
-# Global config file (path varies by OS, use `aionrs --config-path` to find)
+# Global config file (path varies by OS, use `aionrs config path` to find)
 
 [default]
 provider = "anthropic"
@@ -161,7 +175,7 @@ Precedence is `CLI > profile > project config > global config > built-in default
 2. Config file `providers.<name>.api_key`
 3. Env var `API_KEY`
 4. Env var `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` (depends on provider)
-5. OAuth credentials (via `--login`)
+5. OAuth credentials (via `aionrs auth login`)
 
 > **Note**: `bedrock` and `vertex` providers use their own cloud credentials and do not require a traditional API key. See [Providers & Auth](providers.md).
 
@@ -191,8 +205,8 @@ base_url = "https://my-service.example.com/api/openai"
 ### 1. Initialize and Configure
 
 ```bash
-aionrs --init-config
-# Edit the config file (run `aionrs --config-path` to find it), add your API key
+aionrs config init
+# Edit the config file (run `aionrs config path` to find it), add your API key
 ```
 
 ### 2. Single-Shot Mode
@@ -267,7 +281,7 @@ Sessions auto-save to `.aionrs/sessions/`.
 
 ```bash
 # List saved sessions
-aionrs --list-sessions
+aionrs session list
 
 # Resume the latest session
 aionrs --resume latest

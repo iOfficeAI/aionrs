@@ -171,18 +171,18 @@ Use your Claude.ai subscription (Pro/Team/Enterprise) directly — no API key ne
 ### Login
 
 ```bash
-aionrs --login
+aionrs auth login
 ```
 
 1. Displays an authorization URL and code
 2. Open the URL in your browser and enter the code
-3. Credentials are saved alongside the global config (run `aionrs --config-path` to find the directory)
+3. Credentials are saved alongside the global config (run `aionrs config path` to find the directory)
 4. Subsequent runs auto-load saved credentials (with auto-refresh)
 
 ### Logout
 
 ```bash
-aionrs --logout
+aionrs auth logout
 ```
 
 ### Configuring OAuth Endpoints
