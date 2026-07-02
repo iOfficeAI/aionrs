@@ -6,11 +6,12 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::process::Command;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::containment::ChildContainment;
 
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
-pub const DEFAULT_POST_PROCESS_DRAIN: Duration = Duration::from_millis(250);
+pub const DEFAULT_POST_PROCESS_DRAIN: Duration = Duration::from_secs(2);
 
 /// Runs one process and buffers its stdout/stderr while it is running.
 pub struct CommandRunner {
@@ -64,8 +65,8 @@ impl CommandRunner {
             Ok(status) => {
                 let status = status?;
                 let (stdout_result, stderr_result) = tokio::join!(
-                    drain_reader_with_result(stdout_reader, self.post_process_drain),
-                    drain_reader_with_result(stderr_reader, self.post_process_drain)
+                    drain_reader_with_result(stdout_reader, &stdout, self.post_process_drain),
+                    drain_reader_with_result(stderr_reader, &stderr, self.post_process_drain)
                 );
                 stdout_result?;
                 stderr_result?;
@@ -83,8 +84,8 @@ impl CommandRunner {
                     status?;
                 }
                 tokio::join!(
-                    drain_reader(stdout_reader, self.post_process_drain),
-                    drain_reader(stderr_reader, self.post_process_drain)
+                    drain_reader(stdout_reader, &stdout, self.post_process_drain),
+                    drain_reader(stderr_reader, &stderr, self.post_process_drain)
                 );
 
                 Ok(CommandResult {
@@ -127,26 +128,61 @@ where
     })
 }
 
-async fn drain_reader(reader: Option<JoinHandle<Result<()>>>, drain: Duration) {
-    let _reader_result = drain_reader_with_result(reader, drain).await;
+async fn drain_reader(reader: Option<JoinHandle<Result<()>>>, output: &Arc<Mutex<Vec<u8>>>, drain: Duration) {
+    let _reader_result = drain_reader_with_result(reader, output, drain).await;
 }
 
-async fn drain_reader_with_result(reader: Option<JoinHandle<Result<()>>>, drain: Duration) -> Result<()> {
+async fn drain_reader_with_result(
+    reader: Option<JoinHandle<Result<()>>>,
+    output: &Arc<Mutex<Vec<u8>>>,
+    drain: Duration,
+) -> Result<()> {
     if let Some(mut reader) = reader {
-        tokio::select! {
-            _ = tokio::time::sleep(drain) => {
-                reader.abort();
-                let _abort_join_result = reader.await;
-                Ok(())
-            }
-            result = &mut reader => {
-                result
-                    .map_err(|error| Error::other(format!("process output reader failed: {error}")))?
+        let idle_timer = tokio::time::sleep(drain);
+        let max_timer = tokio::time::sleep(max_post_process_drain(drain));
+        tokio::pin!(idle_timer);
+        tokio::pin!(max_timer);
+
+        let mut last_len = output_len(output);
+
+        loop {
+            tokio::select! {
+                _ = &mut max_timer => {
+                    reader.abort();
+                    let _abort_join_result = reader.await;
+                    return Ok(());
+                }
+                _ = &mut idle_timer => {
+                    let current_len = output_len(output);
+                    if current_len == last_len {
+                        reader.abort();
+                        let _abort_join_result = reader.await;
+                        return Ok(());
+                    }
+
+                    last_len = current_len;
+                    idle_timer.as_mut().reset(Instant::now() + drain);
+                }
+                result = &mut reader => {
+                    return result
+                        .map_err(|error| Error::other(format!("process output reader failed: {error}")))?;
+                }
             }
         }
     } else {
         Ok(())
     }
+}
+
+fn max_post_process_drain(drain: Duration) -> Duration {
+    drain.checked_mul(5).unwrap_or(Duration::MAX).max(drain)
+}
+
+fn output_len(output: &Arc<Mutex<Vec<u8>>>) -> usize {
+    output
+        .lock()
+        .expect("process output mutex should not be poisoned")
+        .len()
 }
 
 fn take_output(output: Arc<Mutex<Vec<u8>>>) -> Vec<u8> {

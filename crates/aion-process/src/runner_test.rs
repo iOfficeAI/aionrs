@@ -78,6 +78,27 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn runner_captures_delayed_output_after_parent_shell_exits() {
+        #[cfg(windows)]
+        let script = "Start-Process -FilePath powershell -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Milliseconds 500; Write-Output runner_delayed_descendant_stdout' -NoNewWindow";
+        #[cfg(not(windows))]
+        let script = "(sleep 0.5; printf 'runner_delayed_descendant_stdout\n') &";
+
+        let result = CommandRunner::new(shell_command(script))
+            .run()
+            .await
+            .expect("runner should complete successfully");
+
+        assert!(!result.timed_out);
+        assert_eq!(result.exit_code, Some(0));
+        assert!(
+            String::from_utf8_lossy(&result.stdout).contains("runner_delayed_descendant_stdout"),
+            "stdout was: {}",
+            String::from_utf8_lossy(&result.stdout)
+        );
+    }
+
     #[cfg(not(windows))]
     #[tokio::test]
     async fn runner_does_not_hang_when_background_process_keeps_output_pipe_open() {
@@ -148,6 +169,7 @@ mod tests {
     async fn runner_completed_command_keeps_windows_background_descendant_running() {
         let script = "$p = Start-Process -FilePath powershell -ArgumentList '-NoProfile', '-Command', 'Start-Sleep -Seconds 10' -PassThru -WindowStyle Hidden; Write-Output $p.Id";
         let result = CommandRunner::new(shell_command(script))
+            .post_process_drain(Duration::from_millis(50))
             .run()
             .await
             .expect("runner should complete successfully");

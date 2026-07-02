@@ -37,9 +37,9 @@ mod tests {
         assert_eq!(
             powershell.derive_exec_args("Write-Output ok", false),
             vec![
-                "-NoProfile",
-                "-Command",
-                "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\nWrite-Output ok"
+                "-NoProfile".to_string(),
+                "-Command".to_string(),
+                format!("{POWERSHELL_UTF8_PREFIX}\nWrite-Output ok")
             ]
         );
 

@@ -4,6 +4,8 @@ use std::process::Output;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 
+const POWERSHELL_UTF8_PREFIX: &str = "try { [Console]::InputEncoding=[System.Text.Encoding]::UTF8; [Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8; $PSDefaultParameterValues['Out-File:Encoding']='utf8' } catch {}";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ShellKind {
     Bash,
@@ -275,7 +277,7 @@ fn user_shell_path() -> Option<PathBuf> {
 }
 
 fn prefix_powershell_script_with_utf8(command: &str) -> String {
-    format!("try {{ [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 }} catch {{}}\n{command}")
+    format!("{POWERSHELL_UTF8_PREFIX}\n{command}")
 }
 
 #[cfg(test)]
