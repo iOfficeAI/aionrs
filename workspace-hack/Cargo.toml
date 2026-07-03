@@ -51,7 +51,7 @@ winnow = { version = "1" }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
-getrandom = { version = "0.2", default-features = false, features = ["std"] }
+getrandom = { version = "0.4", default-features = false, features = ["std"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -68,7 +68,7 @@ cc = { version = "1", default-features = false, features = ["parallel"] }
 
 [target.x86_64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
-getrandom = { version = "0.2", default-features = false, features = ["std"] }
+getrandom = { version = "0.4", default-features = false, features = ["std"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -85,7 +85,7 @@ cc = { version = "1", default-features = false, features = ["parallel"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2", default-features = false, features = ["std"] }
-getrandom = { version = "0.2", default-features = false, features = ["std"] }
+getrandom = { version = "0.4", default-features = false, features = ["std"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 log = { version = "0.4", default-features = false, features = ["std"] }
 mio = { version = "1", features = ["net", "os-ext"] }
@@ -101,7 +101,7 @@ zeroize = { version = "1", features = ["derive"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
-getrandom = { version = "0.2", default-features = false, features = ["std"] }
+getrandom = { version = "0.4", default-features = false, features = ["std"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "ring", "tls12", "webpki-tokio"] }
 rustls = { version = "0.23", default-features = false, features = ["prefer-post-quantum", "ring", "std", "tls12"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["aws-lc-rs", "ring", "std"] }
