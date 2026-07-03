@@ -38,7 +38,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: 1.96.0
+          toolchain: 1.96.1
 
       - name: Install cargo-hakari
         uses: taiki-e/install-action@v2
