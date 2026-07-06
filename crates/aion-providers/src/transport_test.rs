@@ -245,17 +245,16 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_projected_request_uses_compat_api_path() {
+    fn anthropic_projected_request_uses_configured_api_path() {
         let mut compat = ProviderCompat::anthropic_defaults();
-        compat.transport.api_path = Some("/messages".to_string());
+        compat.transport.api_path = Some("/anthropic/v1/messages".to_string());
         let body = json!({"model": "test-model"});
         let tool_wire_shape = ResolvedToolWireShape::AnthropicInputSchema;
-        let request =
-            ProviderTransport::Anthropic(AnthropicTransport::new("test-key", "https://example.test/v1", true))
-                .build_projected_request("test-model", body, &compat, tool_wire_shape)
-                .expect("projected request should build");
+        let request = ProviderTransport::Anthropic(AnthropicTransport::new("test-key", "https://example.test", true))
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
 
-        assert_eq!(request.url, "https://example.test/v1/messages");
+        assert_eq!(request.url, "https://example.test/anthropic/v1/messages");
     }
 
     #[test]
