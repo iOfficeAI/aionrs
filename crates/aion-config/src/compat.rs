@@ -186,6 +186,10 @@ impl ProviderCompat {
     /// Defaults for Anthropic-family providers (Anthropic, Vertex)
     pub fn anthropic_defaults() -> Self {
         Self {
+            transport: TransportCompat {
+                api_path: Some("/v1/messages".into()),
+                ..Default::default()
+            },
             messages: MessageCompat {
                 ensure_alternation: Some(true),
                 merge_same_role: Some(true),

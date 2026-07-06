@@ -112,6 +112,7 @@ impl AnthropicTransport {
     pub(crate) fn build_projected_request(
         &self,
         body: Value,
+        compat: &ProviderCompat,
         tool_wire_shape: ResolvedToolWireShape,
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         let mut headers = HeaderMap::new();
@@ -125,7 +126,7 @@ impl AnthropicTransport {
         }
 
         Ok(ProjectedHttpRequest {
-            url: format!("{}/v1/messages", self.base_url),
+            url: format!("{}{}", self.base_url, compat.api_path()),
             headers,
             body,
             body_bytes: None,
@@ -213,7 +214,7 @@ impl ProviderTransport {
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         match self {
             Self::OpenAi(transport) => transport.build_projected_request(body, compat, tool_wire_shape),
-            Self::Anthropic(transport) => transport.build_projected_request(body, tool_wire_shape),
+            Self::Anthropic(transport) => transport.build_projected_request(body, compat, tool_wire_shape),
             Self::Vertex(transport) => transport
                 .inner
                 .build_projected_request(model, body, compat, tool_wire_shape),
