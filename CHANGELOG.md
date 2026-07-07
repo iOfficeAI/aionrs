@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0](https://github.com/iOfficeAI/aionrs/compare/v0.1.38...v0.2.0) (2026-07-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** restructure management flags into subcommands ([#184](https://github.com/iOfficeAI/aionrs/issues/184))
+
+### Features
+
+* support parallel persisted sessions ([#195](https://github.com/iOfficeAI/aionrs/issues/195)) ([5e0f0b5](https://github.com/iOfficeAI/aionrs/commit/5e0f0b57a2db4f88fa6ff00457633fbc40316547))
+
+
+### Bug Fixes
+
+* **deps:** update rust crate getrandom to 0.4 ([#188](https://github.com/iOfficeAI/aionrs/issues/188)) ([e8f1a7d](https://github.com/iOfficeAI/aionrs/commit/e8f1a7dfa84c99d83b469dd6970ba2609ffbc10a))
+
+
+### Code Refactoring
+
+* **cli:** restructure management flags into subcommands ([#184](https://github.com/iOfficeAI/aionrs/issues/184)) ([7969fa2](https://github.com/iOfficeAI/aionrs/commit/7969fa2ff7ef22230e949566ba4192f3bd3070b9))
+
 ## [0.1.38](https://github.com/iOfficeAI/aionrs/compare/v0.1.37...v0.1.38) (2026-06-30)
 
 
