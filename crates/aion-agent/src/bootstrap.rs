@@ -94,10 +94,6 @@ impl McpBootstrap {
     }
 }
 
-#[cfg(test)]
-#[path = "bootstrap_test.rs"]
-mod bootstrap_test;
-
 impl AgentBootstrap {
     pub fn new(config: Config, workspace: impl Into<String>, output: Arc<dyn OutputSink>) -> Self {
         Self {
@@ -344,3 +340,7 @@ impl AgentBootstrap {
         engine
     }
 }
+
+#[cfg(test)]
+#[path = "bootstrap_test.rs"]
+mod bootstrap_test;
