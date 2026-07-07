@@ -1,8 +1,9 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, RwLock};
 
-use aion_config::config::Config;
+use aion_config::config::{Config, McpServerConfig};
 use aion_config::shell::{ResolvedShell, resolve_shell_config};
 use aion_mcp::manager::McpManager;
 use aion_mcp::tool_proxy::register_mcp_tools;
@@ -66,6 +67,7 @@ pub struct AgentBootstrap {
     // Optional externally supplied runtime state.
     provider: Option<Arc<dyn LlmProvider>>,
     resume_session: Option<Session>,
+    runtime_env: Vec<(String, String)>,
 }
 
 struct BootstrapEnvironment {
@@ -92,6 +94,10 @@ impl McpBootstrap {
     }
 }
 
+#[cfg(test)]
+#[path = "bootstrap_test.rs"]
+mod bootstrap_test;
+
 impl AgentBootstrap {
     pub fn new(config: Config, workspace: impl Into<String>, output: Arc<dyn OutputSink>) -> Self {
         Self {
@@ -101,6 +107,7 @@ impl AgentBootstrap {
             output,
             provider: None,
             resume_session: None,
+            runtime_env: Vec::new(),
         }
     }
 
@@ -113,6 +120,12 @@ impl AgentBootstrap {
     /// Resume from a previously saved session.
     pub fn resume(mut self, session: Session) -> Self {
         self.resume_session = Some(session);
+        self
+    }
+
+    /// Inject process environment for tools/hooks/MCP subprocesses owned by this engine.
+    pub fn runtime_env(mut self, runtime_env: Vec<(String, String)>) -> Self {
+        self.runtime_env = runtime_env;
         self
     }
 
@@ -185,7 +198,10 @@ impl AgentBootstrap {
         registry.register(Box::new(ReadTool::new(file_cache.clone())));
         registry.register(Box::new(WriteTool::new(file_cache.clone())));
         registry.register(Box::new(EditTool::new(file_cache)));
-        registry.register(Box::new(ExecCommandTool::new(workspace_path.to_path_buf())));
+        registry.register(Box::new(ExecCommandTool::new_with_env(
+            workspace_path.to_path_buf(),
+            self.runtime_env.clone(),
+        )));
         registry.register(Box::new(GrepTool::new(workspace_path.to_path_buf())));
         registry.register(Box::new(GlobTool::new(workspace_path.to_path_buf())));
 
@@ -200,11 +216,12 @@ impl AgentBootstrap {
     }
 
     async fn connect_mcp(&self, registry: &mut ToolRegistry, builtin_names: &[String]) -> McpBootstrap {
-        if self.config.mcp.servers.is_empty() {
+        let server_configs = self.mcp_servers_with_runtime_env();
+        if server_configs.is_empty() {
             return McpBootstrap::default();
         }
 
-        let manager = match McpManager::connect_all(&self.config.mcp.servers).await {
+        let manager = match McpManager::connect_all(&server_configs).await {
             Ok(manager) => Arc::new(manager),
             Err(err) => {
                 self.output.emit_error(&format!("MCP initialization error: {err}"));
@@ -212,12 +229,29 @@ impl AgentBootstrap {
             }
         };
 
-        register_mcp_tools(registry, &manager, builtin_names, &self.config.mcp.servers);
+        register_mcp_tools(registry, &manager, builtin_names, &server_configs);
 
         McpBootstrap {
             manager: Some(Arc::clone(&manager)),
             managers: vec![manager],
         }
+    }
+
+    fn mcp_servers_with_runtime_env(&self) -> HashMap<String, McpServerConfig> {
+        let mut servers = self.config.mcp.servers.clone();
+        if self.runtime_env.is_empty() {
+            return servers;
+        }
+
+        for server in servers.values_mut() {
+            let mut env: HashMap<String, String> = self.runtime_env.clone().into_iter().collect();
+            if let Some(server_env) = server.env.take() {
+                env.extend(server_env);
+            }
+            server.env = Some(env);
+        }
+
+        servers
     }
 
     async fn load_skills(&self, workspace: &Path, mcp_manager: Option<&McpManager>) -> Vec<SkillMetadata> {
@@ -260,7 +294,12 @@ impl AgentBootstrap {
             skill_checker,
         )));
 
-        let spawner = AgentSpawner::new(Arc::clone(provider), self.config.clone(), workspace.to_path_buf());
+        let spawner = AgentSpawner::new_with_env(
+            Arc::clone(provider),
+            self.config.clone(),
+            workspace.to_path_buf(),
+            self.runtime_env.clone(),
+        );
         registry.register(Box::new(SpawnTool::new(Arc::new(spawner))));
     }
 
@@ -287,10 +326,19 @@ impl AgentBootstrap {
         plan_active_flag: Arc<AtomicBool>,
         workspace: PathBuf,
     ) -> AgentEngine {
+        let runtime_env = self.runtime_env.clone();
         let mut engine = if let Some(session) = self.resume_session {
-            AgentEngine::resume_with_provider(provider, self.config, registry, self.output, session, workspace)
+            AgentEngine::resume_with_provider_and_env(
+                provider,
+                self.config,
+                registry,
+                self.output,
+                session,
+                workspace,
+                runtime_env,
+            )
         } else {
-            AgentEngine::new_with_provider(provider, self.config, registry, self.output, workspace)
+            AgentEngine::new_with_provider_and_env(provider, self.config, registry, self.output, workspace, runtime_env)
         };
         engine.set_plan_active_flag(plan_active_flag);
         engine

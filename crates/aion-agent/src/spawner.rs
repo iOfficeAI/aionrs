@@ -31,14 +31,25 @@ pub struct AgentSpawner {
     provider: Arc<dyn LlmProvider>,
     base_config: Config,
     cwd: PathBuf,
+    runtime_env: Vec<(String, String)>,
 }
 
 impl AgentSpawner {
     pub fn new(provider: Arc<dyn LlmProvider>, config: Config, cwd: PathBuf) -> Self {
+        Self::new_with_env(provider, config, cwd, Vec::new())
+    }
+
+    pub fn new_with_env(
+        provider: Arc<dyn LlmProvider>,
+        config: Config,
+        cwd: PathBuf,
+        runtime_env: Vec<(String, String)>,
+    ) -> Self {
         Self {
             provider,
             base_config: config,
             cwd,
+            runtime_env,
         }
     }
 
@@ -55,9 +66,16 @@ impl AgentSpawner {
 
         tracing::info!(target: "aion_agent", cwd = %self.cwd.display(), "sub-agent spawned with workspace cwd");
 
-        let tools = build_tool_registry(&[], &self.cwd);
+        let tools = build_tool_registry(&[], &self.cwd, &self.runtime_env);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-        let mut engine = AgentEngine::new_with_provider(self.provider.clone(), config, tools, output, self.cwd.clone());
+        let mut engine = AgentEngine::new_with_provider_and_env(
+            self.provider.clone(),
+            config,
+            tools,
+            output,
+            self.cwd.clone(),
+            self.runtime_env.clone(),
+        );
 
         match engine.run(&sub_config.prompt, "").await {
             Ok(result) => SubAgentResult {
@@ -108,6 +126,7 @@ impl AgentSpawner {
             provider: self.provider.clone(),
             base_config: self.base_config.clone(),
             cwd: self.cwd.clone(),
+            runtime_env: self.runtime_env.clone(),
         }
     }
 }
@@ -127,9 +146,16 @@ impl Spawner for AgentSpawner {
             config.model = model;
         }
 
-        let tools = build_tool_registry(&overrides.allowed_tools, &self.cwd);
+        let tools = build_tool_registry(&overrides.allowed_tools, &self.cwd, &self.runtime_env);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
-        let mut engine = AgentEngine::new_with_provider(self.provider.clone(), config, tools, output, self.cwd.clone());
+        let mut engine = AgentEngine::new_with_provider_and_env(
+            self.provider.clone(),
+            config,
+            tools,
+            output,
+            self.cwd.clone(),
+            self.runtime_env.clone(),
+        );
         engine.set_initial_reasoning_effort(overrides.effort.clone());
 
         match engine.run(&sub_config.prompt, "").await {
@@ -151,12 +177,15 @@ impl Spawner for AgentSpawner {
     }
 }
 
-fn build_tool_registry(allowed: &[String], cwd: &Path) -> ToolRegistry {
+fn build_tool_registry(allowed: &[String], cwd: &Path, runtime_env: &[(String, String)]) -> ToolRegistry {
     let all_tools: Vec<(&str, Box<dyn aion_tools::Tool>)> = vec![
         ("Read", Box::new(ReadTool::new(None))),
         ("Write", Box::new(WriteTool::new(None))),
         ("Edit", Box::new(EditTool::new(None))),
-        ("ExecCommand", Box::new(ExecCommandTool::new(cwd.to_path_buf()))),
+        (
+            "ExecCommand",
+            Box::new(ExecCommandTool::new_with_env(cwd.to_path_buf(), runtime_env.to_vec())),
+        ),
         ("Grep", Box::new(GrepTool::new(cwd.to_path_buf()))),
         ("Glob", Box::new(GlobTool::new(cwd.to_path_buf()))),
     ];

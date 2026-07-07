@@ -134,6 +134,17 @@ impl AgentEngine {
         Self::new_with_provider(provider, config, tools, output, cwd)
     }
 
+    pub fn new_with_env(
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        cwd: PathBuf,
+        runtime_env: Vec<(String, String)>,
+    ) -> Self {
+        let provider = create_provider(&config);
+        Self::new_with_provider_and_env(provider, config, tools, output, cwd, runtime_env)
+    }
+
     /// Create an engine with an externally-provided provider (for sub-agent sharing)
     pub fn new_with_provider(
         provider: Arc<dyn LlmProvider>,
@@ -141,6 +152,17 @@ impl AgentEngine {
         tools: ToolRegistry,
         output: Arc<dyn OutputSink>,
         cwd: PathBuf,
+    ) -> Self {
+        Self::new_with_provider_and_env(provider, config, tools, output, cwd, Vec::new())
+    }
+
+    pub fn new_with_provider_and_env(
+        provider: Arc<dyn LlmProvider>,
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        cwd: PathBuf,
+        runtime_env: Vec<(String, String)>,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
         let confirmer = ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
@@ -178,7 +200,7 @@ impl AgentEngine {
             tools,
             confirmer: Arc::new(Mutex::new(confirmer)),
             allow_list,
-            hooks: Some(HookEngine::new(config.hooks.clone(), cwd.clone())),
+            hooks: Some(HookEngine::new_with_env(config.hooks.clone(), cwd.clone(), runtime_env)),
             session_manager,
             current_session: None,
             output,
@@ -207,6 +229,18 @@ impl AgentEngine {
         Self::resume_with_provider(provider, config, tools, output, session, cwd)
     }
 
+    pub fn resume_with_env(
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        session: Session,
+        cwd: PathBuf,
+        runtime_env: Vec<(String, String)>,
+    ) -> Self {
+        let provider = create_provider(&config);
+        Self::resume_with_provider_and_env(provider, config, tools, output, session, cwd, runtime_env)
+    }
+
     /// Create from a resumed session with an externally-provided provider
     pub fn resume_with_provider(
         provider: Arc<dyn LlmProvider>,
@@ -215,6 +249,18 @@ impl AgentEngine {
         output: Arc<dyn OutputSink>,
         session: Session,
         cwd: PathBuf,
+    ) -> Self {
+        Self::resume_with_provider_and_env(provider, config, tools, output, session, cwd, Vec::new())
+    }
+
+    pub fn resume_with_provider_and_env(
+        provider: Arc<dyn LlmProvider>,
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        session: Session,
+        cwd: PathBuf,
+        runtime_env: Vec<(String, String)>,
     ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
         let confirmer = ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
@@ -252,7 +298,7 @@ impl AgentEngine {
             tools,
             confirmer: Arc::new(Mutex::new(confirmer)),
             allow_list,
-            hooks: Some(HookEngine::new(config.hooks.clone(), cwd)),
+            hooks: Some(HookEngine::new_with_env(config.hooks.clone(), cwd, runtime_env)),
             session_manager,
             current_session: Some(session),
             output,
@@ -1133,10 +1179,6 @@ impl AgentEngine {
             session.updated_at = Utc::now();
             if let Err(e) = mgr.save(session) {
                 self.output.emit_error(&format!("Failed to save session: {}", e));
-            }
-            if let Err(e) = mgr.update_index_for(session) {
-                self.output
-                    .emit_error(&format!("Failed to update session index: {}", e));
             }
         }
     }

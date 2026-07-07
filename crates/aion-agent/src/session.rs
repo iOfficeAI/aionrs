@@ -1,9 +1,14 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::fmt::Write;
+use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use aion_types::message::{Message, TokenUsage};
+use aion_types::message::{ContentBlock, Message, Role, TokenUsage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
@@ -48,17 +53,10 @@ impl SessionManager {
 
     /// Create a new session, return it
     pub fn create(&self, provider: &str, model: &str, cwd: &str, session_id: Option<&str>) -> anyhow::Result<Session> {
-        std::fs::create_dir_all(&self.directory)?;
-
         let id = if let Some(custom_id) = session_id {
-            // Validate that the ID doesn't already exist
-            let index = self.load_index()?;
-            if index.sessions.iter().any(|s| s.id == custom_id) {
-                anyhow::bail!("Session ID '{}' already exists", custom_id);
-            }
             custom_id.to_string()
         } else {
-            generate_short_id()
+            self.generate_unique_id()?
         };
         let session = Session {
             id,
@@ -70,147 +68,313 @@ impl SessionManager {
             total_usage: TokenUsage::default(),
             messages: Vec::new(),
         };
-        self.save(&session)?;
-        self.update_index(&session)?;
+        self.with_session_lock(&session.id, || {
+            if self.session_exists(&session.id)? {
+                anyhow::bail!("Session ID '{}' already exists", session.id);
+            }
+            self.save_unlocked(&session)
+        })?;
         self.cleanup_old()?;
         Ok(session)
     }
 
     /// Save current session state (called after each turn)
     pub fn save(&self, session: &Session) -> anyhow::Result<()> {
-        std::fs::create_dir_all(&self.directory)?;
-        let filename = format!("{}_{}.json", session.created_at.format("%Y-%m-%d"), session.id);
-        let path = self.directory.join(&filename);
-        let json = serde_json::to_string_pretty(session)?;
-        std::fs::write(path, json)?;
-        Ok(())
+        self.with_session_lock(&session.id, || self.save_unlocked(session))
     }
 
     /// Load a session by ID (or "latest")
     pub fn load(&self, id_or_latest: &str) -> anyhow::Result<Session> {
-        let index = self.load_index()?;
+        if id_or_latest == "latest" {
+            let sessions = self.list()?;
+            let latest = sessions.last().ok_or_else(|| anyhow::anyhow!("No sessions found"))?;
+            return self.load(&latest.id);
+        }
 
-        let meta = if id_or_latest == "latest" {
-            index
-                .sessions
-                .last()
-                .ok_or_else(|| anyhow::anyhow!("No sessions found"))?
-        } else {
-            index
-                .sessions
-                .iter()
-                .find(|s| s.id == id_or_latest)
-                .ok_or_else(|| anyhow::anyhow!("Session '{}' not found", id_or_latest))?
-        };
+        self.with_session_lock(id_or_latest, || {
+            if let Some(session) = self.load_current(id_or_latest)? {
+                return Ok(session);
+            }
 
-        let pattern = format!("*_{}.json", meta.id);
-        let session_files: Vec<_> = glob::glob(self.directory.join(&pattern).to_string_lossy().as_ref())?
-            .filter_map(|r| r.ok())
-            .collect();
+            if let Some(session) = self.load_legacy(id_or_latest)? {
+                self.save_unlocked(&session)?;
+                return Ok(session);
+            }
 
-        let path = session_files
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("Session file not found for '{}'", meta.id))?;
-
-        let content = std::fs::read_to_string(path)?;
-        let session: Session = serde_json::from_str(&content)?;
-        Ok(session)
+            Err(anyhow::anyhow!("Session '{}' not found", id_or_latest))
+        })
     }
 
     /// List all sessions
     pub fn list(&self) -> anyhow::Result<Vec<SessionMeta>> {
-        let index = self.load_index()?;
-        Ok(index.sessions)
+        let mut merged = HashMap::new();
+
+        for meta in self.list_legacy()? {
+            merged.insert(meta.id.clone(), meta);
+        }
+        for meta in self.list_current()? {
+            merged.insert(meta.id.clone(), meta);
+        }
+
+        let mut sessions: Vec<_> = merged.into_values().collect();
+        sessions.sort_by_key(|s| s.created_at);
+        Ok(sessions)
     }
 
-    fn load_index(&self) -> anyhow::Result<SessionIndex> {
-        let index_path = self.directory.join("index.json");
-        match std::fs::read_to_string(&index_path) {
-            Ok(content) => Ok(serde_json::from_str(&content)?),
-            Err(_) => Ok(SessionIndex { sessions: Vec::new() }),
+    /// Update the session index (public, called from engine after save).
+    ///
+    /// The new file layout does not maintain a global index as source of truth.
+    /// Keep this method as a compatibility shim for existing callers/tests.
+    pub fn update_index_for(&self, session: &Session) -> anyhow::Result<()> {
+        self.save(session)
+    }
+
+    fn load_current(&self, session_id: &str) -> anyhow::Result<Option<Session>> {
+        let path = self.state_path(session_id);
+        match fs::read_to_string(path) {
+            Ok(content) => Ok(Some(serde_json::from_str(&content)?)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
         }
     }
 
-    /// Update the session index (public, called from engine after save)
-    pub fn update_index_for(&self, session: &Session) -> anyhow::Result<()> {
-        self.update_index(session)
+    fn save_unlocked(&self, session: &Session) -> anyhow::Result<()> {
+        let session_dir = self.session_dir(&session.id);
+        fs::create_dir_all(&session_dir)?;
+        let json = serde_json::to_string_pretty(session)?;
+        write_atomic(&self.state_path(&session.id), json.as_bytes())
     }
 
-    fn update_index(&self, session: &Session) -> anyhow::Result<()> {
-        let mut index = self.load_index()?;
-
-        // Extract summary from first user message
-        let summary = session
-            .messages
-            .iter()
-            .find(|m| m.role == aion_types::message::Role::User)
-            .and_then(|m| {
-                m.content.iter().find_map(|c| {
-                    if let aion_types::message::ContentBlock::Text { text } = c {
-                        Some(truncate_str(text, 80))
-                    } else {
-                        None
-                    }
-                })
-            })
-            .unwrap_or_default();
-
-        let meta = SessionMeta {
-            id: session.id.clone(),
-            created_at: session.created_at,
-            updated_at: session.updated_at,
-            model: session.model.clone(),
-            summary,
-            message_count: session.messages.len(),
+    fn list_current(&self) -> anyhow::Result<Vec<SessionMeta>> {
+        let sessions_dir = self.sessions_dir();
+        let entries = match fs::read_dir(&sessions_dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
         };
 
-        // Update existing or add new
-        if let Some(existing) = index.sessions.iter_mut().find(|s| s.id == session.id) {
-            *existing = meta;
-        } else {
-            index.sessions.push(meta);
+        let mut sessions = Vec::new();
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_dir() {
+                continue;
+            }
+
+            let state_path = entry.path().join("state.json");
+            let content = match fs::read_to_string(&state_path) {
+                Ok(content) => content,
+                Err(error) if error.kind() == ErrorKind::NotFound => continue,
+                Err(error) => return Err(error.into()),
+            };
+            let session: Session = serde_json::from_str(&content)?;
+            sessions.push(meta_from_session(&session));
         }
 
-        let index_path = self.directory.join("index.json");
-        let json = serde_json::to_string_pretty(&index)?;
-        std::fs::write(index_path, json)?;
-        Ok(())
+        Ok(sessions)
     }
 
-    /// Remove oldest sessions beyond max_sessions
-    fn cleanup_old(&self) -> anyhow::Result<()> {
-        let mut index = self.load_index()?;
-        if index.sessions.len() <= self.max_sessions {
-            return Ok(());
-        }
+    fn load_legacy(&self, session_id: &str) -> anyhow::Result<Option<Session>> {
+        let Some(path) = self.find_legacy_session_file(session_id)? else {
+            return Ok(None);
+        };
 
-        // Sort by created_at, remove oldest
-        index.sessions.sort_by_key(|s| s.created_at);
-        let to_remove = index.sessions.len() - self.max_sessions;
-        let removed: Vec<_> = index.sessions.drain(..to_remove).collect();
+        let content = fs::read_to_string(path)?;
+        Ok(Some(serde_json::from_str(&content)?))
+    }
 
-        // Delete session files
-        for meta in &removed {
-            let pattern = format!("*_{}.json", meta.id);
-            if let Ok(paths) = glob::glob(self.directory.join(&pattern).to_string_lossy().as_ref()) {
-                for path in paths.flatten() {
-                    let _ = std::fs::remove_file(path);
-                }
+    fn list_legacy(&self) -> anyhow::Result<Vec<SessionMeta>> {
+        let mut sessions = HashMap::new();
+
+        if let Some(index) = self.load_legacy_index()? {
+            for meta in index.sessions {
+                sessions.insert(meta.id.clone(), meta);
             }
         }
 
-        // Save updated index
+        let entries = match fs::read_dir(&self.directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => return Err(error.into()),
+        };
+
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() || entry.file_name() == "index.json" {
+                continue;
+            }
+            if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+
+            let content = fs::read_to_string(entry.path())?;
+            if let Ok(session) = serde_json::from_str::<Session>(&content) {
+                sessions.insert(session.id.clone(), meta_from_session(&session));
+            }
+        }
+
+        Ok(sessions.into_values().collect())
+    }
+
+    fn load_legacy_index(&self) -> anyhow::Result<Option<SessionIndex>> {
         let index_path = self.directory.join("index.json");
-        let json = serde_json::to_string_pretty(&index)?;
-        std::fs::write(index_path, json)?;
+        match fs::read_to_string(&index_path) {
+            Ok(content) => Ok(Some(serde_json::from_str(&content)?)),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    fn find_legacy_session_file(&self, session_id: &str) -> anyhow::Result<Option<PathBuf>> {
+        let entries = match fs::read_dir(&self.directory) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error.into()),
+        };
+
+        for entry in entries {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() || entry.file_name() == "index.json" {
+                continue;
+            }
+            if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+
+            let content = fs::read_to_string(entry.path())?;
+            let session: Session = serde_json::from_str(&content)?;
+            if session.id == session_id {
+                return Ok(Some(entry.path()));
+            }
+        }
+
+        Ok(None)
+    }
+
+    fn session_exists(&self, session_id: &str) -> anyhow::Result<bool> {
+        if self.state_path(session_id).is_file() {
+            return Ok(true);
+        }
+        Ok(self.find_legacy_session_file(session_id)?.is_some())
+    }
+
+    fn generate_unique_id(&self) -> anyhow::Result<String> {
+        for _ in 0..10 {
+            let id = generate_session_id();
+            if !self.session_exists(&id)? {
+                return Ok(id);
+            }
+        }
+        anyhow::bail!("failed to generate unique session id")
+    }
+
+    fn sessions_dir(&self) -> PathBuf {
+        self.directory.join("sessions")
+    }
+
+    fn session_dir(&self, session_id: &str) -> PathBuf {
+        self.sessions_dir().join(encode_session_id(session_id))
+    }
+
+    fn state_path(&self, session_id: &str) -> PathBuf {
+        self.session_dir(session_id).join("state.json")
+    }
+
+    fn with_session_lock<T>(&self, session_id: &str, f: impl FnOnce() -> anyhow::Result<T>) -> anyhow::Result<T> {
+        let lock = session_lock(self.session_dir(session_id));
+        let _guard = lock
+            .lock()
+            .map_err(|_| anyhow::anyhow!("session lock poisoned for '{}'", session_id))?;
+        f()
+    }
+
+    /// Remove oldest sessions beyond max_sessions.
+    fn cleanup_old(&self) -> anyhow::Result<()> {
+        let mut sessions = self.list_current()?;
+        if sessions.len() <= self.max_sessions {
+            return Ok(());
+        }
+
+        sessions.sort_by_key(|s| s.created_at);
+        let to_remove = sessions.len() - self.max_sessions;
+        for meta in sessions.into_iter().take(to_remove) {
+            let lock = session_lock(self.session_dir(&meta.id));
+            let _guard = lock
+                .lock()
+                .map_err(|_| anyhow::anyhow!("session lock poisoned for '{}'", meta.id))?;
+            match fs::remove_dir_all(self.session_dir(&meta.id)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+
         Ok(())
     }
 }
 
-fn generate_short_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
-    format!("{:06x}", nanos & 0xFFFFFF)
+fn meta_from_session(session: &Session) -> SessionMeta {
+    let summary = session
+        .messages
+        .iter()
+        .find(|m| m.role == Role::User)
+        .and_then(|m| {
+            m.content.iter().find_map(|c| {
+                if let ContentBlock::Text { text } = c {
+                    Some(truncate_str(text, 80))
+                } else {
+                    None
+                }
+            })
+        })
+        .unwrap_or_default();
+
+    SessionMeta {
+        id: session.id.clone(),
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        model: session.model.clone(),
+        summary,
+        message_count: session.messages.len(),
+    }
+}
+
+fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("state path has no parent"))?;
+    fs::create_dir_all(parent)?;
+    let tmp_path = path.with_extension("json.tmp");
+    fs::write(&tmp_path, bytes)?;
+    #[cfg(windows)]
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
+    fs::rename(&tmp_path, path)?;
+    Ok(())
+}
+
+fn session_lock(path: PathBuf) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut locks = locks.lock().expect("session lock registry poisoned");
+    locks.entry(path).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+}
+
+fn encode_session_id(session_id: &str) -> String {
+    let mut encoded = String::with_capacity(session_id.len());
+    for byte in session_id.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push('%');
+            write!(&mut encoded, "{byte:02X}").expect("writing to String cannot fail");
+        }
+    }
+    encoded
+}
+
+fn generate_session_id() -> String {
+    uuid::Uuid::now_v7().to_string()
 }
 
 fn truncate_str(s: &str, max: usize) -> String {

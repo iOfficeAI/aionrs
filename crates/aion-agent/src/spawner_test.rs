@@ -14,7 +14,7 @@ mod phase7_tests {
 
     #[test]
     fn tc_7_40_build_tool_registry_empty_allowed_registers_all() {
-        let registry = build_tool_registry(&[], &std::env::temp_dir());
+        let registry = build_tool_registry(&[], &std::env::temp_dir(), &[]);
         for name in &["Read", "Write", "Edit", "ExecCommand", "Grep", "Glob"] {
             assert!(registry.get(name).is_some(), "tool '{name}' should be registered");
         }
@@ -23,7 +23,7 @@ mod phase7_tests {
     #[test]
     fn tc_7_43_build_tool_registry_filters_to_allowed() {
         let allowed = vec!["ExecCommand".to_string(), "Read".to_string()];
-        let registry = build_tool_registry(&allowed, &std::env::temp_dir());
+        let registry = build_tool_registry(&allowed, &std::env::temp_dir(), &[]);
         assert!(registry.get("ExecCommand").is_some());
         assert!(registry.get("Read").is_some());
         assert!(registry.get("Write").is_none());

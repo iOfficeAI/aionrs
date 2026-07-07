@@ -28,6 +28,20 @@ mod tests {
         }
     }
 
+    fn env_equals_command(name: &str, expected: &str) -> String {
+        match default_shell().kind {
+            ShellKind::PowerShell => {
+                format!("if ($env:{name} -eq '{expected}') {{ exit 0 }} else {{ exit 1 }}")
+            }
+            ShellKind::Cmd => {
+                format!(r#"if "%{name}%"=="{expected}" (exit /b 0) else (exit /b 1)"#)
+            }
+            ShellKind::Bash | ShellKind::Zsh | ShellKind::Sh => {
+                format!(r#"[ "{}" = "{expected}" ]"#, format!("${name}"))
+            }
+        }
+    }
+
     // --- Pure logic tests ---
 
     #[test]
@@ -79,6 +93,50 @@ mod tests {
         };
         let engine = HookEngine::new(config, std::env::temp_dir());
         let result = engine.run_pre_tool_use("Read", &json!({})).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pre_hook_receives_runtime_env() {
+        let config = HooksConfig {
+            pre_tool_use: vec![make_hook(
+                "runtime-env",
+                vec!["Read"],
+                &env_equals_command("AION_RUNTIME_ENV_TEST", "hook-value"),
+            )],
+            post_tool_use: vec![],
+            stop: vec![],
+        };
+        let engine = HookEngine::new_with_env(
+            config,
+            std::env::temp_dir(),
+            vec![("AION_RUNTIME_ENV_TEST".to_string(), "hook-value".to_string())],
+        );
+
+        let result = engine.run_pre_tool_use("Read", &json!({})).await;
+
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_hook_vars_override_runtime_env() {
+        let config = HooksConfig {
+            pre_tool_use: vec![make_hook(
+                "tool-env",
+                vec!["Read"],
+                &env_equals_command("TOOL_NAME", "Read"),
+            )],
+            post_tool_use: vec![],
+            stop: vec![],
+        };
+        let engine = HookEngine::new_with_env(
+            config,
+            std::env::temp_dir(),
+            vec![("TOOL_NAME".to_string(), "from-runtime".to_string())],
+        );
+
+        let result = engine.run_pre_tool_use("Read", &json!({})).await;
+
         assert!(result.is_ok());
     }
 
