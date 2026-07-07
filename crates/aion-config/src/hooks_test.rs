@@ -37,7 +37,7 @@ mod tests {
                 format!(r#"if "%{name}%"=="{expected}" (exit /b 0) else (exit /b 1)"#)
             }
             ShellKind::Bash | ShellKind::Zsh | ShellKind::Sh => {
-                format!(r#"[ "{}" = "{expected}" ]"#, format!("${name}"))
+                format!(r#"[ "${name}" = "{expected}" ]"#)
             }
         }
     }
