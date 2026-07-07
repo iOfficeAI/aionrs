@@ -3,10 +3,11 @@ use std::fmt::Write;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use aion_types::message::{ContentBlock, Message, Role, TokenUsage};
 
@@ -161,13 +162,9 @@ impl SessionManager {
             }
 
             let state_path = entry.path().join("state.json");
-            let content = match fs::read_to_string(&state_path) {
-                Ok(content) => content,
-                Err(error) if error.kind() == ErrorKind::NotFound => continue,
-                Err(error) => return Err(error.into()),
-            };
-            let session: Session = serde_json::from_str(&content)?;
-            sessions.push(meta_from_session(&session));
+            if let Some(session) = read_session_file_if_valid(&state_path)? {
+                sessions.push(meta_from_session(&session));
+            }
         }
 
         Ok(sessions)
@@ -184,10 +181,11 @@ impl SessionManager {
 
     fn list_legacy(&self) -> anyhow::Result<Vec<SessionMeta>> {
         let mut sessions = HashMap::new();
+        let mut indexed_sessions = HashMap::new();
 
         if let Some(index) = self.load_legacy_index()? {
             for meta in index.sessions {
-                sessions.insert(meta.id.clone(), meta);
+                indexed_sessions.insert(meta.id.clone(), meta);
             }
         }
 
@@ -206,9 +204,11 @@ impl SessionManager {
                 continue;
             }
 
-            let content = fs::read_to_string(entry.path())?;
-            if let Ok(session) = serde_json::from_str::<Session>(&content) {
-                sessions.insert(session.id.clone(), meta_from_session(&session));
+            if let Some(session) = read_session_file_if_valid(&entry.path())? {
+                let meta = indexed_sessions
+                    .remove(&session.id)
+                    .unwrap_or_else(|| meta_from_session(&session));
+                sessions.insert(session.id.clone(), meta);
             }
         }
 
@@ -218,7 +218,18 @@ impl SessionManager {
     fn load_legacy_index(&self) -> anyhow::Result<Option<SessionIndex>> {
         let index_path = self.directory.join("index.json");
         match fs::read_to_string(&index_path) {
-            Ok(content) => Ok(Some(serde_json::from_str(&content)?)),
+            Ok(content) => match serde_json::from_str(&content) {
+                Ok(index) => Ok(Some(index)),
+                Err(error) => {
+                    tracing::warn!(
+                        target: "aion_agent",
+                        path = %index_path.display(),
+                        error = %error,
+                        "skipping invalid legacy session index"
+                    );
+                    Ok(None)
+                }
+            },
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error.into()),
         }
@@ -240,8 +251,9 @@ impl SessionManager {
                 continue;
             }
 
-            let content = fs::read_to_string(entry.path())?;
-            let session: Session = serde_json::from_str(&content)?;
+            let Some(session) = read_session_file_if_valid(&entry.path())? else {
+                continue;
+            };
             if session.id == session_id {
                 return Ok(Some(entry.path()));
             }
@@ -353,11 +365,50 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn read_session_file_if_valid(path: &Path) -> anyhow::Result<Option<Session>> {
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+
+    match serde_json::from_str(&content) {
+        Ok(session) => Ok(Some(session)),
+        Err(error) => {
+            tracing::warn!(
+                target: "aion_agent",
+                path = %path.display(),
+                error = %error,
+                "skipping invalid session file"
+            );
+            Ok(None)
+        }
+    }
+}
+
+fn session_locks() -> &'static Mutex<HashMap<PathBuf, Weak<Mutex<()>>>> {
+    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Weak<Mutex<()>>>>> = OnceLock::new();
+    LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn session_lock(path: PathBuf) -> Arc<Mutex<()>> {
-    static LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
-    let locks = LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut locks = locks.lock().expect("session lock registry poisoned");
-    locks.entry(path).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+    let mut locks = session_locks().lock().expect("session lock registry poisoned");
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    if let Some(lock) = locks.get(&path).and_then(Weak::upgrade) {
+        return lock;
+    }
+
+    let lock = Arc::new(Mutex::new(()));
+    locks.insert(path, Arc::downgrade(&lock));
+    lock
+}
+
+#[cfg(test)]
+fn session_lock_registry_contains(path: &Path) -> bool {
+    session_locks()
+        .lock()
+        .expect("session lock registry poisoned")
+        .contains_key(path)
 }
 
 fn encode_session_id(session_id: &str) -> String {
@@ -374,7 +425,7 @@ fn encode_session_id(session_id: &str) -> String {
 }
 
 fn generate_session_id() -> String {
-    uuid::Uuid::now_v7().to_string()
+    Uuid::now_v7().to_string()
 }
 
 fn truncate_str(s: &str, max: usize) -> String {

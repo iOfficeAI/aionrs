@@ -134,17 +134,6 @@ impl AgentEngine {
         Self::new_with_provider(provider, config, tools, output, cwd)
     }
 
-    pub fn new_with_env(
-        config: Config,
-        tools: ToolRegistry,
-        output: Arc<dyn OutputSink>,
-        cwd: PathBuf,
-        runtime_env: Vec<(String, String)>,
-    ) -> Self {
-        let provider = create_provider(&config);
-        Self::new_with_provider_and_env(provider, config, tools, output, cwd, runtime_env)
-    }
-
     /// Create an engine with an externally-provided provider (for sub-agent sharing)
     pub fn new_with_provider(
         provider: Arc<dyn LlmProvider>,
@@ -227,18 +216,6 @@ impl AgentEngine {
     ) -> Self {
         let provider = create_provider(&config);
         Self::resume_with_provider(provider, config, tools, output, session, cwd)
-    }
-
-    pub fn resume_with_env(
-        config: Config,
-        tools: ToolRegistry,
-        output: Arc<dyn OutputSink>,
-        session: Session,
-        cwd: PathBuf,
-        runtime_env: Vec<(String, String)>,
-    ) -> Self {
-        let provider = create_provider(&config);
-        Self::resume_with_provider_and_env(provider, config, tools, output, session, cwd, runtime_env)
     }
 
     /// Create from a resumed session with an externally-provided provider

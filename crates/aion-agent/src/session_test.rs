@@ -4,10 +4,13 @@ use super::*;
 mod tests {
     use super::*;
     use aion_types::message::{ContentBlock, Message, Role};
+    use chrono::Duration;
     use std::fs;
     use std::path::Path;
     use std::sync::{Arc, Barrier};
+    use std::thread;
     use tempfile::tempdir;
+    use uuid::Uuid;
 
     #[test]
     fn test_create_session() {
@@ -151,6 +154,72 @@ mod tests {
     }
 
     #[test]
+    fn test_list_current_skips_invalid_state_json() {
+        let dir = tempdir().unwrap();
+        let manager = SessionManager::new(dir.path().to_path_buf(), 10);
+        let valid = sample_session("valid-session", "current model");
+        manager.save(&valid).unwrap();
+
+        let invalid_dir = dir.path().join("sessions").join("invalid-session");
+        fs::create_dir_all(&invalid_dir).unwrap();
+        fs::write(invalid_dir.join("state.json"), "{ invalid json").unwrap();
+
+        let list = manager.list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "valid-session");
+
+        let latest = manager.load("latest").unwrap();
+        assert_eq!(latest.id, "valid-session");
+    }
+
+    #[test]
+    fn test_create_skips_invalid_legacy_json_when_checking_existing_id() {
+        let dir = tempdir().unwrap();
+        let manager = SessionManager::new(dir.path().to_path_buf(), 10);
+        fs::write(dir.path().join("broken.json"), "{ invalid json").unwrap();
+
+        let session = manager.create("openai", "gpt-4", "/tmp", Some("new-session")).unwrap();
+
+        assert_eq!(session.id, "new-session");
+        assert!(manager.state_path("new-session").is_file());
+    }
+
+    #[test]
+    fn test_list_skips_invalid_legacy_index() {
+        let dir = tempdir().unwrap();
+        let manager = SessionManager::new(dir.path().to_path_buf(), 10);
+        let legacy = sample_session("legacy-session", "legacy model");
+        write_legacy_session(dir.path(), &legacy);
+        fs::write(dir.path().join("index.json"), "{ invalid json").unwrap();
+
+        let list = manager.list().unwrap();
+
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "legacy-session");
+    }
+
+    #[test]
+    fn test_list_legacy_skips_indexed_session_with_invalid_file() {
+        let dir = tempdir().unwrap();
+        let manager = SessionManager::new(dir.path().to_path_buf(), 10);
+        let valid = sample_session("valid-session", "legacy model");
+        let mut invalid_meta = meta_from_session(&sample_session("invalid-session", "legacy model"));
+        invalid_meta.created_at = valid.created_at + Duration::seconds(1);
+        invalid_meta.updated_at = valid.updated_at + Duration::seconds(1);
+
+        write_legacy_session(dir.path(), &valid);
+        fs::write(dir.path().join("2026-07-07_invalid-session.json"), "{ invalid json").unwrap();
+        write_legacy_index(dir.path(), &[meta_from_session(&valid), invalid_meta]);
+
+        let list = manager.list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "valid-session");
+
+        let latest = manager.load("latest").unwrap();
+        assert_eq!(latest.id, "valid-session");
+    }
+
+    #[test]
     fn test_cleanup_old_sessions() {
         let dir = tempdir().unwrap();
         let manager = SessionManager::new(dir.path().to_path_buf(), 2);
@@ -185,9 +254,28 @@ mod tests {
         let id2 = generate_session_id();
         assert_ne!(id1, id2);
 
-        let parsed = uuid::Uuid::parse_str(&id1).unwrap();
+        let parsed = Uuid::parse_str(&id1).unwrap();
         assert_eq!(id1.len(), 36);
         assert_eq!(parsed.get_version_num(), 7);
+    }
+
+    #[test]
+    fn test_session_lock_registry_prunes_unused_locks() {
+        let dir = tempdir().unwrap();
+        let old_path = dir.path().join("sessions").join("old-session");
+
+        {
+            let lock = session_lock(old_path.clone());
+            let _guard = lock.lock().unwrap();
+            assert!(session_lock_registry_contains(&old_path));
+        }
+
+        {
+            let new_path = dir.path().join("sessions").join("new-session");
+            let _lock = session_lock(new_path);
+        }
+
+        assert!(!session_lock_registry_contains(&old_path));
     }
 
     #[test]
@@ -200,7 +288,7 @@ mod tests {
             .map(|_| {
                 let manager = Arc::clone(&manager);
                 let barrier = Arc::clone(&barrier);
-                std::thread::spawn(move || {
+                thread::spawn(move || {
                     barrier.wait();
                     manager.create("openai", "gpt-4", "/tmp", Some("same-session"))
                 })
