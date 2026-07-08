@@ -31,6 +31,8 @@ pub(crate) fn resolve_config(cli: &Cli) -> anyhow::Result<Config> {
         base_url: cli.base_url.clone(),
         model: cli.model.clone(),
         max_tokens: cli.max_tokens,
+        thinking: cli.thinking.clone(),
+        thinking_budget: cli.thinking_budget,
         max_turns: cli.max_turns,
         max_tool_call_malformed_turns: cli.max_tool_call_malformed_turns,
         max_tool_call_failure_turns: cli.max_tool_call_failure_turns,

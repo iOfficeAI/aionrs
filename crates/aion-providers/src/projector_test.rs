@@ -422,6 +422,43 @@ mod tests {
     }
 
     #[test]
+    fn test_openai_projector_emits_enabled_thinking_when_supported() {
+        let request = test_request(vec![], Some(ThinkingConfig::Enabled { budget_tokens: 16_000 }));
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.reasoning.supports_thinking = Some(true);
+
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
+
+        assert_eq!(
+            body["thinking"],
+            json!({
+                "type": "enabled"
+            })
+        );
+    }
+
+    #[test]
+    fn test_openai_projector_emits_disabled_thinking_when_supported() {
+        let request = test_request(vec![], Some(ThinkingConfig::Disabled));
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.reasoning.supports_thinking = Some(true);
+
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
+
+        assert_eq!(body["thinking"], json!({ "type": "disabled" }));
+    }
+
+    #[test]
+    fn test_openai_projector_omits_thinking_when_unsupported() {
+        let request = test_request(vec![], Some(ThinkingConfig::Enabled { budget_tokens: 16_000 }));
+
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert!(body.get("thinking").is_none());
+    }
+
+    #[test]
     fn test_tool_wire_shape_anthropic_default_emits_input_schema() {
         let request = test_request(test_tools(), None);
         let body = AnthropicWireProjector::project(

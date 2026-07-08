@@ -539,7 +539,7 @@ max_tokens = 4096
 
 [providers.openai]
 api_key = "sk-test-key"
-base_url = "https://api.openai.com"
+base_url = "https://api.openai.com/v1"
 
 [providers.anthropic]
 api_key = "sk-ant-test"
@@ -553,7 +553,7 @@ prompt_caching = false
 
         let openai = config.providers.get("openai").unwrap();
         assert_eq!(openai.api_key.as_deref(), Some("sk-test-key"));
-        assert_eq!(openai.base_url.as_deref(), Some("https://api.openai.com"));
+        assert_eq!(openai.base_url.as_deref(), Some("https://api.openai.com/v1"));
 
         let anthropic = config.providers.get("anthropic").unwrap();
         assert_eq!(anthropic.api_key.as_deref(), Some("sk-ant-test"));
@@ -1089,6 +1089,8 @@ max_tokens = 1234
             base_url: None,
             model: None,
             max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1166,6 +1168,8 @@ effort_levels = ["low", "medium"]
             base_url: None,
             model: None,
             max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1192,6 +1196,89 @@ effort_levels = ["low", "medium"]
             config.compat.messages.strip_patterns,
             Some(vec!["__REASONING__".to_string()])
         );
+    }
+
+    #[test]
+    fn test_config_resolve_cli_thinking_enables_capability() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = CliArgs {
+            provider: Some("openai".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            thinking: Some("enabled".into()),
+            thinking_budget: Some(16_000),
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert!(config.compat.supports_thinking());
+        assert!(matches!(
+            config.thinking,
+            Some(ThinkingConfig::Enabled { budget_tokens: 16_000 })
+        ));
+    }
+
+    #[test]
+    fn test_config_resolve_cli_thinking_budget_alone_enables_thinking() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = CliArgs {
+            provider: Some("openai".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            thinking: None,
+            thinking_budget: Some(12_000),
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert!(config.compat.supports_thinking());
+        assert!(matches!(
+            config.thinking,
+            Some(ThinkingConfig::Enabled { budget_tokens: 12_000 })
+        ));
+    }
+
+    #[test]
+    fn test_config_resolve_rejects_invalid_cli_thinking() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = CliArgs {
+            provider: Some("openai".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            thinking: Some("auto".into()),
+            thinking_budget: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let err = Config::resolve(&cli).unwrap_err().to_string();
+
+        assert!(err.contains("Invalid --thinking value"));
     }
 
     #[test]
@@ -1222,6 +1309,8 @@ max_request_body_bytes = 1048576
             base_url: None,
             model: None,
             max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1283,6 +1372,8 @@ supports_effort = true
             base_url: None,
             model: None,
             max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1337,6 +1428,8 @@ tool_wire_shape = "anthropic_input_schema"
             base_url: None,
             model: None,
             max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1360,6 +1453,8 @@ tool_wire_shape = "anthropic_input_schema"
             base_url: None,
             model: None,
             max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
             max_turns: Some(0),
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1381,6 +1476,8 @@ tool_wire_shape = "anthropic_input_schema"
             base_url: None,
             model: None,
             max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,

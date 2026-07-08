@@ -34,6 +34,14 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) max_tokens: Option<u32>,
 
+    /// Thinking mode for providers that support a thinking request object: enabled or disabled
+    #[arg(long)]
+    pub(crate) thinking: Option<String>,
+
+    /// Token budget for --thinking enabled; also enables thinking when used alone
+    #[arg(long)]
+    pub(crate) thinking_budget: Option<u32>,
+
     // --- Runtime guards ---
     /// Max model turns per run. Defaults to 20; 0 disables.
     #[arg(long)]

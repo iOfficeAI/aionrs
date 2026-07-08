@@ -93,7 +93,7 @@ max_tool_call_failure_turns = 3  # default; set 0 to disable this breaker
 
 [providers.openai]
 # api_key = "sk-xxx"           # or env var OPENAI_API_KEY
-# base_url = "https://api.openai.com"
+# base_url = "https://api.openai.com/v1"
 
 # Custom provider alias
 [providers.my-service]
@@ -107,7 +107,17 @@ base_url = "https://my-service.example.com/api/openai"
 provider = "openai"
 model = "deepseek-chat"
 api_key = "sk-xxx"
-base_url = "https://api.deepseek.com"
+base_url = "https://api.deepseek.com/v1"
+
+[profiles.deepseek-v4-pro]
+provider = "openai"
+model = "deepseek-v4-pro"
+api_key = "sk-xxx"
+base_url = "https://api.deepseek.com/v1"
+max_tokens = 16384
+
+[profiles.deepseek-v4-pro.compat]
+supports_thinking = true
 
 [profiles.ollama]
 provider = "openai"

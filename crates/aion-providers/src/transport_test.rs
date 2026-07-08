@@ -62,6 +62,39 @@ mod tests {
     }
 
     #[test]
+    fn openai_transport_appends_chat_completions_to_configured_base_url() {
+        let transport = OpenAiTransport::new("test-key", "https://open.bigmodel.cn/api/paas/v4/");
+        let compat = ProviderCompat::openai_defaults();
+
+        let request = transport
+            .build_projected_request(
+                json!({ "model": "glm-test" }),
+                &compat,
+                ResolvedToolWireShape::OpenAiFunction,
+            )
+            .expect("request projection should succeed");
+
+        assert_eq!(request.url, "https://open.bigmodel.cn/api/paas/v4/chat/completions");
+    }
+
+    #[test]
+    fn openai_transport_custom_api_path_overrides_default_chat_path() {
+        let transport = OpenAiTransport::new("test-key", "https://open.bigmodel.cn/api/paas/v4/");
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.api_path = Some("/custom/chat".to_string());
+
+        let request = transport
+            .build_projected_request(
+                json!({ "model": "glm-test" }),
+                &compat,
+                ResolvedToolWireShape::OpenAiFunction,
+            )
+            .expect("request projection should succeed");
+
+        assert_eq!(request.url, "https://open.bigmodel.cn/api/paas/v4/custom/chat");
+    }
+
+    #[test]
     fn anthropic_transport_selects_messages_wire_and_anthropic_decoder() {
         let transport = ProviderTransport::Anthropic(AnthropicTransport::new("test-key", "https://example.test", true));
         let compat = ProviderCompat::anthropic_defaults();
@@ -143,7 +176,7 @@ mod tests {
     async fn openai_transport_maps_429_to_rate_limited() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/chat/completions"))
+            .and(path("/chat/completions"))
             .respond_with(ResponseTemplate::new(429).set_body_string("Too Many Requests"))
             .mount(&server)
             .await;
@@ -174,7 +207,7 @@ mod tests {
     async fn openai_transport_preserves_429_body_as_none_when_empty() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/chat/completions"))
+            .and(path("/chat/completions"))
             .respond_with(ResponseTemplate::new(429).set_body_string(""))
             .mount(&server)
             .await;
@@ -205,7 +238,7 @@ mod tests {
     async fn openai_transport_preserves_generic_api_error_body() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/chat/completions"))
+            .and(path("/chat/completions"))
             .respond_with(ResponseTemplate::new(500).set_body_string("upstream exploded"))
             .mount(&server)
             .await;
@@ -393,7 +426,7 @@ mod tests {
     async fn openai_projected_request_sends_headers_and_json_body() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/chat/completions"))
+            .and(path("/chat/completions"))
             .and(header("authorization", "Bearer test-key"))
             .and(header("content-type", "application/json"))
             .respond_with(ResponseTemplate::new(200).set_body_raw("data: [DONE]\n\n", "text/event-stream"))

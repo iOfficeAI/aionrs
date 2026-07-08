@@ -32,7 +32,7 @@ mod tests {
             ProviderType::OpenAI => (
                 "openai",
                 "test-openai-key",
-                "https://api.openai.com",
+                "https://api.openai.com/v1",
                 "gpt-4o",
                 false,
                 ProviderCompat::openai_defaults(),

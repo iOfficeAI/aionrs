@@ -19,6 +19,8 @@ fn list_sessions() -> anyhow::Result<()> {
         base_url: None,
         model: None,
         max_tokens: None,
+        thinking: None,
+        thinking_budget: None,
         max_turns: None,
         max_tool_call_malformed_turns: None,
         max_tool_call_failure_turns: None,

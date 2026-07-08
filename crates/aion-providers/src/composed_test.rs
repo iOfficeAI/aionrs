@@ -333,7 +333,7 @@ mod tests {
     async fn composed_provider_stream_emits_openai_text_delta() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
-            .and(path("/v1/chat/completions"))
+            .and(path("/chat/completions"))
             .respond_with(ResponseTemplate::new(200).set_body_raw(
                 concat!(
                     "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n",

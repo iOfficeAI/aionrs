@@ -26,6 +26,15 @@ fn config_init_parses_to_config_action() {
 }
 
 #[test]
+fn thinking_flags_parse() {
+    let cli = Cli::try_parse_from(["aionrs", "--thinking", "enabled", "--thinking-budget", "16000", "hello"]).unwrap();
+
+    assert_eq!(cli.thinking.as_deref(), Some("enabled"));
+    assert_eq!(cli.thinking_budget, Some(16_000));
+    assert_eq!(cli.prompt, vec!["hello"]);
+}
+
+#[test]
 fn deleted_flags_are_rejected() {
     assert!(Cli::try_parse_from(["aionrs", "--config-path"]).is_err());
     assert!(Cli::try_parse_from(["aionrs", "--login"]).is_err());

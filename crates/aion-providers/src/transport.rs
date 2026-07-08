@@ -86,7 +86,7 @@ impl OpenAiTransport {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
         Ok(ProjectedHttpRequest {
-            url: format!("{}{}", self.base_url, compat.api_path()),
+            url: join_base_url_and_api_path(&self.base_url, compat.api_path()),
             headers,
             body,
             body_bytes: None,
@@ -230,6 +230,16 @@ impl ProviderTransport {
             Self::Vertex(transport) => transport.inner.send(request).await,
             Self::Bedrock(transport) => transport.inner.send(request).await,
         }
+    }
+}
+
+fn join_base_url_and_api_path(base_url: &str, api_path: &str) -> String {
+    let base = base_url.trim_end_matches('/');
+    let path = api_path.trim_start_matches('/');
+    if path.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}/{path}")
     }
 }
 

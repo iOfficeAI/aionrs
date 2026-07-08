@@ -87,7 +87,7 @@ fn openai_sse_body() -> &'static str {
 async fn openai_projected_messages(request: &LlmRequest) -> Vec<Value> {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(openai_sse_body(), "text/event-stream"))
         .expect(1)
         .mount(&server)
@@ -179,7 +179,7 @@ async fn test_public_projection_downgrades_empty_id_when_auto_id_disabled() {
 
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(openai_sse_body(), "text/event-stream"))
         .expect(1)
         .mount(&server)

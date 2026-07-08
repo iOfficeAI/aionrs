@@ -27,7 +27,7 @@ pub struct TransportCompat {
     pub max_tokens_field: Option<String>,
 
     /// Custom API path appended to base_url for chat completions.
-    /// Default: "/v1/chat/completions" for OpenAI provider.
+    /// Default: "/chat/completions" for OpenAI-compatible providers.
     pub api_path: Option<String>,
 
     /// Maximum serialized provider request body size in bytes.
@@ -237,6 +237,7 @@ impl ProviderCompat {
         Self {
             transport: TransportCompat {
                 max_tokens_field: Some("max_tokens".into()),
+                api_path: Some("/chat/completions".into()),
                 include_stream_options: Some(true),
                 ..Default::default()
             },
@@ -336,7 +337,7 @@ impl ProviderCompat {
     }
 
     pub fn api_path(&self) -> &str {
-        self.transport.api_path.as_deref().unwrap_or("/v1/chat/completions")
+        self.transport.api_path.as_deref().unwrap_or("/chat/completions")
     }
 
     pub fn supports_thinking(&self) -> bool {
