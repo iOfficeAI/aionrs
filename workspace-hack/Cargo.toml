@@ -35,6 +35,7 @@ toml_datetime = { version = "1", features = ["serde"] }
 toml_parser = { version = "1" }
 tracing = { version = "0.1" }
 tracing-core = { version = "0.1" }
+uuid = { version = "1", features = ["v7"] }
 winnow = { version = "1" }
 
 [build-dependencies]
