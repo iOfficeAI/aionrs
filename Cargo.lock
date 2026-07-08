@@ -4174,7 +4174,7 @@ dependencies = [
  "futures-sink",
  "futures-task",
  "futures-util",
- "getrandom 0.2.17",
+ "getrandom 0.4.2",
  "hyper",
  "hyper-rustls",
  "hyper-util",
