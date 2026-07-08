@@ -262,7 +262,10 @@ async fn send_projected_json_request(
 
 fn map_common_status(status: u16, body_text: String, tool_wire_shape: ResolvedToolWireShape) -> ProviderError {
     if status == 429 {
-        return ProviderError::RateLimited { retry_after_ms: 5000 };
+        return ProviderError::RateLimited {
+            retry_after_ms: 5000,
+            body: (!body_text.is_empty()).then_some(body_text),
+        };
     }
 
     if let Some(message) = classify_tools_wire_shape_mismatch(status, &body_text, tool_wire_shape) {

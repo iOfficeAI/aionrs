@@ -358,8 +358,12 @@ async fn test_anthropic_rate_limit_retryable() {
 
     // Assert: RateLimited error, which is retryable
     match result {
-        Err(ProviderError::RateLimited { retry_after_ms }) => {
+        Err(ProviderError::RateLimited { retry_after_ms, body }) => {
             assert!(retry_after_ms > 0, "retry_after_ms should be positive");
+            assert!(
+                body.as_deref().is_some_and(|b| b.contains("rate_limit_error")),
+                "429 body should be preserved, got: {body:?}",
+            );
         }
         Err(other) => panic!("expected RateLimited error, got: {other:?}"),
         Ok(_) => panic!("expected an error but stream succeeded"),

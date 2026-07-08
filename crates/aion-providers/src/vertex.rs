@@ -281,7 +281,10 @@ impl VertexTransportState {
         if !status.is_success() {
             let body_text = response.text().await.unwrap_or_default();
             if status.as_u16() == 429 {
-                return Err(ProviderError::RateLimited { retry_after_ms: 5000 });
+                return Err(ProviderError::RateLimited {
+                    retry_after_ms: 5000,
+                    body: (!body_text.is_empty()).then_some(body_text),
+                });
             }
             if let Some(message) = classify_tools_wire_shape_mismatch(status.as_u16(), &body_text, tool_wire_shape) {
                 return Err(ProviderError::Api {

@@ -6,8 +6,12 @@ pub enum ProviderError {
     Api { status: u16, message: String },
     #[error("SSE parse error: {0}")]
     Parse(String),
+    // Display intentionally omits `body` — it may contain provider response
+    // payload (potentially sensitive) and would leak into logs via
+    // `tracing::error!("{err}")`. Consumers that need the body must pattern
+    // match on the variant explicitly.
     #[error("Rate limited, retry after {retry_after_ms}ms")]
-    RateLimited { retry_after_ms: u64 },
+    RateLimited { retry_after_ms: u64, body: Option<String> },
     #[error("Prompt too long: {0}")]
     PromptTooLong(String),
     #[error("Connection error: {0}")]
