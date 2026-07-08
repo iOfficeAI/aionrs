@@ -612,8 +612,9 @@ async fn test_openai_rate_limited() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        aion_providers::ProviderError::RateLimited { retry_after_ms } => {
+        aion_providers::ProviderError::RateLimited { retry_after_ms, body } => {
             assert_eq!(retry_after_ms, 5000);
+            assert_eq!(body.as_deref(), Some("Too Many Requests"));
         }
         e => panic!("expected RateLimited error, got: {:?}", e),
     }

@@ -161,7 +161,44 @@ mod tests {
             .await
             .expect_err("429 should map to rate limited");
 
-        assert!(matches!(error, ProviderError::RateLimited { retry_after_ms: 5000 }));
+        match error {
+            ProviderError::RateLimited { retry_after_ms, body } => {
+                assert_eq!(retry_after_ms, 5000);
+                assert_eq!(body.as_deref(), Some("Too Many Requests"));
+            }
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn openai_transport_preserves_429_body_as_none_when_empty() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(429).set_body_string(""))
+            .mount(&server)
+            .await;
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri()));
+        let compat = ProviderCompat::openai_defaults();
+        let (body, tool_wire_shape) = transport
+            .project_body(&test_request(vec![]), &compat)
+            .expect("request body projection should succeed");
+        let request = transport
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
+
+        let error = transport
+            .send(request)
+            .await
+            .expect_err("empty-body 429 should still map to rate limited");
+
+        assert!(matches!(
+            error,
+            ProviderError::RateLimited {
+                retry_after_ms: 5000,
+                body: None,
+            }
+        ));
     }
 
     #[tokio::test]
