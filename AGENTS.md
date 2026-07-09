@@ -47,7 +47,12 @@ cargo fmt --all        # Format (CI enforces this)
 It runs fmt → clippy → test before pushing, preventing CI failures.
 Supports the same arguments as `git push` (e.g. `just push -u origin branch`).
 
-## Code Style
+## Code Standards
+
+After implementation and before staging or committing, perform a self-check
+against this section. Do not rely on tests or review to catch style drift.
+
+### Required Checks
 
 - `cargo clippy` must pass without warnings
 - `cargo fmt` must pass without diffs
@@ -57,6 +62,49 @@ Supports the same arguments as `git push` (e.g. `just push -u origin branch`).
   - `anyhow` for internal/application-level error propagation
   - Never silently swallow errors; never `unwrap()` in production code
     unless the invariant is proven and commented
+
+### Visibility & Exports
+
+- After finishing a task, explicitly review visibility for any new or modified
+  functions, types, modules, constants, configuration items, events, protocol
+  entries, or APIs. Confirm they really need to be externally exposed.
+- Items that are not used across modules, crates, processes, or packages should
+  remain private or file/module-scoped. Do not expose them just for convenience.
+- When exposure is necessary, choose the narrowest suitable scope. In Rust,
+  prefer restricted visibility such as `pub(crate)`, `pub(super)`, or
+  `pub(in ...)` over bare `pub`.
+- Public interfaces must have clear callers, stability expectations, and
+  boundary semantics. If an export exists only for tests, temporary wiring, or
+  bypassing a module boundary, redesign it or use a narrower entry point.
+
+### Rust
+
+- Do not write business logic in `mod.rs` or `lib.rs`. These files are only for
+  module visibility declarations and re-exports.
+- Structs with many fields should be grouped by responsibility first. Keep
+  related runtime state, configuration, and dependencies together instead of
+  ordering fields by when they were added or temporarily used.
+- Prefer importing any type, function, trait, constant, or value path that is
+  outside the current `mod` with `use`, then reference it by local name. If a
+  usage path contains two or more `::` segments (for example,
+  `session::SessionManager::new` or `pre_message::PreMessageOutcome::Stop`),
+  import it so the use site has at most one `::`.
+- The import rule applies to type positions, function calls, value paths, and
+  turbofish syntax. Conventional exceptions may remain qualified: macros such
+  as `tracing::info!`, `tokio::select!`, and `anyhow::bail!`; attribute macros
+  such as `#[tokio::main]`; `anyhow::Result` when needed to avoid conflicts
+  with standard names; and standard module idioms such as `env::current_dir` or
+  `io::stdin`.
+- Rust test submodules must be extracted into same-directory `*_test.rs` files.
+  The source file should keep only the test mount, for example:
+  `#[cfg(test)]` plus `#[path = "..._test.rs"] mod ..._test;`.
+
+### Agent Integration
+
+- AionCLI is the built-in SDK/library integration path. Do not model it as an
+  external agent subprocess when changing Aion host integration code.
+- For Claude Code, Codex, or other external agent integrations, first review
+  the ACP protocol, subprocess lifecycle, logging, and security boundaries.
 
 ## Logging
 
@@ -155,7 +203,7 @@ verified by CI alone.
 
 | Location | What goes there |
 |----------|----------------|
-| Inline `#[cfg(test)]` in each `.rs` file | Unit tests for that module's internals |
+| Same-directory `*_test.rs` mounted from each `.rs` file with `#[cfg(test)]` + `#[path = "..._test.rs"] mod ..._test;` | Unit tests for that module's internals |
 | `crates/<crate>/tests/` | Integration tests for that crate |
 
 Unit tests target internal logic and code paths.
