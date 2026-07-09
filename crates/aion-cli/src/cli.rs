@@ -38,7 +38,7 @@ pub(crate) struct Cli {
     #[arg(long)]
     pub(crate) thinking: Option<String>,
 
-    /// Token budget for --thinking enabled; also enables thinking when used alone
+    /// Token budget used with --thinking enabled; Anthropic-only, ignored by OpenAI-compatible requests
     #[arg(long)]
     pub(crate) thinking_budget: Option<u32>,
 

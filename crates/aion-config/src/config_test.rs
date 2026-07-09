@@ -1291,7 +1291,7 @@ supports_thinking = false
     }
 
     #[test]
-    fn test_config_resolve_cli_thinking_budget_alone_records_request_without_enabling_capability() {
+    fn test_config_resolve_cli_thinking_budget_alone_does_not_enable_thinking() {
         let tmp = tempfile::tempdir().unwrap();
         let cli = CliArgs {
             provider: Some("openai".into()),
@@ -1313,10 +1313,7 @@ supports_thinking = false
         let config = Config::resolve(&cli).unwrap();
 
         assert!(!config.compat.supports_thinking());
-        assert!(matches!(
-            config.thinking,
-            Some(ThinkingConfig::Enabled { budget_tokens: 12_000 })
-        ));
+        assert!(config.thinking.is_none());
     }
 
     #[test]

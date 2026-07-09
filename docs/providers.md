@@ -126,6 +126,10 @@ aionrs --json-stream \
   --thinking enabled
 ```
 
+`--thinking-budget` only has effect together with `--thinking enabled`, and is
+only sent on the Anthropic wire path. OpenAI-compatible requests currently send
+only `thinking.type`, so any configured budget is ignored by that provider path.
+
 ---
 
 ## AWS Bedrock

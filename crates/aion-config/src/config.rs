@@ -459,7 +459,7 @@ fn resolve_cli_thinking(
         })),
         Some("disabled") => Ok(Some(ThinkingConfig::Disabled)),
         Some(other) => anyhow::bail!("Invalid --thinking value: {other}. Expected 'enabled' or 'disabled'."),
-        None => Ok(thinking_budget.map(|budget_tokens| ThinkingConfig::Enabled { budget_tokens })),
+        None => Ok(None),
     }
 }
 

@@ -426,7 +426,7 @@ Update model, thinking, or effort configuration at runtime.
 |-------|------|----------|-------------|
 | `model` | string | no | Switch to a different model |
 | `thinking` | string | no | `"enabled"` or `"disabled"` |
-| `thinking_budget` | number | no | Token budget for thinking (default: 10000) |
+| `thinking_budget` | number | no | Token budget for enabled thinking (default: 10000); sent on Anthropic requests and ignored by OpenAI-compatible requests |
 | `effort` | string | no | Reasoning effort level (e.g., `"low"`, `"medium"`, `"high"`) |
 | `compaction` | string | no | Output compaction level: `"off"`, `"safe"`, `"full"` |
 
