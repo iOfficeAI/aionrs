@@ -415,11 +415,8 @@ impl Config {
 
         let user_compat = provider_config.compat.clone().unwrap_or_default();
 
-        let mut compat = ProviderCompat::merge(compat_defaults, user_compat);
+        let compat = ProviderCompat::merge(compat_defaults, user_compat);
         let thinking = resolve_cli_thinking(cli.thinking.as_deref(), cli.thinking_budget)?;
-        if thinking.is_some() {
-            compat.reasoning.supports_thinking = Some(true);
-        }
 
         Ok(Config {
             provider_label,

@@ -68,7 +68,7 @@ impl OpenAiTransport {
         Self {
             client: reqwest::Client::new(),
             api_key: api_key.to_string(),
-            base_url: base_url.to_string(),
+            base_url: normalize_openai_base_url(base_url),
         }
     }
 
@@ -241,6 +241,15 @@ fn join_base_url_and_api_path(base_url: &str, api_path: &str) -> String {
     } else {
         format!("{base}/{path}")
     }
+}
+
+fn normalize_openai_base_url(base_url: &str) -> String {
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.eq_ignore_ascii_case("https://api.openai.com") || trimmed.eq_ignore_ascii_case("http://api.openai.com") {
+        return format!("{trimmed}/v1");
+    }
+
+    base_url.to_string()
 }
 
 async fn send_projected_json_request(

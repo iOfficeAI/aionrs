@@ -982,22 +982,18 @@ impl AgentEngine {
         }
 
         if let Some(thinking_str) = thinking {
-            if !self.compat.supports_thinking() {
-                changes.push("thinking: not supported by current provider".to_string());
-            } else {
-                match thinking_str.as_str() {
-                    "enabled" => {
-                        let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
-                        self.thinking = Some(ThinkingConfig::Enabled { budget_tokens: budget });
-                        changes.push(format!("thinking: enabled (budget: {budget})"));
-                    }
-                    "disabled" => {
-                        self.thinking = Some(ThinkingConfig::Disabled);
-                        changes.push("thinking: disabled".to_string());
-                    }
-                    other => {
-                        changes.push(format!("thinking: ignored invalid value \"{other}\""));
-                    }
+            match thinking_str.as_str() {
+                "enabled" => {
+                    let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
+                    self.thinking = Some(ThinkingConfig::Enabled { budget_tokens: budget });
+                    changes.push(format!("thinking: enabled (budget: {budget})"));
+                }
+                "disabled" => {
+                    self.thinking = Some(ThinkingConfig::Disabled);
+                    changes.push("thinking: disabled".to_string());
+                }
+                other => {
+                    changes.push(format!("thinking: ignored invalid value \"{other}\""));
                 }
             }
         } else if let Some(new_budget) = thinking_budget

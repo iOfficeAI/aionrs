@@ -78,6 +78,22 @@ mod tests {
     }
 
     #[test]
+    fn openai_transport_normalizes_official_openai_root_base_url() {
+        let transport = OpenAiTransport::new("test-key", "https://api.openai.com");
+        let compat = ProviderCompat::openai_defaults();
+
+        let request = transport
+            .build_projected_request(
+                json!({ "model": "gpt-test" }),
+                &compat,
+                ResolvedToolWireShape::OpenAiFunction,
+            )
+            .expect("request projection should succeed");
+
+        assert_eq!(request.url, "https://api.openai.com/v1/chat/completions");
+    }
+
+    #[test]
     fn openai_transport_custom_api_path_overrides_default_chat_path() {
         let transport = OpenAiTransport::new("test-key", "https://open.bigmodel.cn/api/paas/v4/");
         let mut compat = ProviderCompat::openai_defaults();

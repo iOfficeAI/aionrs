@@ -93,8 +93,8 @@ aionrs --profile dev "Create a GitHub issue"
 ## OpenAI-Compatible Thinking Models
 
 Some OpenAI-compatible providers support a `thinking` request object in
-addition to, or instead of, OpenAI `reasoning_effort`. Keep this as a compat
-setting for the provider/profile that needs it.
+addition to, or instead of, OpenAI `reasoning_effort`. Set the compat capability
+when the provider/profile should advertise thinking support to host UIs.
 
 ```toml
 [profiles.deepseek-v4-pro]
@@ -108,10 +108,11 @@ max_tokens = 16384
 supports_thinking = true
 ```
 
-Then enable thinking from the host protocol with `set_config`, or at startup:
+Then enable thinking from the host protocol with `set_config`, or force it for
+one startup:
 
 ```bash
-aionrs --profile deepseek-v4-pro --thinking enabled --thinking-budget 12000
+aionrs --profile deepseek-v4-pro --thinking enabled
 ```
 
 For one-off OpenAI-compatible launches without a profile, the equivalent is:
@@ -122,8 +123,7 @@ aionrs --json-stream \
   --model deepseek-v4-pro \
   --base-url https://api.deepseek.com/v1 \
   --max-tokens 16384 \
-  --thinking enabled \
-  --thinking-budget 12000
+  --thinking enabled
 ```
 
 ---

@@ -432,7 +432,7 @@ Update model, thinking, or effort configuration at runtime.
 
 All fields are optional. Only provided fields are updated.
 
-> **Validation**: The agent validates `thinking` and `effort` values against the current provider's capabilities. If the provider does not support a feature, the change is rejected with a descriptive message in the `info` event. After processing, a `config_changed` event is always emitted with the updated capabilities.
+> **Validation**: The agent validates `effort` values against the current provider's capabilities. Explicit `thinking` updates are applied as request intent; if the provider rejects the wire field, that provider error is surfaced during the model request. After processing, a `config_changed` event is always emitted with the updated capabilities.
 
 ### 2.8 `add_mcp_server`
 

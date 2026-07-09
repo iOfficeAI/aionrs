@@ -262,6 +262,28 @@ mod tests_set_config {
     }
 
     #[test]
+    fn set_config_thinking_enabled_applies_even_when_capability_is_false() {
+        let compat = ProviderCompat {
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut engine = make_engine_with_compat("m", compat);
+
+        let changes = engine.apply_config_update(None, Some("enabled".into()), Some(16000), None, None);
+
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert_eq!(*budget_tokens, 16000);
+            }
+            other => panic!("expected Enabled with 16000, got: {other:?}"),
+        }
+        assert_eq!(changes, vec!["thinking: enabled (budget: 16000)"]);
+    }
+
+    #[test]
     fn set_config_effort_valid_values() {
         let compat = ProviderCompat {
             reasoning: ReasoningCompat {
@@ -285,11 +307,14 @@ mod tests_set_config {
     // --- Capability validation tests ---
 
     #[test]
-    fn set_config_thinking_rejected_when_unsupported() {
+    fn set_config_thinking_applies_when_capability_is_false() {
         let mut engine = make_engine_with_compat("m", ProviderCompat::openai_defaults());
         let changes = engine.apply_config_update(None, Some("enabled".into()), None, None, None);
-        assert!(changes.iter().any(|c| c.contains("not supported")));
-        assert!(engine.thinking.is_none());
+        assert_eq!(changes, vec!["thinking: enabled (budget: 10000)"]);
+        assert!(matches!(
+            engine.thinking,
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens: 10000 })
+        ));
     }
 
     #[test]

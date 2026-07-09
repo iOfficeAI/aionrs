@@ -192,20 +192,13 @@ impl OpenAiProjector {
         }
 
         if let Some(thinking) = &request.thinking {
-            if compat.supports_thinking() {
-                match thinking {
-                    ThinkingConfig::Enabled { .. } => {
-                        body["thinking"] = json!({ "type": "enabled" });
-                    }
-                    ThinkingConfig::Disabled => {
-                        body["thinking"] = json!({ "type": "disabled" });
-                    }
+            match thinking {
+                ThinkingConfig::Enabled { .. } => {
+                    body["thinking"] = json!({ "type": "enabled" });
                 }
-            } else {
-                tracing::warn!(
-                    target: "aion_providers",
-                    "OpenAI-compatible thinking omitted because compat.supports_thinking is disabled"
-                );
+                ThinkingConfig::Disabled => {
+                    body["thinking"] = json!({ "type": "disabled" });
+                }
             }
         }
 
