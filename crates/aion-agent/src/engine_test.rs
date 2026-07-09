@@ -88,7 +88,7 @@ mod tests_set_config {
     #[test]
     fn set_config_changes_model() {
         let mut engine = make_engine("old-model");
-        let changes = engine.apply_config_update(Some("new-model".into()), None, None, None);
+        let changes = engine.apply_config_update(Some("new-model".into()), None, None, None, None);
         assert_eq!(engine.model, "new-model");
         assert_eq!(changes.len(), 1);
         assert!(changes[0].contains("old-model"));
@@ -98,7 +98,7 @@ mod tests_set_config {
     #[test]
     fn set_config_none_model_no_change() {
         let mut engine = make_engine("current");
-        let changes = engine.apply_config_update(None, None, None, None);
+        let changes = engine.apply_config_update(None, None, None, None, None);
         assert_eq!(engine.model, "current");
         assert!(changes.is_empty());
     }
@@ -106,14 +106,14 @@ mod tests_set_config {
     #[test]
     fn set_config_same_model_still_reports_change() {
         let mut engine = make_engine("same");
-        let changes = engine.apply_config_update(Some("same".into()), None, None, None);
+        let changes = engine.apply_config_update(Some("same".into()), None, None, None, None);
         assert_eq!(changes.len(), 1);
     }
 
     #[test]
     fn set_config_empty_string_model_accepted() {
         let mut engine = make_engine("real-model");
-        engine.apply_config_update(Some(String::new()), None, None, None);
+        engine.apply_config_update(Some(String::new()), None, None, None, None);
         assert_eq!(engine.model, "");
     }
 
@@ -121,7 +121,7 @@ mod tests_set_config {
     fn set_config_model_does_not_affect_other_state() {
         let mut engine = make_engine("m");
         engine.reasoning_effort = Some("high".into());
-        engine.apply_config_update(Some("new-m".into()), None, None, None);
+        engine.apply_config_update(Some("new-m".into()), None, None, None, None);
         assert_eq!(engine.model, "new-m");
         assert_eq!(engine.reasoning_effort.as_deref(), Some("high"));
     }
@@ -132,7 +132,7 @@ mod tests_set_config {
     fn set_config_changes_effort() {
         let mut engine = make_engine_with_compat("m", ProviderCompat::openai_defaults());
         assert!(engine.reasoning_effort.is_none());
-        let changes = engine.apply_config_update(None, None, Some("high".into()), None);
+        let changes = engine.apply_config_update(None, None, None, Some("high".into()), None);
         assert_eq!(engine.reasoning_effort.as_deref(), Some("high"));
         assert_eq!(changes.len(), 1);
         assert!(changes[0].contains("high"));
@@ -142,7 +142,7 @@ mod tests_set_config {
     fn set_config_clears_effort_with_empty_string() {
         let mut engine = make_engine("m");
         engine.reasoning_effort = Some("high".into());
-        let changes = engine.apply_config_update(None, None, Some(String::new()), None);
+        let changes = engine.apply_config_update(None, None, None, Some(String::new()), None);
         assert!(engine.reasoning_effort.is_none());
         assert_eq!(changes.len(), 1);
     }
@@ -152,10 +152,10 @@ mod tests_set_config {
     #[test]
     fn set_config_enables_thinking() {
         let mut engine = make_engine("m");
-        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None);
+        let changes = engine.apply_config_update(None, Some("enabled".into()), Some(16000), None, None);
         match &engine.thinking {
             Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
-                assert!(*budget_tokens > 0);
+                assert_eq!(*budget_tokens, 16000);
             }
             other => panic!("expected Enabled, got: {other:?}"),
         }
@@ -166,7 +166,7 @@ mod tests_set_config {
     fn set_config_disables_thinking() {
         let mut engine = make_engine("m");
         engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens: 8000 });
-        let changes = engine.apply_config_update(None, Some("disabled".into()), None, None);
+        let changes = engine.apply_config_update(None, Some("disabled".into()), None, None, None);
         match &engine.thinking {
             Some(aion_types::llm::ThinkingConfig::Disabled) => {}
             other => panic!("expected Disabled, got: {other:?}"),
@@ -177,7 +177,7 @@ mod tests_set_config {
     #[test]
     fn set_config_thinking_enabled_default_budget() {
         let mut engine = make_engine("m");
-        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None);
+        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None, None);
         match &engine.thinking {
             Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
                 assert!(*budget_tokens > 0);
@@ -191,7 +191,7 @@ mod tests_set_config {
     fn set_config_invalid_thinking_ignored() {
         let mut engine = make_engine("m");
         engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens: 8000 });
-        let changes = engine.apply_config_update(None, Some("invalid_value".into()), None, None);
+        let changes = engine.apply_config_update(None, Some("invalid_value".into()), None, None, None);
         match &engine.thinking {
             Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
                 assert_eq!(*budget_tokens, 8000);
@@ -218,6 +218,7 @@ mod tests_set_config {
         let changes = engine.apply_config_update(
             Some("new-model".into()),
             Some("enabled".into()),
+            Some(12000),
             Some("low".into()),
             None,
         );
@@ -225,11 +226,39 @@ mod tests_set_config {
         assert_eq!(engine.reasoning_effort.as_deref(), Some("low"));
         match &engine.thinking {
             Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
-                assert!(*budget_tokens > 0);
+                assert_eq!(*budget_tokens, 12000);
             }
             other => panic!("expected Enabled, got: {other:?}"),
         }
         assert_eq!(changes.len(), 3);
+    }
+
+    // --- Cycle 2: White-box edge case tests ---
+
+    #[test]
+    fn set_config_thinking_budget_only_updates_existing_enabled() {
+        let mut engine = make_engine("m");
+        engine.thinking = Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens: 5000 });
+        let changes = engine.apply_config_update(None, None, Some(20000), None, None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert_eq!(*budget_tokens, 20000);
+            }
+            other => panic!("expected Enabled with 20000, got: {other:?}"),
+        }
+        assert_eq!(changes.len(), 1);
+    }
+
+    #[test]
+    fn set_config_thinking_budget_ignored_when_disabled() {
+        let mut engine = make_engine("m");
+        engine.thinking = Some(aion_types::llm::ThinkingConfig::Disabled);
+        let changes = engine.apply_config_update(None, None, Some(20000), None, None);
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Disabled) => {}
+            other => panic!("expected Disabled unchanged, got: {other:?}"),
+        }
+        assert!(changes.is_empty());
     }
 
     #[test]
@@ -244,7 +273,7 @@ mod tests_set_config {
         };
         for value in ["low", "medium", "high", "max"] {
             let mut engine = make_engine_with_compat("m", compat.clone());
-            engine.apply_config_update(None, None, Some(value.to_string()), None);
+            engine.apply_config_update(None, None, None, Some(value.to_string()), None);
             assert_eq!(
                 engine.reasoning_effort.as_deref(),
                 Some(value),
@@ -258,7 +287,7 @@ mod tests_set_config {
     #[test]
     fn set_config_thinking_rejected_when_unsupported() {
         let mut engine = make_engine_with_compat("m", ProviderCompat::openai_defaults());
-        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None);
+        let changes = engine.apply_config_update(None, Some("enabled".into()), None, None, None);
         assert!(changes.iter().any(|c| c.contains("not supported")));
         assert!(engine.thinking.is_none());
     }
@@ -266,7 +295,7 @@ mod tests_set_config {
     #[test]
     fn set_config_effort_rejected_when_unsupported() {
         let mut engine = make_engine("m"); // anthropic defaults: supports_effort = false
-        let changes = engine.apply_config_update(None, None, Some("high".into()), None);
+        let changes = engine.apply_config_update(None, None, None, Some("high".into()), None);
         assert!(changes.iter().any(|c| c.contains("not supported")));
         assert!(engine.reasoning_effort.is_none());
     }
@@ -274,7 +303,7 @@ mod tests_set_config {
     #[test]
     fn set_config_effort_rejected_invalid_level() {
         let mut engine = make_engine_with_compat("m", ProviderCompat::openai_defaults());
-        let changes = engine.apply_config_update(None, None, Some("max".into()), None);
+        let changes = engine.apply_config_update(None, None, None, Some("max".into()), None);
         assert!(changes.iter().any(|c| c.contains("invalid")));
         assert!(engine.reasoning_effort.is_none());
     }
@@ -283,7 +312,7 @@ mod tests_set_config {
     fn set_config_effort_clear_always_works() {
         let mut engine = make_engine("m"); // anthropic defaults: supports_effort = false
         engine.reasoning_effort = Some("high".into());
-        let changes = engine.apply_config_update(None, None, Some(String::new()), None);
+        let changes = engine.apply_config_update(None, None, None, Some(String::new()), None);
         assert!(engine.reasoning_effort.is_none());
         assert!(changes.iter().any(|c| c.contains("cleared")));
     }

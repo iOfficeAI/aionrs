@@ -21,6 +21,7 @@ mod tests {
             model: Some("claude-sonnet-4-20250514".to_string()),
             max_tokens: Some(4096),
             thinking: None,
+            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,

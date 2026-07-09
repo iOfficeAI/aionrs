@@ -50,10 +50,11 @@ pub(super) fn handle(cmd: ProtocolCommand, engine: &mut AgentEngine, ctx: &Strea
         ProtocolCommand::SetConfig {
             model,
             thinking,
+            thinking_budget,
             effort,
             compaction,
         } => {
-            let changes = engine.apply_config_update(model, thinking, effort, compaction);
+            let changes = engine.apply_config_update(model, thinking, thinking_budget, effort, compaction);
             let message = if changes.is_empty() {
                 "set_config: no changes".to_string()
             } else {

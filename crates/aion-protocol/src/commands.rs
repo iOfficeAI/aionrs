@@ -36,6 +36,8 @@ pub enum ProtocolCommand {
         #[serde(default)]
         thinking: Option<String>,
         #[serde(default)]
+        thinking_budget: Option<u32>,
+        #[serde(default)]
         effort: Option<String>,
         #[serde(default)]
         compaction: Option<String>,

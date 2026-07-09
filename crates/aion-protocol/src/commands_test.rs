@@ -9,6 +9,7 @@ mod tests {
         let cmd = ProtocolCommand::SetConfig {
             model: Some("test-model".into()),
             thinking: None,
+            thinking_budget: None,
             effort: None,
             compaction: None,
         };
@@ -22,12 +23,14 @@ mod tests {
         let a = ProtocolCommand::SetConfig {
             model: Some("m".into()),
             thinking: None,
+            thinking_budget: None,
             effort: None,
             compaction: None,
         };
         let b = ProtocolCommand::SetConfig {
             model: Some("m".into()),
             thinking: None,
+            thinking_budget: None,
             effort: None,
             compaction: None,
         };
@@ -36,6 +39,7 @@ mod tests {
         let c = ProtocolCommand::SetConfig {
             model: None,
             thinking: None,
+            thinking_budget: None,
             effort: None,
             compaction: None,
         };
@@ -47,12 +51,14 @@ mod tests {
         let a = ProtocolCommand::SetConfig {
             model: Some("m".into()),
             thinking: Some("enabled".into()),
+            thinking_budget: Some(8000),
             effort: Some("high".into()),
             compaction: None,
         };
         let b = ProtocolCommand::SetConfig {
             model: Some("m".into()),
             thinking: Some("enabled".into()),
+            thinking_budget: Some(8000),
             effort: Some("high".into()),
             compaction: None,
         };
@@ -64,6 +70,7 @@ mod tests {
         let cmd = ProtocolCommand::SetConfig {
             model: None,
             thinking: None,
+            thinking_budget: None,
             effort: None,
             compaction: None,
         };

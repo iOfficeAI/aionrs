@@ -959,7 +959,7 @@ impl AgentEngine {
         Ok(())
     }
 
-    /// Provider-neutral default used by APIs that require an internal thinking budget.
+    /// Default thinking budget when "enabled" is requested without a specific budget.
     const DEFAULT_THINKING_BUDGET: u32 = 10_000;
 
     /// Apply a runtime config update received from the protocol layer.
@@ -970,6 +970,7 @@ impl AgentEngine {
         &mut self,
         model: Option<String>,
         thinking: Option<String>,
+        thinking_budget: Option<u32>,
         effort: Option<String>,
         compaction: Option<String>,
     ) -> Vec<String> {
@@ -986,10 +987,9 @@ impl AgentEngine {
             } else {
                 match thinking_str.as_str() {
                     "enabled" => {
-                        self.thinking = Some(ThinkingConfig::Enabled {
-                            budget_tokens: Self::DEFAULT_THINKING_BUDGET,
-                        });
-                        changes.push("thinking: enabled".to_string());
+                        let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
+                        self.thinking = Some(ThinkingConfig::Enabled { budget_tokens: budget });
+                        changes.push(format!("thinking: enabled (budget: {budget})"));
                     }
                     "disabled" => {
                         self.thinking = Some(ThinkingConfig::Disabled);
@@ -1000,6 +1000,11 @@ impl AgentEngine {
                     }
                 }
             }
+        } else if let Some(new_budget) = thinking_budget
+            && let Some(ThinkingConfig::Enabled { budget_tokens }) = &mut self.thinking
+        {
+            *budget_tokens = new_budget;
+            changes.push(format!("thinking budget: {new_budget}"));
         }
 
         if let Some(new_effort) = effort {

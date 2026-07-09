@@ -100,12 +100,17 @@ fn parse_set_config_with_null_effort() {
 // --- Cycle 2: Thinking parsing tests ---
 
 #[test]
-fn parse_set_config_with_thinking_enabled() {
-    let json = r#"{"type":"set_config","thinking":"enabled"}"#;
+fn parse_set_config_with_thinking_enabled_and_budget() {
+    let json = r#"{"type":"set_config","thinking":"enabled","thinking_budget":16000}"#;
     let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
     match cmd {
-        ProtocolCommand::SetConfig { thinking, .. } => {
+        ProtocolCommand::SetConfig {
+            thinking,
+            thinking_budget,
+            ..
+        } => {
             assert_eq!(thinking.as_deref(), Some("enabled"));
+            assert_eq!(thinking_budget, Some(16000));
         }
         other => panic!("expected SetConfig, got: {other:?}"),
     }
@@ -116,8 +121,13 @@ fn parse_set_config_with_thinking_disabled() {
     let json = r#"{"type":"set_config","thinking":"disabled"}"#;
     let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
     match cmd {
-        ProtocolCommand::SetConfig { thinking, .. } => {
+        ProtocolCommand::SetConfig {
+            thinking,
+            thinking_budget,
+            ..
+        } => {
             assert_eq!(thinking.as_deref(), Some("disabled"));
+            assert!(thinking_budget.is_none());
         }
         other => panic!("expected SetConfig, got: {other:?}"),
     }
@@ -140,8 +150,13 @@ fn parse_set_config_thinking_enabled_no_budget() {
     let json = r#"{"type":"set_config","thinking":"enabled"}"#;
     let cmd: ProtocolCommand = serde_json::from_str(json).unwrap();
     match cmd {
-        ProtocolCommand::SetConfig { thinking, .. } => {
+        ProtocolCommand::SetConfig {
+            thinking,
+            thinking_budget,
+            ..
+        } => {
             assert_eq!(thinking.as_deref(), Some("enabled"));
+            assert!(thinking_budget.is_none());
         }
         other => panic!("expected SetConfig, got: {other:?}"),
     }
@@ -158,11 +173,13 @@ fn parse_set_config_all_fields() {
             model,
             effort,
             thinking,
+            thinking_budget,
             ..
         } => {
             assert_eq!(model.as_deref(), Some("m"));
             assert_eq!(effort.as_deref(), Some("low"));
             assert_eq!(thinking.as_deref(), Some("disabled"));
+            assert!(thinking_budget.is_none());
         }
         other => panic!("expected SetConfig, got: {other:?}"),
     }
