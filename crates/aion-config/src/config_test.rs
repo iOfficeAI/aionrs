@@ -1257,6 +1257,69 @@ effort_levels = ["low", "medium"]
     }
 
     #[test]
+    fn test_config_resolve_cli_thinking_disabled_does_not_enable_capability() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = CliArgs {
+            provider: Some("openai".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            thinking: Some("disabled".into()),
+            thinking_budget: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert!(!config.compat.supports_thinking());
+        assert!(matches!(config.thinking, Some(ThinkingConfig::Disabled)));
+    }
+
+    #[test]
+    fn test_config_resolve_cli_thinking_preserves_explicit_unsupported_capability() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".aionrs.toml"),
+            r#"
+[providers.openai.compat]
+supports_thinking = false
+"#,
+        )
+        .unwrap();
+        let cli = CliArgs {
+            provider: Some("openai".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            thinking: Some("enabled".into()),
+            thinking_budget: Some(16_000),
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert!(!config.compat.supports_thinking());
+        assert!(matches!(
+            config.thinking,
+            Some(ThinkingConfig::Enabled { budget_tokens: 16_000 })
+        ));
+    }
+
+    #[test]
     fn test_config_resolve_rejects_invalid_cli_thinking() {
         let tmp = tempfile::tempdir().unwrap();
         let cli = CliArgs {

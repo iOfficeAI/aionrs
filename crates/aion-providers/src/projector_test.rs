@@ -438,6 +438,17 @@ mod tests {
     }
 
     #[test]
+    fn test_openai_projector_preserves_enabled_thinking_budget_when_supported() {
+        let request = test_request(vec![], Some(ThinkingConfig::Enabled { budget_tokens: 16_000 }));
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.reasoning.supports_thinking = Some(true);
+
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
+
+        assert_eq!(body["thinking"]["budget_tokens"], 16_000);
+    }
+
+    #[test]
     fn test_openai_projector_emits_disabled_thinking_when_supported() {
         let request = test_request(vec![], Some(ThinkingConfig::Disabled));
         let mut compat = ProviderCompat::openai_defaults();
