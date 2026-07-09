@@ -254,7 +254,6 @@ impl ProviderCompat {
                 supports_effort: Some(false),
                 ..Default::default()
             },
-            ..Default::default()
         }
     }
 
