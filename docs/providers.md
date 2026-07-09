@@ -111,7 +111,7 @@ supports_thinking = true
 Then enable thinking from the host protocol with `set_config`, or at startup:
 
 ```bash
-aionrs --profile deepseek-v4-pro --thinking enabled --thinking-budget 12000
+aionrs --profile deepseek-v4-pro --thinking enabled
 ```
 
 For one-off OpenAI-compatible launches without a profile, the equivalent is:
@@ -122,8 +122,7 @@ aionrs --json-stream \
   --model deepseek-v4-pro \
   --base-url https://api.deepseek.com/v1 \
   --max-tokens 16384 \
-  --thinking enabled \
-  --thinking-budget 12000
+  --thinking enabled
 ```
 
 ---

@@ -416,7 +416,6 @@ Update model, thinking, or effort configuration at runtime.
   "type": "set_config",
   "model": "claude-opus-4",
   "thinking": "enabled",
-  "thinking_budget": 16000,
   "effort": "high",
   "compaction": "safe"
 }
@@ -426,7 +425,6 @@ Update model, thinking, or effort configuration at runtime.
 |-------|------|----------|-------------|
 | `model` | string | no | Switch to a different model |
 | `thinking` | string | no | `"enabled"` or `"disabled"` |
-| `thinking_budget` | number | no | Token budget for thinking (default: 10000) |
 | `effort` | string | no | Reasoning effort level (e.g., `"low"`, `"medium"`, `"high"`) |
 | `compaction` | string | no | Output compaction level: `"off"`, `"safe"`, `"full"` |
 

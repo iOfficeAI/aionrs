@@ -16,14 +16,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use super::context::StreamContext;
 
 /// Pending config fields queued via `SetConfig` while a message is in
-/// flight: (model, thinking, thinking_budget, effort, compaction).
-type PendingConfig = (
-    Option<String>,
-    Option<String>,
-    Option<u32>,
-    Option<String>,
-    Option<String>,
-);
+/// flight: (model, thinking, effort, compaction).
+type PendingConfig = (Option<String>, Option<String>, Option<String>, Option<String>);
 
 /// Run the engine on `content`, racing it against control commands on
 /// `cmd_rx`. Returns `true` if a `Stop` command was received while the
@@ -76,8 +70,8 @@ pub(super) async fn handle(
                             stopped = true;
                             break;
                         }
-                        ProtocolCommand::SetConfig { model, thinking, thinking_budget, effort, compaction } => {
-                            pending_config = Some((model, thinking, thinking_budget, effort, compaction));
+                        ProtocolCommand::SetConfig { model, thinking, effort, compaction } => {
+                            pending_config = Some((model, thinking, effort, compaction));
                             let _ = ctx.writer.emit(&ProtocolEvent::Info {
                                 msg_id: String::new(),
                                 message: "set_config: queued, will apply after current response".to_string(),
@@ -103,8 +97,8 @@ pub(super) async fn handle(
         }
     }
 
-    if let Some((model, thinking, thinking_budget, effort, compaction)) = pending_config.take() {
-        let changes = engine.apply_config_update(model, thinking, thinking_budget, effort, compaction);
+    if let Some((model, thinking, effort, compaction)) = pending_config.take() {
+        let changes = engine.apply_config_update(model, thinking, effort, compaction);
         if !changes.is_empty() {
             let _ = ctx.writer.emit(&ProtocolEvent::Info {
                 msg_id: String::new(),

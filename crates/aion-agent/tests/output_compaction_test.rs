@@ -341,7 +341,7 @@ async fn case_7_runtime_compaction_switch() {
     );
     assert_eq!(engine.compaction_level(), CompactLevel::Off);
 
-    let changes = engine.apply_config_update(None, None, None, None, Some("full".to_string()));
+    let changes = engine.apply_config_update(None, None, None, Some("full".to_string()));
     assert!(!changes.is_empty(), "should report changes");
     assert_eq!(engine.compaction_level(), CompactLevel::Full);
     eprintln!("[compaction:B] apply_config_update changes: {:?}", changes);

@@ -1090,7 +1090,6 @@ max_tokens = 1234
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1169,7 +1168,6 @@ effort_levels = ["low", "medium"]
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1208,7 +1206,6 @@ effort_levels = ["low", "medium"]
             model: None,
             max_tokens: None,
             thinking: Some("enabled".into()),
-            thinking_budget: Some(16_000),
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1223,12 +1220,12 @@ effort_levels = ["low", "medium"]
         assert!(config.compat.supports_thinking());
         assert!(matches!(
             config.thinking,
-            Some(ThinkingConfig::Enabled { budget_tokens: 16_000 })
+            Some(ThinkingConfig::Enabled { budget_tokens }) if budget_tokens > 0
         ));
     }
 
     #[test]
-    fn test_config_resolve_cli_thinking_budget_alone_enables_thinking() {
+    fn test_config_resolve_no_cli_thinking_leaves_thinking_disabled() {
         let tmp = tempfile::tempdir().unwrap();
         let cli = CliArgs {
             provider: Some("openai".into()),
@@ -1237,7 +1234,6 @@ effort_levels = ["low", "medium"]
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: Some(12_000),
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1249,11 +1245,8 @@ effort_levels = ["low", "medium"]
 
         let config = Config::resolve(&cli).unwrap();
 
-        assert!(config.compat.supports_thinking());
-        assert!(matches!(
-            config.thinking,
-            Some(ThinkingConfig::Enabled { budget_tokens: 12_000 })
-        ));
+        assert!(!config.compat.supports_thinking());
+        assert!(config.thinking.is_none());
     }
 
     #[test]
@@ -1266,7 +1259,6 @@ effort_levels = ["low", "medium"]
             model: None,
             max_tokens: None,
             thinking: Some("auto".into()),
-            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1310,7 +1302,6 @@ max_request_body_bytes = 1048576
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1373,7 +1364,6 @@ supports_effort = true
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1429,7 +1419,6 @@ tool_wire_shape = "anthropic_input_schema"
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1454,7 +1443,6 @@ tool_wire_shape = "anthropic_input_schema"
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: None,
             max_turns: Some(0),
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -1477,7 +1465,6 @@ tool_wire_shape = "anthropic_input_schema"
             model: None,
             max_tokens: None,
             thinking: None,
-            thinking_budget: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,

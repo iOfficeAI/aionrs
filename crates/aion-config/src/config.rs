@@ -317,7 +317,6 @@ pub struct CliArgs {
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
     pub thinking: Option<String>,
-    pub thinking_budget: Option<u32>,
     pub max_turns: Option<usize>,
     pub max_tool_call_malformed_turns: Option<usize>,
     pub max_tool_call_failure_turns: Option<usize>,
@@ -415,7 +414,7 @@ impl Config {
         let user_compat = provider_config.compat.clone().unwrap_or_default();
 
         let mut compat = ProviderCompat::merge(compat_defaults, user_compat);
-        let thinking = resolve_cli_thinking(cli.thinking.as_deref(), cli.thinking_budget)?;
+        let thinking = resolve_cli_thinking(cli.thinking.as_deref())?;
         if thinking.is_some() {
             compat.reasoning.supports_thinking = Some(true);
         }
@@ -451,17 +450,14 @@ impl Config {
 
 const DEFAULT_THINKING_BUDGET: u32 = 10_000;
 
-fn resolve_cli_thinking(
-    thinking: Option<&str>,
-    thinking_budget: Option<u32>,
-) -> anyhow::Result<Option<ThinkingConfig>> {
+fn resolve_cli_thinking(thinking: Option<&str>) -> anyhow::Result<Option<ThinkingConfig>> {
     match thinking {
         Some("enabled") => Ok(Some(ThinkingConfig::Enabled {
-            budget_tokens: thinking_budget.unwrap_or(DEFAULT_THINKING_BUDGET),
+            budget_tokens: DEFAULT_THINKING_BUDGET,
         })),
         Some("disabled") => Ok(Some(ThinkingConfig::Disabled)),
         Some(other) => anyhow::bail!("Invalid --thinking value: {other}. Expected 'enabled' or 'disabled'."),
-        None => Ok(thinking_budget.map(|budget_tokens| ThinkingConfig::Enabled { budget_tokens })),
+        None => Ok(None),
     }
 }
 
