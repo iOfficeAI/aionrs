@@ -1282,6 +1282,64 @@ effort_levels = ["low", "medium"]
     }
 
     #[test]
+    fn test_config_resolve_normalizes_official_openai_root_base_url() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(".aionrs.toml"),
+            r#"
+[providers.openai]
+base_url = "https://api.openai.com"
+"#,
+        )
+        .unwrap();
+        let cli = CliArgs {
+            provider: Some("openai".into()),
+            api_key: Some("test-key".into()),
+            base_url: None,
+            model: None,
+            max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert_eq!(config.base_url, "https://api.openai.com/v1");
+    }
+
+    #[test]
+    fn test_config_resolve_does_not_normalize_openai_compatible_base_url() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cli = CliArgs {
+            provider: Some("openai".into()),
+            api_key: Some("test-key".into()),
+            base_url: Some("https://api.deepseek.com".into()),
+            model: None,
+            max_tokens: None,
+            thinking: None,
+            thinking_budget: None,
+            max_turns: None,
+            max_tool_call_malformed_turns: None,
+            max_tool_call_failure_turns: None,
+            system_prompt: None,
+            profile: None,
+            auto_approve: false,
+            project_dir: Some(tmp.path().to_path_buf()),
+        };
+
+        let config = Config::resolve(&cli).unwrap();
+
+        assert_eq!(config.base_url, "https://api.deepseek.com");
+    }
+
+    #[test]
     fn test_config_resolve_loads_flat_provider_max_tool_count_limits() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(

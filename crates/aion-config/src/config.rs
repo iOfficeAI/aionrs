@@ -367,6 +367,7 @@ impl Config {
                 // Bedrock/Vertex URLs are constructed from region/project, not base_url
                 ProviderType::Bedrock | ProviderType::Vertex => String::new(),
             });
+        let base_url = normalize_base_url(provider, base_url);
 
         let model = cli
             .model
@@ -463,6 +464,19 @@ fn resolve_cli_thinking(
         Some(other) => anyhow::bail!("Invalid --thinking value: {other}. Expected 'enabled' or 'disabled'."),
         None => Ok(thinking_budget.map(|budget_tokens| ThinkingConfig::Enabled { budget_tokens })),
     }
+}
+
+fn normalize_base_url(provider: ProviderType, base_url: String) -> String {
+    if provider != ProviderType::OpenAI {
+        return base_url;
+    }
+
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.eq_ignore_ascii_case("https://api.openai.com") || trimmed.eq_ignore_ascii_case("http://api.openai.com") {
+        return format!("{trimmed}/v1");
+    }
+
+    base_url
 }
 
 fn parse_builtin_provider(s: &str) -> Option<ProviderType> {
