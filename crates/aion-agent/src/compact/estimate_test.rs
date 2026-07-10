@@ -3,7 +3,8 @@ use super::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aion_types::message::{Message, Role};
+    use aion_types::message::{ImageUrl, Message, Role};
+    use base64::Engine;
     use serde_json::json;
 
     #[test]
@@ -125,5 +126,46 @@ mod tests {
 
         assert_eq!(effective, 100_000);
         assert!(effective > provider_reported);
+    }
+
+    #[test]
+    fn image_block_uses_decoded_size_not_base64_length() {
+        // 10_000 decoded bytes -> 10_000 / 750 = 13 tokens, clamped to minimum 85.
+        let image_bytes = vec![0u8; 10_000];
+        let data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+        let msg = Message::new(
+            Role::User,
+            vec![ContentBlock::Image {
+                image_url: ImageUrl {
+                    url: format!("data:image/png;base64,{}", data),
+                },
+            }],
+        );
+        let estimate = estimate_tokens_from_messages(&[msg]);
+        // 85 tokens * 4 chars/token = 340 chars counted as text.
+        assert_eq!(estimate, 85);
+        // The old base64-length heuristic would have counted ~13_333 chars -> ~3_333 tokens.
+        assert!(
+            estimate < 1000,
+            "image estimate should be much smaller than base64 length heuristic"
+        );
+    }
+
+    #[test]
+    fn image_block_estimate_respects_maximum() {
+        // A huge image should be capped, not grow with base64 length.
+        let image_bytes = vec![0u8; 10_000_000];
+        let data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+        let msg = Message::new(
+            Role::User,
+            vec![ContentBlock::Image {
+                image_url: ImageUrl {
+                    url: format!("data:image/png;base64,{}", data),
+                },
+            }],
+        );
+        let estimate = estimate_tokens_from_messages(&[msg]);
+        // Maximum 2048 tokens * 4 chars/token.
+        assert_eq!(estimate, 2048);
     }
 }

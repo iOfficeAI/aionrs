@@ -1142,7 +1142,7 @@ mod tests_handle_command {
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::message::{ContentBlock, Message, Role};
+    use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
 
     use super::{CompactLevel, ProviderCompat};
     use crate::compact::state::CompactState;
@@ -1287,6 +1287,74 @@ mod tests_handle_command {
         assert!(names.contains(&"compact"));
         assert!(names.contains(&"clear"));
         assert!(names.contains(&"quit"));
+    }
+
+    // --- run() text-only behavior ---
+
+    struct SingleResponseProvider;
+    #[async_trait::async_trait]
+    impl LlmProvider for SingleResponseProvider {
+        async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (tx, rx) = tokio::sync::mpsc::channel(2);
+            let _ = tx.send(LlmEvent::TextDelta("hello".to_string())).await;
+            let _ = tx
+                .send(LlmEvent::Done {
+                    stop_reason: StopReason::EndTurn,
+                    usage: TokenUsage::default(),
+                })
+                .await;
+            Ok(rx)
+        }
+    }
+
+    fn make_engine_with_provider(provider: Arc<dyn LlmProvider>) -> super::AgentEngine {
+        let mut engine = make_engine();
+        engine.provider = provider;
+        engine.max_turns_per_run = Some(1);
+        engine
+    }
+
+    #[tokio::test]
+    async fn run_treats_aion_files_marker_as_plain_text() {
+        let mut engine = make_engine_with_provider(Arc::new(SingleResponseProvider));
+        let input = "discuss [[AION_FILES]] and file.txt";
+        let _ = engine.run(input, "msg-1").await;
+
+        let user_msg = engine
+            .messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .expect("user message");
+        assert_eq!(user_msg.content.len(), 1);
+        match &user_msg.content[0] {
+            ContentBlock::Text { text } => assert_eq!(text, input),
+            _ => panic!("expected plain text block, got {:?}", user_msg.content[0]),
+        }
+    }
+
+    #[tokio::test]
+    async fn run_with_blocks_accepts_image_blocks() {
+        let mut engine = make_engine_with_provider(Arc::new(SingleResponseProvider));
+        let blocks = vec![
+            ContentBlock::Text {
+                text: "look at this".to_string(),
+            },
+            ContentBlock::Image {
+                image_url: aion_types::message::ImageUrl {
+                    url: "data:image/png;base64,abcd".to_string(),
+                },
+            },
+        ];
+        let _ = engine.run_with_blocks(blocks.clone(), "msg-2").await;
+
+        let user_msg = engine
+            .messages
+            .iter()
+            .find(|m| m.role == Role::User)
+            .expect("user message");
+        assert_eq!(user_msg.content.len(), 2);
+        assert!(matches!(user_msg.content[0], ContentBlock::Text { .. }));
+        assert!(matches!(user_msg.content[1], ContentBlock::Image { .. }));
     }
 }
 

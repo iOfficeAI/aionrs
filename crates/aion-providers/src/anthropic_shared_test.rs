@@ -6,7 +6,9 @@ mod tests {
 
     use aion_config::compat::{MessageCompat, ToolCompat};
     use aion_config::schema::legalize_json_schema;
+    use aion_types::message::ImageUrl;
     use aion_types::tool::ToolDef;
+    use base64::Engine;
     use serde_json::json;
 
     /// Compat with merge but no alternation — matches pre-compat behavior
@@ -937,5 +939,55 @@ mod tests {
         let events = parse_sse_data("unknown_event", data, &mut state);
         // assert
         assert!(events.is_empty());
+    }
+
+    // --- Image block projection ---
+
+    #[test]
+    fn test_build_messages_image_projects_to_base64_source() {
+        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text { text: "look".into() },
+                ContentBlock::Image {
+                    image_url: ImageUrl {
+                        url: format!("data:image/png;base64,{}", data),
+                    },
+                },
+            ],
+        )];
+
+        let result = build_messages(&messages, &default_compat());
+        let content = result[0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["source"]["type"], "base64");
+        assert_eq!(content[1]["source"]["media_type"], "image/png");
+        assert_eq!(content[1]["source"]["data"], data);
+    }
+
+    #[test]
+    fn test_build_messages_invalid_image_skipped_not_octet_stream() {
+        // `application/octet-stream` is not a valid Anthropic image media type.
+        // An invalid data URI must be dropped rather than projected as-is.
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text { text: "look".into() },
+                ContentBlock::Image {
+                    image_url: ImageUrl {
+                        url: "data:application/octet-stream;base64,abc".to_string(),
+                    },
+                },
+            ],
+        )];
+
+        let result = build_messages(&messages, &default_compat());
+        let content = result[0]["content"].as_array().unwrap();
+        assert_eq!(content.len(), 1, "invalid image should be skipped");
+        assert_eq!(content[0]["type"], "text");
+        let any_image = content.iter().any(|b| b["type"] == "image");
+        assert!(!any_image, "no image block should be emitted for invalid data URI");
     }
 }

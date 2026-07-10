@@ -3,7 +3,8 @@ use super::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aion_types::message::{ContentBlock, Message, Role};
+    use aion_types::message::{ContentBlock, ImageUrl, Message, Role};
+    use base64::Engine;
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -704,5 +705,28 @@ mod tests {
         let tool_msgs: Vec<_> = result.iter().filter(|m| m["role"] == "tool").collect();
         assert_eq!(tool_msgs.len(), 1);
         assert_eq!(tool_msgs[0]["content"], "second");
+    }
+
+    #[test]
+    fn test_build_messages_image_serializes_as_content_array() {
+        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
+        let url = format!("data:image/png;base64, {}", data);
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text { text: "look".into() },
+                ContentBlock::Image {
+                    image_url: ImageUrl { url: url.clone() },
+                },
+            ],
+        )];
+
+        let result = build_messages(&messages, "", &openai_compat());
+        let content = result[0]["content"].as_array().expect("content should be array");
+        assert_eq!(content.len(), 2);
+        assert_eq!(content[0]["type"], "text");
+        assert_eq!(content[0]["text"], "look");
+        assert_eq!(content[1]["type"], "image_url");
+        assert_eq!(content[1]["image_url"]["url"], url);
     }
 }

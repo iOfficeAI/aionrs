@@ -26,6 +26,7 @@ dependencies = [
  "aion-types",
  "anyhow",
  "async-trait",
+ "base64",
  "chrono",
  "crossterm",
  "dirs",
@@ -249,6 +250,7 @@ name = "aion-types"
 version = "0.1.38"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "serde",
  "serde_json",

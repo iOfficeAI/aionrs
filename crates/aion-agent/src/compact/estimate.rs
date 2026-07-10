@@ -29,8 +29,15 @@ pub fn estimate_tokens_from_messages(messages: &[Message]) -> u64 {
                     total_chars += content.len();
                 }
                 ContentBlock::Image { image_url } => {
-                    // Estimate tokens for base64 image data (rough estimate)
-                    total_chars += image_url.url.len();
+                    // Image token cost is not proportional to base64 string length.
+                    // Use a provider-agnostic heuristic based on decoded byte size,
+                    // clamped to reasonable per-image bounds.
+                    const BYTES_PER_TOKEN: usize = 750;
+                    const MIN_IMAGE_TOKENS: usize = 85;
+                    const MAX_IMAGE_TOKENS: usize = 2048;
+                    let bytes = image_url.decoded_byte_size().unwrap_or(0);
+                    let tokens = (bytes / BYTES_PER_TOKEN).clamp(MIN_IMAGE_TOKENS, MAX_IMAGE_TOKENS);
+                    total_chars += tokens * CHARS_PER_TOKEN_TEXT;
                 }
             }
         }

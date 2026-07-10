@@ -3,6 +3,7 @@ use super::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::Engine;
     use serde_json::json;
 
     // --- Role serialization / deserialization ---
@@ -301,6 +302,99 @@ mod tests {
         assert!(
             !json.contains("timestamp"),
             "None timestamp should be omitted via skip_serializing_if"
+        );
+    }
+
+    // --- Image URL helpers ---
+
+    #[test]
+    fn extension_to_image_media_type_maps_supported_extensions() {
+        assert_eq!(extension_to_image_media_type("jpg"), Some("image/jpeg"));
+        assert_eq!(extension_to_image_media_type("jpeg"), Some("image/jpeg"));
+        assert_eq!(extension_to_image_media_type("png"), Some("image/png"));
+        assert_eq!(extension_to_image_media_type("gif"), Some("image/gif"));
+        assert_eq!(extension_to_image_media_type("webp"), Some("image/webp"));
+    }
+
+    #[test]
+    fn extension_to_image_media_type_rejects_unsupported_extensions() {
+        assert_eq!(extension_to_image_media_type("svg"), None);
+        assert_eq!(extension_to_image_media_type("bmp"), None);
+        assert_eq!(extension_to_image_media_type("tiff"), None);
+        assert_eq!(extension_to_image_media_type("txt"), None);
+    }
+
+    #[test]
+    fn image_url_validate_accepts_valid_png_data_uri() {
+        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
+        let url = ImageUrl {
+            url: format!("data:image/png;base64,{}", data),
+        };
+        assert!(url.validate().is_ok());
+    }
+
+    #[test]
+    fn image_url_validate_rejects_missing_base64_suffix() {
+        let url = ImageUrl {
+            url: "data:image/png,plain".to_string(),
+        };
+        assert_eq!(url.validate(), Err(ImageUrlError::InvalidFormat));
+    }
+
+    #[test]
+    fn image_url_validate_rejects_unsupported_media_type() {
+        let url = ImageUrl {
+            url: "data:image/svg+xml;base64,abc".to_string(),
+        };
+        assert!(
+            matches!(url.validate(), Err(ImageUrlError::UnsupportedMediaType(_))),
+            "expected unsupported media type error, got {:?}",
+            url.validate()
+        );
+    }
+
+    #[test]
+    fn image_url_validate_rejects_invalid_base64() {
+        let url = ImageUrl {
+            url: "data:image/png;base64,!!!".to_string(),
+        };
+        assert_eq!(url.validate(), Err(ImageUrlError::InvalidBase64));
+    }
+
+    #[test]
+    fn image_url_decoded_byte_size_returns_estimate_for_valid_uri() {
+        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
+        let url = ImageUrl {
+            url: format!("data:image/png;base64,{}", data),
+        };
+        let size = url.decoded_byte_size().expect("valid data URI should have size");
+        // decoded_len_estimate returns an upper bound that is at least the real size.
+        assert!(size >= b"fake-image".len());
+    }
+
+    #[test]
+    fn image_url_decoded_byte_size_returns_none_for_invalid_uri() {
+        let url = ImageUrl {
+            url: "not-a-data-uri".to_string(),
+        };
+        assert!(url.decoded_byte_size().is_none());
+    }
+
+    #[test]
+    fn content_block_image_serializes_to_image_url_type() {
+        let data = base64::engine::general_purpose::STANDARD.encode(b"fake");
+        let block = ContentBlock::Image {
+            image_url: ImageUrl {
+                url: format!("data:image/png;base64,{}", data),
+            },
+        };
+        let value = serde_json::to_value(&block).unwrap();
+        assert_eq!(value["type"], "image_url");
+        assert!(
+            value["image_url"]["url"]
+                .as_str()
+                .unwrap()
+                .starts_with("data:image/png;base64,")
         );
     }
 }
