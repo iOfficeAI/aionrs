@@ -1326,16 +1326,27 @@ mod tests_loop_helpers {
 
     use super::{AgentError, merge_tool_results, tool_call_malformed_fingerprint};
     use crate::stream::StreamOutcome;
-    use crate::tool_call::{DEFAULT_MAX_TOOL_CALL_FAILURE, ToolCallMalformedReason};
+    use crate::tool_call::{
+        DEFAULT_MAX_TOOL_CALL_FAILURE, ToolCallFailureFingerprint, ToolCallMalformedReason,
+        tool_call_failure_fingerprint,
+    };
     use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 
     fn tool_use(id: &str, name: &str) -> ContentBlock {
+        tool_use_with_input(id, name, json!({}))
+    }
+
+    fn tool_use_with_input(id: &str, name: &str, input: serde_json::Value) -> ContentBlock {
         ContentBlock::ToolUse {
             id: id.to_string(),
             name: name.to_string(),
-            input: json!({}),
+            input,
             extra: None,
         }
+    }
+
+    fn failed_exec_fingerprint() -> Option<ToolCallFailureFingerprint> {
+        tool_call_failure_fingerprint(&[tool_use("call", "ExecCommand")])
     }
 
     fn executed_result(id: &str) -> ContentBlock {
@@ -1416,11 +1427,14 @@ mod tests_loop_helpers {
         let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         // First N-1 tool-call-failure rounds: no stop yet.
         for _ in 0..DEFAULT_MAX_TOOL_CALL_FAILURE - 1 {
-            assert!(matches!(guards.after_tool_round(None, true), TurnGuardAction::Continue));
+            assert!(matches!(
+                guards.after_tool_round(None, failed_exec_fingerprint()),
+                TurnGuardAction::Continue
+            ));
         }
         // The Nth consecutive tool-call-failure round trips the breaker.
         assert!(matches!(
-            guards.after_tool_round(None, true),
+            guards.after_tool_round(None, failed_exec_fingerprint()),
             TurnGuardAction::Stop(AgentError::ToolCallFailures { .. })
         ));
     }
@@ -1428,25 +1442,44 @@ mod tests_loop_helpers {
     #[test]
     fn after_tool_round_resets_tool_call_failure_streak_on_success() {
         let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        assert!(matches!(guards.after_tool_round(None, true), TurnGuardAction::Continue));
-        // A non-error tool round resets the streak.
         assert!(matches!(
-            guards.after_tool_round(None, false),
+            guards.after_tool_round(None, failed_exec_fingerprint()),
             TurnGuardAction::Continue
         ));
+        // A non-error tool round resets the streak.
+        assert!(matches!(guards.after_tool_round(None, None), TurnGuardAction::Continue));
         assert_eq!(guards.tool_call_failure_count(), 0);
         // So a single subsequent tool-call-failure round must not trip the breaker.
-        assert!(matches!(guards.after_tool_round(None, true), TurnGuardAction::Continue));
+        assert!(matches!(
+            guards.after_tool_round(None, failed_exec_fingerprint()),
+            TurnGuardAction::Continue
+        ));
+    }
+
+    #[test]
+    fn after_tool_round_does_not_trip_failure_breaker_for_different_tool_inputs() {
+        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
+
+        for index in 0..DEFAULT_MAX_TOOL_CALL_FAILURE {
+            let fingerprint = tool_call_failure_fingerprint(&[tool_use_with_input(
+                &format!("call-{index}"),
+                "ExecCommand",
+                json!({ "cmd": format!("command-{index}") }),
+            )]);
+
+            assert!(matches!(
+                guards.after_tool_round(None, fingerprint),
+                TurnGuardAction::Continue
+            ));
+            assert_eq!(guards.tool_call_failure_count(), 1);
+        }
     }
 
     #[test]
     fn after_tool_round_requests_finalize_when_budget_is_exhausted() {
         let mut guards = TurnGuards::new(Some(1), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         guards.record_counted_turn();
-        assert!(matches!(
-            guards.after_tool_round(None, false),
-            TurnGuardAction::Finalize
-        ));
+        assert!(matches!(guards.after_tool_round(None, None), TurnGuardAction::Finalize));
     }
 
     #[test]
@@ -1459,7 +1492,7 @@ mod tests_loop_helpers {
         let fingerprint = tool_call_malformed_fingerprint(&calls, &reasons);
 
         assert!(matches!(
-            guards.after_tool_round(fingerprint, false),
+            guards.after_tool_round(fingerprint, None),
             TurnGuardAction::Stop(AgentError::ToolCallMalformed { count: 1, limit: 1 })
         ));
     }

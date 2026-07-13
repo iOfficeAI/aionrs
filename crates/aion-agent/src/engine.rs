@@ -19,8 +19,9 @@ use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
 use crate::stream::StreamOutcome;
 use crate::tool_call::{
-    DEFAULT_MAX_TOOL_CALL_FAILURE, DEFAULT_MAX_TOOL_CALL_MALFORMED, ToolCallMalformedFingerprint, merge_tool_results,
-    tool_call_malformed_fingerprint, tool_call_malformed_reason,
+    DEFAULT_MAX_TOOL_CALL_FAILURE, DEFAULT_MAX_TOOL_CALL_MALFORMED, ToolCallFailureFingerprint,
+    ToolCallMalformedFingerprint, merge_tool_results, tool_call_failure_fingerprint, tool_call_malformed_fingerprint,
+    tool_call_malformed_reason,
 };
 use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 use aion_compact::CompactLevel;
@@ -445,7 +446,7 @@ impl AgentEngine {
                 tool_results,
                 tool_modifiers,
                 tool_call_malformed_fingerprint,
-                tool_call_failure_round,
+                tool_call_failure_fingerprint,
             } = self.execute_tool_round(&tool_calls, &assistant_text).await?;
 
             // Apply any context modifiers from skill executions before the next turn.
@@ -458,7 +459,7 @@ impl AgentEngine {
             // Save session after each tool round.
             self.save_session();
 
-            match guards.after_tool_round(tool_call_malformed_fingerprint, tool_call_failure_round) {
+            match guards.after_tool_round(tool_call_malformed_fingerprint, tool_call_failure_fingerprint) {
                 TurnGuardAction::Continue => {}
                 TurnGuardAction::Finalize => {
                     return self
@@ -609,18 +610,20 @@ impl AgentEngine {
             executable_modifiers,
         );
 
-        let tool_call_failure_round = tool_call_malformed_fingerprint.is_none()
+        let tool_call_failure_fingerprint = (tool_call_malformed_fingerprint.is_none()
             && assistant_text.trim().is_empty()
             && !tool_results.is_empty()
             && tool_results
                 .iter()
-                .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. }));
+                .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. })))
+        .then(|| tool_call_failure_fingerprint(tool_calls))
+        .flatten();
 
         Ok(ToolRoundOutput {
             tool_results,
             tool_modifiers,
             tool_call_malformed_fingerprint,
-            tool_call_failure_round,
+            tool_call_failure_fingerprint,
         })
     }
 
@@ -1228,10 +1231,10 @@ struct ToolRoundOutput {
     /// `Some` only when every tool call in the round was malformed; feeds the
     /// tool-call-malformed breaker.
     tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,
-    /// True when this round produced executable (non-malformed) tool calls
-    /// that all errored and the model emitted no visible text; feeds the
-    /// consecutive-tool-call-failure breaker.
-    tool_call_failure_round: bool,
+    /// `Some` when this round produced executable (non-malformed) tool calls
+    /// with the same name+input pattern, all errored, and the model emitted no
+    /// visible text; feeds the consecutive-tool-call-failure breaker.
+    tool_call_failure_fingerprint: Option<ToolCallFailureFingerprint>,
 }
 
 /// Assemble the assistant message content blocks (thinking, text, tool calls)

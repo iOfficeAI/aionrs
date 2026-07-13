@@ -1,6 +1,8 @@
 use crate::error::AgentError;
 use crate::stream::StreamOutcome;
-use crate::tool_call::{ToolCallFailureTracker, ToolCallMalformedFingerprint, ToolCallMalformedTracker};
+use crate::tool_call::{
+    ToolCallFailureFingerprint, ToolCallFailureTracker, ToolCallMalformedFingerprint, ToolCallMalformedTracker,
+};
 use aion_types::message::StopReason;
 
 pub(crate) enum TurnOutcome {
@@ -145,7 +147,7 @@ impl TurnGuards {
     pub(crate) fn after_tool_round(
         &mut self,
         tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,
-        tool_call_failure_round: bool,
+        tool_call_failure_fingerprint: Option<ToolCallFailureFingerprint>,
     ) -> TurnGuardAction {
         let malformed_count = self.tool_call_malformed.observe(tool_call_malformed_fingerprint);
         if self.tool_call_malformed.is_limit_exceeded() {
@@ -161,7 +163,7 @@ impl TurnGuards {
             });
         }
 
-        let tool_call_failure_count = self.tool_call_failures.observe(tool_call_failure_round);
+        let tool_call_failure_count = self.tool_call_failures.observe(tool_call_failure_fingerprint);
         if self.tool_call_failures.is_limit_exceeded() {
             tracing::warn!(
                 target: "aion_agent",

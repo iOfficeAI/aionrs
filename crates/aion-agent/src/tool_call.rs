@@ -38,9 +38,20 @@ pub(crate) struct ToolCallMalformedFingerprint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ToolCallFailureFingerprint {
+    calls: Vec<ToolCallFailureFingerprintPart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ToolCallMalformedFingerprintPart {
     reason: ToolCallMalformedReason,
     id: String,
+    name: String,
+    input: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ToolCallFailureFingerprintPart {
     name: String,
     input: String,
 }
@@ -123,6 +134,27 @@ pub(crate) fn tool_call_malformed_fingerprint(
     Some(ToolCallMalformedFingerprint { calls })
 }
 
+pub(crate) fn tool_call_failure_fingerprint(tool_calls: &[ContentBlock]) -> Option<ToolCallFailureFingerprint> {
+    if tool_calls.is_empty() {
+        return None;
+    }
+
+    let calls: Option<Vec<_>> = tool_calls
+        .iter()
+        .map(|block| {
+            let ContentBlock::ToolUse { name, input, .. } = block else {
+                return None;
+            };
+            Some(ToolCallFailureFingerprintPart {
+                name: name.trim().to_string(),
+                input: serde_json::to_string(input).unwrap_or_default(),
+            })
+        })
+        .collect();
+
+    Some(ToolCallFailureFingerprint { calls: calls? })
+}
+
 /// Interleave synthetic malformed-call results with executed-tool results back
 /// into the original `tool_calls` order.
 ///
@@ -182,13 +214,18 @@ pub(crate) fn merge_tool_results(
 }
 
 pub(crate) struct ToolCallFailureTracker {
+    last: Option<ToolCallFailureFingerprint>,
     count: usize,
     limit: usize,
 }
 
 impl ToolCallFailureTracker {
     pub(crate) fn new(limit: usize) -> Self {
-        Self { count: 0, limit }
+        Self {
+            last: None,
+            count: 0,
+            limit,
+        }
     }
 
     pub(crate) fn limit(&self) -> usize {
@@ -199,11 +236,18 @@ impl ToolCallFailureTracker {
         self.limit > 0 && self.count >= self.limit
     }
 
-    pub(crate) fn observe(&mut self, failed_round: bool) -> usize {
-        if failed_round {
+    pub(crate) fn observe(&mut self, current: Option<ToolCallFailureFingerprint>) -> usize {
+        let Some(current) = current else {
+            self.last = None;
+            self.count = 0;
+            return 0;
+        };
+
+        if self.last.as_ref() == Some(&current) {
             self.count += 1;
         } else {
-            self.count = 0;
+            self.last = Some(current);
+            self.count = 1;
         }
 
         self.count
