@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.3](https://github.com/iOfficeAI/aionrs/compare/v0.2.2...v0.2.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* **agent:** fingerprint tool-call failure breaker ([299853b](https://github.com/iOfficeAI/aionrs/commit/299853b348c0f3146369afff48fe9af7ace55ba4))
+* **agent:** fingerprint tool-call failure breaker ([5d86fe5](https://github.com/iOfficeAI/aionrs/commit/5d86fe51e4ecf2149f951ef29f3cd39d268741fd))
+
 ## [0.2.2](https://github.com/iOfficeAI/aionrs/compare/v0.2.1...v0.2.2) (2026-07-09)
 
 
