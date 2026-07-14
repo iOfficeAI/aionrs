@@ -827,6 +827,72 @@ mod tests {
     }
 
     #[test]
+    fn restricted_policy_only_mentions_authorized_tools() {
+        let skills = vec![make_test_skill("hidden-by-policy", "A skill", false, false)];
+        let policy = ToolPolicy::allow_only(["Read", "Grep", "Glob", "team_members"]);
+        let result = build_system_prompt_with_shell_and_tool_policy(
+            &mut SystemPromptCache::new(),
+            None,
+            "/tmp",
+            "test-model",
+            &default_shell(),
+            &skills,
+            None,
+            None,
+            false,
+            false,
+            &policy,
+        );
+
+        assert!(result.contains("File search: Glob"));
+        assert!(result.contains("Content search: Grep"));
+        assert!(result.contains("Read files: Read"));
+        for unavailable in ["ExecCommand", "Edit files", "Write files", "ToolSearch", "Skill tool"] {
+            assert!(
+                !result.contains(unavailable),
+                "restricted prompt should not mention unavailable tool guidance: {unavailable}"
+            );
+        }
+        assert!(!result.contains("hidden-by-policy"));
+    }
+
+    #[test]
+    fn changing_tool_policy_invalidates_cached_guidance() {
+        let mut cache = SystemPromptCache::new();
+        let shell = default_shell();
+        let restricted = ToolPolicy::allow_only(["Read"]);
+        let restricted_prompt = build_system_prompt_with_shell_and_tool_policy(
+            &mut cache,
+            None,
+            "/tmp",
+            "test-model",
+            &shell,
+            &[],
+            None,
+            None,
+            false,
+            false,
+            &restricted,
+        );
+        assert!(!restricted_prompt.contains("ExecCommand"));
+
+        let unrestricted_prompt = build_system_prompt_with_shell_and_tool_policy(
+            &mut cache,
+            None,
+            "/tmp",
+            "test-model",
+            &shell,
+            &[],
+            None,
+            None,
+            false,
+            false,
+            &ToolPolicy::Unrestricted,
+        );
+        assert!(unrestricted_prompt.contains("ExecCommand"));
+    }
+
+    #[test]
     fn tool_guidance_before_memory() {
         let tmp = tempfile::TempDir::new().unwrap();
         let mem_dir = tmp.path().join("memory");

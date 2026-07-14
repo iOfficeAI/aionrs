@@ -23,6 +23,7 @@ use crate::tool_call::{
     ToolCallMalformedFingerprint, merge_tool_results, tool_call_failure_fingerprint, tool_call_malformed_fingerprint,
     tool_call_malformed_reason,
 };
+use crate::tool_policy::ToolPolicy;
 use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 use aion_compact::CompactLevel;
 use aion_config::compact::CompactConfig;
@@ -86,6 +87,8 @@ pub struct AgentEngine {
     // Tool execution policy.
     /// Registry of tools available to the engine.
     tools: ToolRegistry,
+    /// Runtime authorization applied to tool advertisement and execution.
+    tool_policy: ToolPolicy,
     /// Shared tool confirmer used for approval policy decisions.
     confirmer: Arc<Mutex<ToolConfirmer>>,
     /// Tool names currently allowed without additional approval.
@@ -188,6 +191,7 @@ impl AgentEngine {
                 .max_tool_call_failure_turns
                 .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
             tools,
+            tool_policy: ToolPolicy::default(),
             confirmer: Arc::new(Mutex::new(confirmer)),
             allow_list,
             hooks: Some(HookEngine::new_with_env(config.hooks.clone(), cwd.clone(), runtime_env)),
@@ -274,6 +278,7 @@ impl AgentEngine {
                 .max_tool_call_failure_turns
                 .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
             tools,
+            tool_policy: ToolPolicy::default(),
             confirmer: Arc::new(Mutex::new(confirmer)),
             allow_list,
             hooks: Some(HookEngine::new_with_env(config.hooks.clone(), cwd, runtime_env)),
@@ -313,6 +318,11 @@ impl AgentEngine {
 
     pub fn registry_mut(&mut self) -> &mut ToolRegistry {
         &mut self.tools
+    }
+
+    /// Replace the runtime authorization policy for registered tools.
+    pub(crate) fn set_tool_policy(&mut self, tool_policy: ToolPolicy) {
+        self.tool_policy = tool_policy;
     }
 
     /// Get the current session ID (if sessions are enabled and initialized)
@@ -484,11 +494,13 @@ impl AgentEngine {
             Vec::new()
         } else if self.plan_state.is_active {
             // Plan mode: only Info-category tools (excluding EnterPlanMode)
-            self.tools
-                .to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode")
+            self.tools.to_tool_defs_filtered(|t| {
+                self.tool_policy.allows(t.name()) && t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
+            })
         } else {
             // Normal mode: all tools except ExitPlanMode
-            self.tools.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
+            self.tools
+                .to_tool_defs_filtered(|t| self.tool_policy.allows(t.name()) && t.name() != "ExitPlanMode")
         };
 
         // Build system prompt: append plan mode instructions when active
@@ -547,11 +559,25 @@ impl AgentEngine {
             })
             .collect();
         let tool_call_malformed_fingerprint = tool_call_malformed_fingerprint(tool_calls, &tool_call_malformed_reasons);
+        let policy_denied_tool_names: Vec<_> = tool_calls
+            .iter()
+            .zip(&tool_call_malformed_reasons)
+            .map(|(call, malformed_reason)| {
+                if malformed_reason.is_some() {
+                    return None;
+                }
+                let ContentBlock::ToolUse { name, .. } = call else {
+                    return None;
+                };
+                (!self.tool_policy.allows(name)).then(|| name.clone())
+            })
+            .collect();
         let executable_tool_calls: Vec<_> = tool_calls
             .iter()
             .zip(&tool_call_malformed_reasons)
-            .filter(|(_, reason)| reason.is_none())
-            .map(|(call, _)| call.clone())
+            .zip(&policy_denied_tool_names)
+            .filter(|((_, malformed_reason), denied_name)| malformed_reason.is_none() && denied_name.is_none())
+            .map(|((call, _), _)| call.clone())
             .collect();
 
         let (executable_results, executable_modifiers) = if executable_tool_calls.is_empty() {
@@ -606,6 +632,7 @@ impl AgentEngine {
         let (tool_results, tool_modifiers) = merge_tool_results(
             tool_calls,
             &tool_call_malformed_reasons,
+            &policy_denied_tool_names,
             executable_results,
             executable_modifiers,
         );

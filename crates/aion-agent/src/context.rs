@@ -9,6 +9,7 @@ use aion_types::message::{ContentBlock, Message, Role};
 
 use crate::agents_md;
 use crate::plan::prompt as plan_prompt;
+use crate::tool_policy::ToolPolicy;
 
 /// Session-scoped cache for system prompt sections.
 ///
@@ -26,6 +27,8 @@ pub struct SystemPromptCache {
     pub(crate) last_toon_enabled: bool,
     /// Track shell prompt text to invalidate intro when shell resolution changes.
     pub(crate) last_shell_prompt: Option<String>,
+    /// Track runtime tool authorization to keep guidance and skill reminders aligned.
+    pub(crate) last_tool_policy: ToolPolicy,
 }
 
 impl SystemPromptCache {
@@ -36,6 +39,7 @@ impl SystemPromptCache {
             last_plan_mode: false,
             last_toon_enabled: false,
             last_shell_prompt: None,
+            last_tool_policy: ToolPolicy::default(),
         }
     }
 
@@ -60,12 +64,11 @@ impl Default for SystemPromptCache {
 
 /// Return the tool-usage guidance section for the system prompt.
 ///
-/// This section teaches the model when to prefer dedicated tools over ExecCommand,
-/// how to handle parallel vs sequential calls, and cross-tool best practices.
-/// Intentionally redundant with individual tool descriptions — the dual
-/// placement ensures the model follows the rules regardless of attention span.
-fn tool_usage_guidance() -> &'static str {
-    "\
+/// For unrestricted agents this includes the full cross-tool guidance. For
+/// restricted agents it only names tools authorized by the runtime policy.
+fn tool_usage_guidance(tool_policy: &ToolPolicy) -> String {
+    if matches!(tool_policy, ToolPolicy::Unrestricted) {
+        return "\
 # Using your tools
  - Do NOT use ExecCommand when a dedicated tool is available. Using dedicated tools \
 allows the user to better understand and review your work:
@@ -82,6 +85,48 @@ the diff, which is easier to review.
  - Always Read a file before editing it.
  - Some tools are deferred — only their names are visible. Before calling \
 a deferred tool, use ToolSearch to load its full schema first."
+            .to_string();
+    }
+
+    let mut guidance = vec!["# Using your tools".to_string()];
+    let dedicated_tools = [
+        ("Glob", "File search: Glob"),
+        ("Grep", "Content search: Grep"),
+        ("Read", "Read files: Read"),
+        ("Edit", "Edit files: Edit"),
+        ("Write", "Write files: Write"),
+    ]
+    .into_iter()
+    .filter_map(|(name, text)| tool_policy.allows(name).then_some(text))
+    .collect::<Vec<_>>();
+
+    if !dedicated_tools.is_empty() {
+        guidance.push(" - Use the available dedicated workspace tools when they fit the task:".to_string());
+        guidance.extend(dedicated_tools.into_iter().map(|tool| format!("   - {tool}")));
+    }
+
+    guidance.push(
+        " - You can call multiple tools in a single response. If there are no dependencies between them, make all independent calls in parallel. However, if one call depends on a previous result, run them sequentially."
+            .to_string(),
+    );
+
+    if tool_policy.allows("Edit") && tool_policy.allows("Write") {
+        guidance.push(
+            " - Prefer Edit over Write for modifying existing files — Edit sends only the diff, which is easier to review."
+                .to_string(),
+        );
+    }
+    if tool_policy.allows("Read") && tool_policy.allows("Edit") {
+        guidance.push(" - Always Read a file before editing it.".to_string());
+    }
+    if tool_policy.allows("ToolSearch") {
+        guidance.push(
+            " - Some tools are deferred — only their names are visible. Before calling a deferred tool, use ToolSearch to load its full schema first."
+                .to_string(),
+        );
+    }
+
+    guidance.join("\n")
 }
 
 /// Build the system prompt from config and environment.
@@ -98,7 +143,7 @@ a deferred tool, use ToolSearch to load its full schema first."
 /// Session-permanent sections (intro, tool guidance, custom prompt, AGENTS.md)
 /// are cached in `cache.sections` and reused across calls. The `joined` field
 /// caches the final concatenated result; it is returned on subsequent calls
-/// unless plan_mode_active has changed.
+/// unless a dynamic input such as plan mode or tool policy has changed.
 #[allow(clippy::too_many_arguments)]
 pub fn build_system_prompt(
     cache: &mut SystemPromptCache,
@@ -140,6 +185,43 @@ pub fn build_system_prompt_with_shell(
     plan_mode_active: bool,
     toon_enabled: bool,
 ) -> String {
+    build_system_prompt_with_shell_and_tool_policy(
+        cache,
+        custom_prompt,
+        cwd,
+        model,
+        shell,
+        skills,
+        context_window_tokens,
+        memory_dir,
+        plan_mode_active,
+        toon_enabled,
+        &ToolPolicy::Unrestricted,
+    )
+}
+
+/// Build the system prompt while keeping tool guidance consistent with the
+/// runtime authorization policy.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn build_system_prompt_with_shell_and_tool_policy(
+    cache: &mut SystemPromptCache,
+    custom_prompt: Option<&str>,
+    cwd: &str,
+    model: &str,
+    shell: &ResolvedShell,
+    skills: &[SkillMetadata],
+    context_window_tokens: Option<usize>,
+    memory_dir: Option<&Path>,
+    plan_mode_active: bool,
+    toon_enabled: bool,
+    tool_policy: &ToolPolicy,
+) -> String {
+    if cache.last_tool_policy != *tool_policy {
+        cache.invalidate("tool_guidance");
+        cache.invalidate("skills");
+        cache.last_tool_policy = tool_policy.clone();
+    }
+
     let shell_prompt = render_shell_prompt(shell);
     if cache.last_shell_prompt.as_deref() != Some(shell_prompt.as_str()) {
         cache.invalidate("intro");
@@ -178,7 +260,7 @@ pub fn build_system_prompt_with_shell(
     let guidance = cache
         .sections
         .entry("tool_guidance")
-        .or_insert_with(|| tool_usage_guidance().to_string());
+        .or_insert_with(|| tool_usage_guidance(tool_policy));
     parts.push(guidance.clone());
 
     // Section: custom prompt (session permanent)
@@ -224,7 +306,11 @@ pub fn build_system_prompt_with_shell(
     }
 
     // Section: skills (cached, event-invalidated)
-    let visible_skills: Vec<SkillMetadata> = skills.iter().filter(|s| !s.disable_model_invocation).cloned().collect();
+    let visible_skills: Vec<SkillMetadata> = if tool_policy.allows("Skill") {
+        skills.iter().filter(|s| !s.disable_model_invocation).cloned().collect()
+    } else {
+        Vec::new()
+    };
 
     if !visible_skills.is_empty() {
         let skills_section = cache.sections.entry("skills").or_insert_with(|| {

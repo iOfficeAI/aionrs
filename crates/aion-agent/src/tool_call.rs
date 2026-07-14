@@ -159,12 +159,14 @@ pub(crate) fn tool_call_failure_fingerprint(tool_calls: &[ContentBlock]) -> Opti
 /// into the original `tool_calls` order.
 ///
 /// `tool_call_malformed_reasons[i]` is `Some` when call `i` was malformed (and gets a
-/// synthetic error result), otherwise the next executed result/modifier is
-/// pulled from the `executable_*` iterators. Kept as a free function so the
-/// interleaving invariant can be unit-tested in isolation.
+/// synthetic error result). `policy_denied_tool_names[i]` is `Some` when the
+/// runtime policy rejected an otherwise valid call. Remaining calls consume
+/// the next result/modifier from the `executable_*` iterators. Kept as a free
+/// function so the interleaving invariant can be unit-tested in isolation.
 pub(crate) fn merge_tool_results(
     tool_calls: &[ContentBlock],
     tool_call_malformed_reasons: &[Option<ToolCallMalformedReason>],
+    policy_denied_tool_names: &[Option<String>],
     executable_results: Vec<ContentBlock>,
     executable_modifiers: Vec<Option<ContextModifier>>,
 ) -> (Vec<ContentBlock>, Vec<Option<ContextModifier>>) {
@@ -173,7 +175,11 @@ pub(crate) fn merge_tool_results(
     let mut tool_results = Vec::with_capacity(tool_calls.len());
     let mut tool_modifiers = Vec::with_capacity(tool_calls.len());
 
-    for (call, reason) in tool_calls.iter().zip(tool_call_malformed_reasons) {
+    for ((call, reason), denied_name) in tool_calls
+        .iter()
+        .zip(tool_call_malformed_reasons)
+        .zip(policy_denied_tool_names)
+    {
         if let Some(reason) = reason {
             let ContentBlock::ToolUse { id, name, .. } = call else {
                 continue;
@@ -192,6 +198,26 @@ pub(crate) fn merge_tool_results(
                     "Malformed tool call: {}. Re-issue the tool call with a non-empty {} if still needed, or answer in text.",
                     reason.description(),
                     reason.reissue_field()
+                ),
+                is_error: true,
+            });
+            tool_modifiers.push(None);
+        } else if let Some(denied_name) = denied_name {
+            let ContentBlock::ToolUse { id, .. } = call else {
+                continue;
+            };
+            tracing::warn!(
+                target: "aion_agent",
+                event = "agent.tool_policy.denied",
+                tool_call_id = %id,
+                tool = %denied_name,
+                "rejected tool call by runtime policy"
+            );
+
+            tool_results.push(ContentBlock::ToolResult {
+                tool_use_id: id.clone(),
+                content: format!(
+                    "Tool '{denied_name}' is not available in this runtime. Use an available tool or answer in text."
                 ),
                 is_error: true,
             });
