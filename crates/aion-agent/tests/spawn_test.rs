@@ -1,11 +1,37 @@
 mod common;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use aion_agent::spawner::{AgentSpawner, SubAgentConfig};
-use aion_types::llm::LlmEvent;
+use aion_agent::tool_policy::ToolPolicy;
+use aion_providers::{LlmProvider, ProviderError};
+use aion_types::llm::{LlmEvent, LlmRequest};
 use aion_types::message::{StopReason, TokenUsage};
+use async_trait::async_trait;
 use common::{MockLlmProvider, test_config};
+use tokio::sync::mpsc;
+
+struct ToolRecordingProvider {
+    tool_names: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl LlmProvider for ToolRecordingProvider {
+    async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
+        let mut tool_names: Vec<_> = request.tools.iter().map(|tool| tool.name.clone()).collect();
+        tool_names.sort();
+        *self.tool_names.lock().unwrap() = tool_names;
+
+        let (tx, rx) = mpsc::channel(2);
+        tx.try_send(LlmEvent::TextDelta("done".to_string())).unwrap();
+        tx.try_send(LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage::default(),
+        })
+        .unwrap();
+        Ok(rx)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Helper: build a minimal SubAgentConfig for testing
@@ -29,7 +55,7 @@ fn make_sub_config(name: &str) -> SubAgentConfig {
 #[tokio::test]
 async fn test_spawn_single_agent() {
     let provider = Arc::new(MockLlmProvider::with_text_response("Sub-agent done"));
-    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir());
+    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir(), ToolPolicy::Unrestricted);
 
     let result = spawner.spawn_one(make_sub_config("agent-1")).await;
 
@@ -37,6 +63,25 @@ async fn test_spawn_single_agent() {
     assert!(!result.is_error, "expected no error, got: {}", result.text);
     assert_eq!(result.turns, 1);
     assert_eq!(result.name, "agent-1");
+}
+
+#[tokio::test]
+async fn restricted_parent_policy_limits_spawned_agent_tools() {
+    let tool_names = Arc::new(Mutex::new(Vec::new()));
+    let provider = Arc::new(ToolRecordingProvider {
+        tool_names: Arc::clone(&tool_names),
+    });
+    let spawner = AgentSpawner::new(
+        provider,
+        test_config(),
+        std::env::temp_dir(),
+        ToolPolicy::allow_only(["Spawn", "Read", "Grep"]),
+    );
+
+    let result = spawner.spawn_one(make_sub_config("restricted-agent")).await;
+
+    assert!(!result.is_error, "expected restricted sub-agent to complete");
+    assert_eq!(*tool_names.lock().unwrap(), vec!["Grep", "Read"]);
 }
 
 /// Parallel sub-agents all complete successfully and return distinct results.
@@ -64,7 +109,7 @@ async fn test_spawn_parallel_agents() {
         make_turn("result-C"),
     ]));
 
-    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir());
+    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir(), ToolPolicy::Unrestricted);
 
     let sub_configs = vec![
         make_sub_config("agent-A"),
@@ -125,7 +170,12 @@ async fn test_spawn_shares_provider() {
 
     // Both sub-agents share the same underlying provider via Arc.
     let provider_dyn: Arc<dyn aion_providers::LlmProvider> = provider;
-    let spawner = AgentSpawner::new(Arc::clone(&provider_dyn), test_config(), std::env::temp_dir());
+    let spawner = AgentSpawner::new(
+        Arc::clone(&provider_dyn),
+        test_config(),
+        std::env::temp_dir(),
+        ToolPolicy::Unrestricted,
+    );
 
     let result1 = spawner.spawn_one(make_sub_config("seq-1")).await;
     let result2 = spawner.spawn_one(make_sub_config("seq-2")).await;
@@ -145,7 +195,7 @@ async fn test_spawn_agent_error_captured() {
         "provider failed".to_string(),
     )]));
 
-    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir());
+    let spawner = AgentSpawner::new(provider, test_config(), std::env::temp_dir(), ToolPolicy::Unrestricted);
 
     let result = spawner.spawn_one(make_sub_config("error-agent")).await;
 

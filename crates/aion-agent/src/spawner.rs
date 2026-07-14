@@ -17,6 +17,7 @@ use aion_types::message::TokenUsage;
 use crate::engine::AgentEngine;
 use crate::output::OutputSink;
 use crate::output::null_sink::NullSink;
+use crate::tool_policy::ToolPolicy;
 
 // Re-export from aion-types — single source of truth
 pub use aion_types::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentResult};
@@ -28,20 +29,19 @@ pub use aion_types::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentRe
 /// parent which emits them as a single `tool_result` event — matching the
 /// Claude Code pattern where only the parent writes to stdout.
 ///
-/// The parent runtime tool policy is intentionally not inherited: authorizing
-/// `Spawn` grants delegation to an independent execution context. Direct
-/// children receive their standard tool registry, while forked child access
-/// can be restricted separately through [`ForkOverrides::allowed_tools`].
+/// Children inherit the parent's runtime tool policy. Fork overrides can
+/// further narrow that policy, but cannot restore tools denied to the parent.
 pub struct AgentSpawner {
     provider: Arc<dyn LlmProvider>,
     base_config: Config,
     cwd: PathBuf,
     runtime_env: Vec<(String, String)>,
+    tool_policy: ToolPolicy,
 }
 
 impl AgentSpawner {
-    pub fn new(provider: Arc<dyn LlmProvider>, config: Config, cwd: PathBuf) -> Self {
-        Self::new_with_env(provider, config, cwd, Vec::new())
+    pub fn new(provider: Arc<dyn LlmProvider>, config: Config, cwd: PathBuf, tool_policy: ToolPolicy) -> Self {
+        Self::new_with_env(provider, config, cwd, Vec::new(), tool_policy)
     }
 
     pub fn new_with_env(
@@ -49,12 +49,14 @@ impl AgentSpawner {
         config: Config,
         cwd: PathBuf,
         runtime_env: Vec<(String, String)>,
+        tool_policy: ToolPolicy,
     ) -> Self {
         Self {
             provider,
             base_config: config,
             cwd,
             runtime_env,
+            tool_policy,
         }
     }
 
@@ -71,7 +73,8 @@ impl AgentSpawner {
 
         tracing::info!(target: "aion_agent", cwd = %self.cwd.display(), "sub-agent spawned with workspace cwd");
 
-        let tools = build_tool_registry(&[], &self.cwd, &self.runtime_env);
+        let child_policy = effective_child_tool_policy(&self.tool_policy, &[]);
+        let tools = build_tool_registry(&child_policy, &self.cwd, &self.runtime_env);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
         let mut engine = AgentEngine::new_with_provider_and_env(
             self.provider.clone(),
@@ -81,6 +84,7 @@ impl AgentSpawner {
             self.cwd.clone(),
             self.runtime_env.clone(),
         );
+        engine.set_tool_policy(child_policy);
 
         match engine.run(&sub_config.prompt, "").await {
             Ok(result) => SubAgentResult {
@@ -132,6 +136,7 @@ impl AgentSpawner {
             base_config: self.base_config.clone(),
             cwd: self.cwd.clone(),
             runtime_env: self.runtime_env.clone(),
+            tool_policy: self.tool_policy.clone(),
         }
     }
 }
@@ -151,7 +156,8 @@ impl Spawner for AgentSpawner {
             config.model = model;
         }
 
-        let tools = build_tool_registry(&overrides.allowed_tools, &self.cwd, &self.runtime_env);
+        let child_policy = effective_child_tool_policy(&self.tool_policy, &overrides.allowed_tools);
+        let tools = build_tool_registry(&child_policy, &self.cwd, &self.runtime_env);
         let output: Arc<dyn OutputSink> = Arc::new(NullSink);
         let mut engine = AgentEngine::new_with_provider_and_env(
             self.provider.clone(),
@@ -162,6 +168,7 @@ impl Spawner for AgentSpawner {
             self.runtime_env.clone(),
         );
         engine.set_initial_reasoning_effort(overrides.effort.clone());
+        engine.set_tool_policy(child_policy);
 
         match engine.run(&sub_config.prompt, "").await {
             Ok(result) => SubAgentResult {
@@ -182,7 +189,20 @@ impl Spawner for AgentSpawner {
     }
 }
 
-fn build_tool_registry(allowed: &[String], cwd: &Path, runtime_env: &[(String, String)]) -> ToolRegistry {
+fn effective_child_tool_policy(parent: &ToolPolicy, allowed_tools: &[String]) -> ToolPolicy {
+    if allowed_tools.is_empty() {
+        return parent.clone();
+    }
+
+    ToolPolicy::allow_only(
+        allowed_tools
+            .iter()
+            .filter(|tool_name| parent.allows(tool_name))
+            .cloned(),
+    )
+}
+
+fn build_tool_registry(policy: &ToolPolicy, cwd: &Path, runtime_env: &[(String, String)]) -> ToolRegistry {
     let all_tools: Vec<(&str, Box<dyn aion_tools::Tool>)> = vec![
         ("Read", Box::new(ReadTool::new(None))),
         ("Write", Box::new(WriteTool::new(None))),
@@ -197,7 +217,7 @@ fn build_tool_registry(allowed: &[String], cwd: &Path, runtime_env: &[(String, S
 
     let mut registry = ToolRegistry::new();
     for (name, tool) in all_tools {
-        if allowed.is_empty() || allowed.iter().any(|a| a.as_str() == name) {
+        if policy.allows(name) {
             registry.register(tool);
         }
     }

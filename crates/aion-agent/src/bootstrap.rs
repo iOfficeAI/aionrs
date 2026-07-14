@@ -305,6 +305,7 @@ impl AgentBootstrap {
             self.config.clone(),
             workspace.to_path_buf(),
             self.runtime_env.clone(),
+            self.tool_policy.clone(),
         );
         registry.register(Box::new(SpawnTool::new(Arc::new(spawner))));
     }

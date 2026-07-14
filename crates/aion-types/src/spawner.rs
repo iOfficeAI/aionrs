@@ -24,7 +24,7 @@ pub struct ForkOverrides {
     pub model: Option<String>,
     /// Reasoning effort ("low"/"medium"/"high"/"max").
     pub effort: Option<String>,
-    /// Restrict registered tools to this list; empty = all built-in tools.
+    /// Further restrict inherited tools to this list; empty = inherit the parent policy.
     pub allowed_tools: Vec<String>,
 }
 
