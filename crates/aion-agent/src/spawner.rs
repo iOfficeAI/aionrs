@@ -27,6 +27,11 @@ pub use aion_types::spawner::{ForkOverrides, Spawner, SubAgentConfig, SubAgentRe
 /// discarded.  Results are collected via `engine.run()` and returned to the
 /// parent which emits them as a single `tool_result` event — matching the
 /// Claude Code pattern where only the parent writes to stdout.
+///
+/// The parent runtime tool policy is intentionally not inherited: authorizing
+/// `Spawn` grants delegation to an independent execution context. Direct
+/// children receive their standard tool registry, while forked child access
+/// can be restricted separately through [`ForkOverrides::allowed_tools`].
 pub struct AgentSpawner {
     provider: Arc<dyn LlmProvider>,
     base_config: Config,

@@ -160,7 +160,7 @@ impl AgentBootstrap {
 
         self.register_agent_tools(&mut registry, &provider, &environment.workspace, skills);
         let plan_active_flag = self.register_plan_tools(&mut registry);
-        Self::register_tool_search(&mut registry);
+        self.register_tool_search(&mut registry);
 
         let has_mcp = mcp.has_mcp();
         let mcp_managers = mcp.managers;
@@ -320,8 +320,8 @@ impl AgentBootstrap {
         plan_active_flag
     }
 
-    fn register_tool_search(registry: &mut ToolRegistry) {
-        let tool_defs_snapshot = registry.to_tool_defs();
+    fn register_tool_search(&self, registry: &mut ToolRegistry) {
+        let tool_defs_snapshot = registry.to_tool_defs_filtered(|tool| self.tool_policy.allows(tool.name()));
         registry.register(Box::new(ToolSearchTool::new(tool_defs_snapshot)));
     }
 
