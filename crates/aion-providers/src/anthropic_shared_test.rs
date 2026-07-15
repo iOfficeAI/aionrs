@@ -9,6 +9,7 @@ mod tests {
     use aion_types::message::ImageUrl;
     use aion_types::tool::ToolDef;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
     use serde_json::json;
 
     /// Compat with merge but no alternation — matches pre-compat behavior
@@ -945,7 +946,7 @@ mod tests {
 
     #[test]
     fn test_build_messages_image_projects_to_base64_source() {
-        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
+        let data = STANDARD.encode(b"fake-image");
         let messages = vec![Message::new(
             Role::User,
             vec![

@@ -23,6 +23,8 @@ use super::pre_message::PreMessageOutcome;
 use super::{dispatch, message, pre_message};
 use crate::bootstrap::build_engine;
 
+const ATTACHED_FILES_HEADER: &str = "[Attached files]";
+
 pub(crate) async fn run(
     config: Config,
     cwd: &str,
@@ -82,12 +84,8 @@ pub(crate) async fn run(
             }
         };
 
-        if let ProtocolCommand::Message {
-            msg_id,
-            content,
-            files: _,
-        } = cmd
-        {
+        if let ProtocolCommand::Message { msg_id, content, files } = cmd {
+            let content = content_with_attachment_paths(&content, &files);
             let stopped = message::handle(&msg_id, &content, &mut engine, &mut cmd_rx, &ctx).await;
             if stopped {
                 break;
@@ -111,3 +109,24 @@ pub(crate) async fn run(
 
     Ok(())
 }
+
+fn content_with_attachment_paths(content: &str, files: &[String]) -> String {
+    if files.is_empty() {
+        return content.to_owned();
+    }
+
+    let mut input = content.trim().to_owned();
+    if !input.is_empty() {
+        input.push_str("\n\n");
+    }
+    input.push_str(ATTACHED_FILES_HEADER);
+    for file in files {
+        input.push('\n');
+        input.push_str(file);
+    }
+    input
+}
+
+#[cfg(test)]
+#[path = "session_test.rs"]
+mod session_test;

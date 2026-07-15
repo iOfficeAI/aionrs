@@ -113,6 +113,7 @@ max_tokens = 64000
                 supports_effort: Some(false),
                 effort_levels: Some(vec!["low".to_string(), "medium".to_string()]),
             },
+            image_input: Some(ImageInputCapability::Supported),
         };
 
         let toml = toml::to_string(&compat).unwrap();
@@ -141,6 +142,7 @@ max_tokens = 64000
         assert!(toml.contains("supports_thinking = true"));
         assert!(toml.contains("supports_effort = false"));
         assert!(toml.contains("effort_levels = [\"low\", \"medium\"]"));
+        assert!(toml.contains("image_input = \"supported\""));
         assert!(!toml.contains("[transport]"));
         assert!(!toml.contains("[messages]"));
         assert!(!toml.contains("[tools]"));
@@ -183,6 +185,7 @@ max_tokens = 64000
                 supports_effort: None,
                 effort_levels: Some(vec!["custom".to_string()]),
             },
+            image_input: Some(ImageInputCapability::Unsupported),
         };
 
         let merged = ProviderCompat::merge(defaults, user);
@@ -212,6 +215,7 @@ max_tokens = 64000
         assert_eq!(merged.reasoning.supports_thinking, Some(true));
         assert_eq!(merged.reasoning.supports_effort, Some(true));
         assert_eq!(merged.reasoning.effort_levels, Some(vec!["custom".to_string()]));
+        assert_eq!(merged.image_input(), ImageInputCapability::Unsupported);
     }
 
     #[test]
@@ -508,6 +512,35 @@ tool_wire_shape = "provider_guess"
         let merged = ProviderCompat::merge(defaults, user);
         assert_eq!(merged.reasoning.supports_thinking, Some(true));
         assert_eq!(merged.reasoning.supports_effort, Some(true));
+    }
+
+    #[test]
+    fn image_input_capability_is_model_scoped_and_has_no_provider_default() {
+        assert_eq!(
+            ProviderCompat::openai_defaults().image_input(),
+            ImageInputCapability::Unknown
+        );
+        assert_eq!(
+            ProviderCompat::anthropic_defaults().image_input(),
+            ImageInputCapability::Unknown
+        );
+        assert_eq!(
+            ProviderCompat::bedrock_defaults().image_input(),
+            ImageInputCapability::Unknown
+        );
+
+        let user = ProviderCompat {
+            image_input: Some(ImageInputCapability::Supported),
+            ..Default::default()
+        };
+        let merged = ProviderCompat::merge(ProviderCompat::openai_defaults(), user);
+        assert_eq!(merged.image_input(), ImageInputCapability::Supported);
+    }
+
+    #[test]
+    fn image_input_capability_deserializes_from_compat_toml() {
+        let compat: ProviderCompat = toml::from_str("image_input = \"unsupported\"").unwrap();
+        assert_eq!(compat.image_input(), ImageInputCapability::Unsupported);
     }
 
     #[test]

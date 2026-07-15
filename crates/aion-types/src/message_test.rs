@@ -4,6 +4,7 @@ use super::*;
 mod tests {
     use super::*;
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
     use serde_json::json;
 
     // --- Role serialization / deserialization ---
@@ -326,7 +327,7 @@ mod tests {
 
     #[test]
     fn image_url_validate_accepts_valid_png_data_uri() {
-        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
+        let data = STANDARD.encode(b"fake-image");
         let url = ImageUrl {
             url: format!("data:image/png;base64,{}", data),
         };
@@ -363,7 +364,7 @@ mod tests {
 
     #[test]
     fn image_url_decoded_byte_size_returns_estimate_for_valid_uri() {
-        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
+        let data = STANDARD.encode(b"fake-image");
         let url = ImageUrl {
             url: format!("data:image/png;base64,{}", data),
         };
@@ -382,7 +383,7 @@ mod tests {
 
     #[test]
     fn content_block_image_serializes_to_image_url_type() {
-        let data = base64::engine::general_purpose::STANDARD.encode(b"fake");
+        let data = STANDARD.encode(b"fake");
         let block = ContentBlock::Image {
             image_url: ImageUrl {
                 url: format!("data:image/png;base64,{}", data),
@@ -396,5 +397,21 @@ mod tests {
                 .unwrap()
                 .starts_with("data:image/png;base64,")
         );
+    }
+
+    #[test]
+    fn image_input_capability_defaults_to_unknown() {
+        assert_eq!(ImageInputCapability::default(), ImageInputCapability::Unknown);
+        assert!(!ImageInputCapability::Unknown.supports_images());
+        assert!(!ImageInputCapability::Unsupported.supports_images());
+        assert!(ImageInputCapability::Supported.supports_images());
+    }
+
+    #[test]
+    fn image_input_capability_uses_snake_case_wire_values() {
+        let value = serde_json::to_string(&ImageInputCapability::Supported).unwrap();
+        assert_eq!(value, "\"supported\"");
+        let parsed: ImageInputCapability = serde_json::from_str("\"unknown\"").unwrap();
+        assert_eq!(parsed, ImageInputCapability::Unknown);
     }
 }

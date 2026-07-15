@@ -5,6 +5,7 @@ mod tests {
     use super::*;
     use aion_types::message::{ImageUrl, Message, Role};
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
     use serde_json::json;
 
     #[test]
@@ -132,7 +133,7 @@ mod tests {
     fn image_block_uses_decoded_size_not_base64_length() {
         // 10_000 decoded bytes -> 10_000 / 750 = 13 tokens, clamped to minimum 85.
         let image_bytes = vec![0u8; 10_000];
-        let data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+        let data = STANDARD.encode(&image_bytes);
         let msg = Message::new(
             Role::User,
             vec![ContentBlock::Image {
@@ -155,7 +156,7 @@ mod tests {
     fn image_block_estimate_respects_maximum() {
         // A huge image should be capped, not grow with base64 length.
         let image_bytes = vec![0u8; 10_000_000];
-        let data = base64::engine::general_purpose::STANDARD.encode(&image_bytes);
+        let data = STANDARD.encode(&image_bytes);
         let msg = Message::new(
             Role::User,
             vec![ContentBlock::Image {

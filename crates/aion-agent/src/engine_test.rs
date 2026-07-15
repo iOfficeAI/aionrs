@@ -551,7 +551,7 @@ mod tests_compact {
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::message::{ContentBlock, Message, Role, TokenUsage};
+    use aion_types::message::{ContentBlock, ImageInputCapability, ImageUrl, Message, Role, TokenUsage};
     use serde_json::json;
 
     use super::{CompactLevel, ProviderCompat};
@@ -608,6 +608,19 @@ mod tests_compact {
         async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
             let (_tx, rx) = tokio::sync::mpsc::channel(1);
             Ok(rx)
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingRejectingProvider {
+        requests: Mutex<Vec<LlmRequest>>,
+    }
+
+    #[async_trait::async_trait]
+    impl LlmProvider for RecordingRejectingProvider {
+        async fn stream(&self, request: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            self.requests.lock().unwrap().push(request.clone());
+            Err(ProviderError::Connection("intentional test failure".to_owned()))
         }
     }
 
@@ -926,6 +939,53 @@ mod tests_compact {
         assert_eq!(engine.compact_state.last_input_tokens, 0);
     }
 
+    #[tokio::test]
+    async fn autocompact_projects_images_without_mutating_failed_history() {
+        let config = CompactConfig {
+            context_window: 100,
+            emergency_buffer: 10,
+            autocompact_threshold_pct: Some(50),
+            ..Default::default()
+        };
+        let mut state = CompactState::new();
+        state.last_input_tokens = 60;
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text {
+                    text: "Attachment path: /tmp/image.png".to_owned(),
+                },
+                ContentBlock::Image {
+                    image_url: ImageUrl {
+                        url: "data:image/png;base64,abcd".to_owned(),
+                    },
+                },
+            ],
+        )];
+        let provider = Arc::new(RecordingRejectingProvider::default());
+        let mut engine = make_compact_engine(config, state, messages);
+        engine.provider = provider.clone();
+        engine.compat.image_input = Some(ImageInputCapability::Unsupported);
+
+        engine.run_compaction().await.unwrap();
+
+        let requests = provider.requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(
+            requests[0]
+                .messages
+                .iter()
+                .flat_map(|message| &message.content)
+                .all(|block| !matches!(block, ContentBlock::Image { .. }))
+        );
+        assert!(
+            engine.messages[0]
+                .content
+                .iter()
+                .any(|block| matches!(block, ContentBlock::Image { .. }))
+        );
+    }
+
     // -- Circuit broken prevents autocompact, emergency still fires --
 
     #[tokio::test]
@@ -1167,16 +1227,20 @@ mod tests_plan_mode {
 mod tests_handle_command {
     use std::sync::{Arc, Mutex};
 
+    use aion_config::compact::CompactConfig;
     use aion_providers::error::ProviderError;
     use aion_providers::provider::LlmProvider;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
+    use aion_types::message::{ContentBlock, ImageInputCapability, ImageUrl, Message, Role, StopReason, TokenUsage};
+    use tokio::sync::mpsc::{Receiver, channel};
 
-    use super::{CompactLevel, ProviderCompat};
+    use super::{AgentEngine, AgentError, CacheBreakDetector, CompactLevel, ProviderCompat};
+    use crate::commands::default_registry;
     use crate::compact::state::CompactState;
     use crate::confirm::ToolConfirmer;
     use crate::output::OutputSink;
+    use crate::turn::TurnKind;
 
     struct NullOutput;
     impl OutputSink for NullOutput {
@@ -1193,14 +1257,14 @@ mod tests_handle_command {
     struct NullProvider;
     #[async_trait::async_trait]
     impl LlmProvider for NullProvider {
-        async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
-            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+        async fn stream(&self, _: &LlmRequest) -> Result<Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = channel(1);
             Ok(rx)
         }
     }
 
-    fn make_engine() -> super::AgentEngine {
-        super::AgentEngine {
+    fn make_engine() -> AgentEngine {
+        AgentEngine {
             provider: Arc::new(NullProvider),
             model: "test-model".to_string(),
             max_tokens: Some(4096),
@@ -1224,14 +1288,14 @@ mod tests_handle_command {
             output: Arc::new(NullOutput),
             approval_manager: None,
             protocol_writer: None,
-            compact_config: aion_config::compact::CompactConfig::default(),
+            compact_config: CompactConfig::default(),
             compact_state: CompactState::new(),
             compact_level: CompactLevel::default(),
             toon_enabled: false,
             plan_state: Default::default(),
             plan_active_flag: None,
-            cache_detector: super::CacheBreakDetector::new(),
-            commands: crate::commands::default_registry(),
+            cache_detector: CacheBreakDetector::new(),
+            commands: default_registry(),
         }
     }
 
@@ -1239,14 +1303,14 @@ mod tests_handle_command {
     async fn handle_command_quit() {
         let mut engine = make_engine();
         let err = engine.handle_command("/quit").await.unwrap_err();
-        assert!(matches!(err, super::AgentError::UserAborted));
+        assert!(matches!(err, AgentError::UserAborted));
     }
 
     #[tokio::test]
     async fn handle_command_exit_alias() {
         let mut engine = make_engine();
         let err = engine.handle_command("/exit").await.unwrap_err();
-        assert!(matches!(err, super::AgentError::UserAborted));
+        assert!(matches!(err, AgentError::UserAborted));
     }
 
     #[tokio::test]
@@ -1304,7 +1368,7 @@ mod tests_handle_command {
     async fn run_intercepts_quit_returns_user_aborted() {
         let mut engine = make_engine();
         let err = engine.run("/quit", "msg-1").await.unwrap_err();
-        assert!(matches!(err, super::AgentError::UserAborted));
+        assert!(matches!(err, AgentError::UserAborted));
     }
 
     #[test]
@@ -1324,8 +1388,8 @@ mod tests_handle_command {
     struct SingleResponseProvider;
     #[async_trait::async_trait]
     impl LlmProvider for SingleResponseProvider {
-        async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
-            let (tx, rx) = tokio::sync::mpsc::channel(2);
+        async fn stream(&self, _: &LlmRequest) -> Result<Receiver<LlmEvent>, ProviderError> {
+            let (tx, rx) = channel(2);
             let _ = tx.send(LlmEvent::TextDelta("hello".to_string())).await;
             let _ = tx
                 .send(LlmEvent::Done {
@@ -1337,7 +1401,7 @@ mod tests_handle_command {
         }
     }
 
-    fn make_engine_with_provider(provider: Arc<dyn LlmProvider>) -> super::AgentEngine {
+    fn make_engine_with_provider(provider: Arc<dyn LlmProvider>) -> AgentEngine {
         let mut engine = make_engine();
         engine.provider = provider;
         engine.max_turns_per_run = Some(1);
@@ -1365,12 +1429,13 @@ mod tests_handle_command {
     #[tokio::test]
     async fn run_with_blocks_accepts_image_blocks() {
         let mut engine = make_engine_with_provider(Arc::new(SingleResponseProvider));
+        engine.compat.image_input = Some(ImageInputCapability::Supported);
         let blocks = vec![
             ContentBlock::Text {
                 text: "look at this".to_string(),
             },
             ContentBlock::Image {
-                image_url: aion_types::message::ImageUrl {
+                image_url: ImageUrl {
                     url: "data:image/png;base64,abcd".to_string(),
                 },
             },
@@ -1385,6 +1450,107 @@ mod tests_handle_command {
         assert_eq!(user_msg.content.len(), 2);
         assert!(matches!(user_msg.content[0], ContentBlock::Text { .. }));
         assert!(matches!(user_msg.content[1], ContentBlock::Image { .. }));
+    }
+
+    #[tokio::test]
+    async fn run_with_blocks_keeps_unsupported_image_in_history() {
+        let mut engine = make_engine_with_provider(Arc::new(SingleResponseProvider));
+        engine.compat.image_input = Some(ImageInputCapability::Unsupported);
+        let blocks = vec![ContentBlock::Image {
+            image_url: ImageUrl {
+                url: "data:image/png;base64,abcd".to_owned(),
+            },
+        }];
+
+        engine.run_with_blocks(blocks, "msg-3").await.unwrap();
+
+        assert!(engine.messages.iter().any(|message| {
+            message
+                .content
+                .iter()
+                .any(|block| matches!(block, ContentBlock::Image { .. }))
+        }));
+    }
+
+    #[test]
+    fn build_request_omits_invalid_image_without_mutating_history() {
+        let mut engine = make_engine();
+        engine.compat.image_input = Some(ImageInputCapability::Supported);
+        engine.messages.push(Message::new(
+            Role::User,
+            vec![ContentBlock::Image {
+                image_url: ImageUrl {
+                    url: "data:image/png;base64,!!!".to_owned(),
+                },
+            }],
+        ));
+
+        let request = engine.build_request(TurnKind::Normal);
+
+        assert!(matches!(request.messages[0].content[0], ContentBlock::Text { .. }));
+        assert!(matches!(engine.messages[0].content[0], ContentBlock::Image { .. }));
+    }
+
+    #[test]
+    fn model_switch_projects_historical_snapshot_for_current_capability() {
+        let mut engine = make_engine();
+        engine.compat.image_input = Some(ImageInputCapability::Supported);
+        engine.messages.push(Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text {
+                    text: "Attachment path: /tmp/image.png".to_owned(),
+                },
+                ContentBlock::Image {
+                    image_url: ImageUrl {
+                        url: "data:image/png;base64,abcd".to_owned(),
+                    },
+                },
+            ],
+        ));
+        engine.model = "text-only-model".to_owned();
+        engine.compat.image_input = Some(ImageInputCapability::Unsupported);
+
+        let request = engine.build_request(TurnKind::Normal);
+
+        assert_eq!(request.model, "text-only-model");
+        assert!(
+            request.messages[0]
+                .content
+                .iter()
+                .all(|block| !matches!(block, ContentBlock::Image { .. }))
+        );
+        assert!(
+            request.messages[0]
+                .content
+                .iter()
+                .any(|block| matches!(block, ContentBlock::Text { text } if text.contains("/tmp/image.png")))
+        );
+        assert_eq!(engine.messages.len(), 1);
+        assert!(
+            engine.messages[0]
+                .content
+                .iter()
+                .any(|block| matches!(block, ContentBlock::Image { .. }))
+        );
+    }
+
+    #[test]
+    fn unknown_capability_uses_text_only_request_projection() {
+        let mut engine = make_engine();
+        engine.messages.push(Message::new(
+            Role::User,
+            vec![ContentBlock::Image {
+                image_url: ImageUrl {
+                    url: "data:image/png;base64,abcd".to_owned(),
+                },
+            }],
+        ));
+
+        let request = engine.build_request(TurnKind::Normal);
+
+        assert!(matches!(request.messages[0].content[0], ContentBlock::Text { .. }));
+        assert!(matches!(engine.messages[0].content[0], ContentBlock::Image { .. }));
     }
 }
 
@@ -1685,7 +1851,7 @@ mod tests_tool_policy_enforcement {
     use aion_tools::Tool;
     use aion_tools::registry::ToolRegistry;
     use aion_types::llm::{LlmEvent, LlmRequest};
-    use aion_types::message::ContentBlock;
+    use aion_types::message::{ContentBlock, ImageInputCapability};
     use aion_types::tool::ToolResult;
     use async_trait::async_trait;
     use serde_json::{Value, json};
@@ -1723,6 +1889,7 @@ mod tests_tool_policy_enforcement {
     struct CountingTool {
         name: &'static str,
         executions: Arc<AtomicUsize>,
+        requires_image_input: bool,
     }
 
     #[async_trait]
@@ -1751,6 +1918,10 @@ mod tests_tool_policy_enforcement {
             }
         }
 
+        fn requires_image_input(&self) -> bool {
+            self.requires_image_input
+        }
+
         fn category(&self) -> ToolCategory {
             ToolCategory::Info
         }
@@ -1761,10 +1932,12 @@ mod tests_tool_policy_enforcement {
         tools.register(Box::new(CountingTool {
             name: "Read",
             executions: read_executions,
+            requires_image_input: false,
         }));
         tools.register(Box::new(CountingTool {
             name: "ExecCommand",
             executions: exec_executions,
+            requires_image_input: false,
         }));
 
         AgentEngine {
@@ -1819,6 +1992,26 @@ mod tests_tool_policy_enforcement {
         let tool_names: Vec<_> = request.tools.iter().map(|tool| tool.name.as_str()).collect();
 
         assert_eq!(tool_names, vec!["Read"]);
+    }
+
+    #[test]
+    fn build_request_only_advertises_image_tool_to_supported_models() {
+        let image_executions = Arc::new(AtomicUsize::new(0));
+        let mut engine = make_engine(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        engine.tools.register(Box::new(CountingTool {
+            name: "ViewImage",
+            executions: image_executions,
+            requires_image_input: true,
+        }));
+        engine.tool_policy = ToolPolicy::allow_only(["Read", "ViewImage"]);
+        engine.compat.image_input = Some(ImageInputCapability::Unsupported);
+
+        let text_only_request = engine.build_request(TurnKind::Normal);
+        assert!(text_only_request.tools.iter().all(|tool| tool.name != "ViewImage"));
+
+        engine.compat.image_input = Some(ImageInputCapability::Supported);
+        let vision_request = engine.build_request(TurnKind::Normal);
+        assert!(vision_request.tools.iter().any(|tool| tool.name == "ViewImage"));
     }
 
     #[tokio::test]

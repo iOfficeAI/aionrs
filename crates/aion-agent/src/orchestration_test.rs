@@ -224,7 +224,9 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        let (result, _, follow_up_blocks) =
+            execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        assert!(follow_up_blocks.is_empty());
         if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             assert!(is_error);
             assert!(content.contains("Missing or invalid 'tasks' array"));
@@ -244,7 +246,9 @@ mod tests {
             input: json!({"tasks": "not_an_array"}),
             extra: None,
         };
-        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        let (result, _, follow_up_blocks) =
+            execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        assert!(follow_up_blocks.is_empty());
         if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             // Tool succeeds because input.get("tasks") is Some
             assert!(!is_error);
@@ -263,7 +267,9 @@ mod tests {
             input: json!({"tasks": [{"name": "t1", "prompt": "do x"}]}),
             extra: None,
         };
-        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        let (result, _, follow_up_blocks) =
+            execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        assert!(follow_up_blocks.is_empty());
         if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             assert!(!is_error);
             assert_eq!(content, "ok");
@@ -281,7 +287,9 @@ mod tests {
             input: json!({}),
             extra: None,
         };
-        let (result, _) = execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        let (result, _, follow_up_blocks) =
+            execute_single(&registry, &call, None, aion_compact::CompactLevel::Off, false).await;
+        assert!(follow_up_blocks.is_empty());
         if let ContentBlock::ToolResult { content, is_error, .. } = &result {
             assert!(is_error);
             assert!(content.contains("Missing cmd"));

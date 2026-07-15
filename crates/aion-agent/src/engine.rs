@@ -36,7 +36,7 @@ use aion_protocol::writer::ProtocolEmitter;
 use aion_providers::provider::{LlmProvider, create_provider};
 use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
-use aion_types::message::{ContentBlock, Message, Role, StopReason, TokenUsage};
+use aion_types::message::{ContentBlock, ImageInputCapability, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 use anyhow::{Error as AnyhowError, Result as AnyhowResult};
 use chrono::Utc;
@@ -470,6 +470,7 @@ impl AgentEngine {
             let ToolRoundOutput {
                 tool_results,
                 tool_modifiers,
+                follow_up_blocks,
                 tool_call_malformed_fingerprint,
                 tool_call_failure_fingerprint,
             } = self.execute_tool_round(&tool_calls, &assistant_text).await?;
@@ -480,6 +481,9 @@ impl AgentEngine {
             self.emit_tool_results(&tool_calls, &tool_results);
 
             self.messages.push(Message::now(Role::User, tool_results));
+            if !follow_up_blocks.is_empty() {
+                self.messages.push(Message::now(Role::User, follow_up_blocks));
+            }
 
             // Save session after each tool round.
             self.save_session();
@@ -504,18 +508,25 @@ impl AgentEngine {
     /// Build the next provider request, applying plan-mode tool/system filtering
     /// and recording the prompt state for cache diagnostics.
     fn build_request(&mut self, kind: TurnKind) -> LlmRequest {
+        let image_input = self.compat.image_input();
         // Build tool list: filter based on plan mode state
         let tools = if kind.disable_tools() {
             Vec::new()
         } else if self.plan_state.is_active {
             // Plan mode: only Info-category tools (excluding EnterPlanMode)
             self.tools.to_tool_defs_filtered(|t| {
-                self.tool_policy.allows(t.name()) && t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
+                self.tool_policy.allows(t.name())
+                    && (!t.requires_image_input() || image_input.supports_images())
+                    && t.category() == ToolCategory::Info
+                    && t.name() != "EnterPlanMode"
             })
         } else {
-            // Normal mode: all tools except ExitPlanMode
-            self.tools
-                .to_tool_defs_filtered(|t| self.tool_policy.allows(t.name()) && t.name() != "ExitPlanMode")
+            // Normal mode: all compatible tools except ExitPlanMode
+            self.tools.to_tool_defs_filtered(|t| {
+                self.tool_policy.allows(t.name())
+                    && (!t.requires_image_input() || image_input.supports_images())
+                    && t.name() != "ExitPlanMode"
+            })
         };
 
         // Build system prompt: append plan mode instructions when active
@@ -537,6 +548,7 @@ impl AgentEngine {
                 }],
             ));
         }
+        project_image_input(&mut messages, image_input, &self.model);
 
         LlmRequest {
             model: self.model.clone(),
@@ -584,7 +596,11 @@ impl AgentEngine {
                 let ContentBlock::ToolUse { name, .. } = call else {
                     return None;
                 };
-                (!self.tool_policy.allows(name)).then(|| name.clone())
+                let capability_denied = self
+                    .tools
+                    .get(name)
+                    .is_some_and(|tool| tool.requires_image_input() && !self.compat.image_input().supports_images());
+                (!self.tool_policy.allows(name) || capability_denied).then(|| name.clone())
             })
             .collect();
         let executable_tool_calls: Vec<_> = tool_calls
@@ -595,8 +611,8 @@ impl AgentEngine {
             .map(|((call, _), _)| call.clone())
             .collect();
 
-        let (executable_results, executable_modifiers) = if executable_tool_calls.is_empty() {
-            (Vec::new(), Vec::new())
+        let (executable_results, executable_modifiers, follow_up_blocks) = if executable_tool_calls.is_empty() {
+            (Vec::new(), Vec::new(), Vec::new())
         } else if let Some(ref approval_mgr) = self.approval_manager {
             // JSON stream mode: use protocol-based approval
             let writer = self
@@ -618,7 +634,7 @@ impl AgentEngine {
             )
             .await
             {
-                Ok(o) => (o.results, o.modifiers),
+                Ok(o) => (o.results, o.modifiers, o.follow_up_blocks),
                 Err(ExecutionControl::Quit) => {
                     self.save_session();
                     return Err(AgentError::UserAborted);
@@ -636,7 +652,7 @@ impl AgentEngine {
             )
             .await
             {
-                Ok(o) => (o.results, o.modifiers),
+                Ok(o) => (o.results, o.modifiers, o.follow_up_blocks),
                 Err(ExecutionControl::Quit) => {
                     self.save_session();
                     return Err(AgentError::UserAborted);
@@ -664,6 +680,7 @@ impl AgentEngine {
         Ok(ToolRoundOutput {
             tool_results,
             tool_modifiers,
+            follow_up_blocks,
             tool_call_malformed_fingerprint,
             tool_call_failure_fingerprint,
         })
@@ -930,9 +947,11 @@ impl AgentEngine {
         }
         if should_compact && !self.compact_state.is_circuit_broken(&self.compact_config) {
             let provider = Arc::clone(&self.provider);
+            let mut compact_messages = self.messages.clone();
+            project_image_input(&mut compact_messages, self.compat.image_input(), &self.model);
             match autocompact(
                 provider.as_ref(),
-                &self.messages,
+                &compact_messages,
                 &self.model,
                 &self.compact_config,
                 &mut self.compact_state,
@@ -990,6 +1009,42 @@ impl AgentEngine {
         }
 
         Ok(())
+    }
+}
+
+fn project_image_input(messages: &mut [Message], capability: ImageInputCapability, model: &str) {
+    for message in messages {
+        let mut removed_image = false;
+        message.content.retain(|block| {
+            let ContentBlock::Image { image_url } = block else {
+                return true;
+            };
+
+            if !capability.supports_images() {
+                removed_image = true;
+                return false;
+            }
+            if let Err(error) = image_url.validate() {
+                warn!(
+                    target: "aion_agent",
+                    model,
+                    error = %error,
+                    "omitting invalid historical image from provider request"
+                );
+                removed_image = true;
+                return false;
+            }
+            true
+        });
+
+        if removed_image && message.content.is_empty() {
+            let text = if capability.supports_images() {
+                "[Image unavailable: the stored image payload is invalid.]"
+            } else {
+                "[Image omitted: the selected model does not support vision.]"
+            };
+            message.content.push(ContentBlock::Text { text: text.to_owned() });
+        }
     }
 }
 
@@ -1270,6 +1325,7 @@ impl AgentEngine {
 struct ToolRoundOutput {
     tool_results: Vec<ContentBlock>,
     tool_modifiers: Vec<Option<ContextModifier>>,
+    follow_up_blocks: Vec<ContentBlock>,
     /// `Some` only when every tool call in the round was malformed; feeds the
     /// tool-call-malformed breaker.
     tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,

@@ -16,6 +16,7 @@ use aion_tools::registry::ToolRegistry;
 pub struct ToolCallOutcome {
     pub results: Vec<ContentBlock>,
     pub modifiers: Vec<Option<ContextModifier>>,
+    pub follow_up_blocks: Vec<ContentBlock>,
 }
 
 impl std::ops::Deref for ToolCallOutcome {
@@ -42,6 +43,7 @@ pub async fn execute_tool_calls(
 ) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
     let mut modifiers = Vec::new();
+    let mut follow_up_blocks = Vec::new();
 
     for batch in partition(registry, tool_calls) {
         if batch.is_concurrent {
@@ -65,9 +67,10 @@ pub async fn execute_tool_calls(
                 .map(|call| execute_single(registry, call, hooks_shared, compaction_level, toon_enabled))
                 .collect();
             let batch_results = futures::future::join_all(futures).await;
-            for (block, modifier) in batch_results {
+            for (block, modifier, blocks) in batch_results {
                 results.push(block);
                 modifiers.push(modifier);
+                follow_up_blocks.extend(blocks);
             }
         } else {
             for call in &batch.calls {
@@ -80,9 +83,10 @@ pub async fn execute_tool_calls(
                         // Reborrow as shared for execute_single, then reclaim mut for merge.
                         let block;
                         let modifier;
+                        let blocks;
                         {
                             let hooks_shared: Option<&HookEngine> = hooks.as_deref();
-                            (block, modifier) =
+                            (block, modifier, blocks) =
                                 execute_single(registry, call, hooks_shared, compaction_level, toon_enabled).await;
                         }
                         // Merge skill hooks after a successful sequential execution.
@@ -91,13 +95,18 @@ pub async fn execute_tool_calls(
                         }
                         results.push(block);
                         modifiers.push(modifier);
+                        follow_up_blocks.extend(blocks);
                     }
                 }
             }
         }
     }
 
-    Ok(ToolCallOutcome { results, modifiers })
+    Ok(ToolCallOutcome {
+        results,
+        modifiers,
+        follow_up_blocks,
+    })
 }
 
 /// Signal that the user wants to abort
@@ -138,7 +147,7 @@ async fn execute_single(
     hooks: Option<&HookEngine>,
     compaction_level: aion_compact::CompactLevel,
     toon_enabled: bool,
-) -> (ContentBlock, Option<ContextModifier>) {
+) -> (ContentBlock, Option<ContextModifier>, Vec<ContentBlock>) {
     let ContentBlock::ToolUse { id, name, input, .. } = call else {
         unreachable!("execute_single called with non-ToolUse block")
     };
@@ -157,17 +166,24 @@ async fn execute_single(
                 is_error: true,
             },
             None,
+            Vec::new(),
         );
     }
 
-    let (result, modifier) = match registry.get(name) {
+    let (result, modifier, follow_up_blocks) = match registry.get(name) {
         Some(tool) => {
             let max_size = tool.max_result_size();
-            let r = tool.execute(input.clone()).await;
+            let execution = tool.execute_with_follow_up(input.clone()).await;
+            let r = execution.result;
             let modifier = if r.is_error {
                 None
             } else {
                 tool.context_modifier_for(input)
+            };
+            let follow_up_blocks = if r.is_error {
+                Vec::new()
+            } else {
+                execution.follow_up_blocks
             };
             let error_content = if r.is_error && tool.is_deferred() {
                 maybe_append_deferred_hint(&r.content, tool.input_schema(), input)
@@ -187,6 +203,7 @@ async fn execute_single(
                     is_error: r.is_error,
                 },
                 modifier,
+                follow_up_blocks,
             )
         }
         None => (
@@ -195,6 +212,7 @@ async fn execute_single(
                 is_error: true,
             },
             None,
+            Vec::new(),
         ),
     };
 
@@ -216,6 +234,7 @@ async fn execute_single(
             is_error: result.is_error,
         },
         modifier,
+        follow_up_blocks,
     )
 }
 
@@ -235,6 +254,7 @@ pub async fn execute_tool_calls_with_approval(
 ) -> Result<ToolCallOutcome, ExecutionControl> {
     let mut results = Vec::new();
     let mut modifiers = Vec::new();
+    let mut follow_up_blocks = Vec::new();
 
     for call in tool_calls {
         let ContentBlock::ToolUse { id, name, input, .. } = call else {
@@ -297,9 +317,11 @@ pub async fn execute_tool_calls_with_approval(
         // Execute the tool (reborrow as shared for execute_single, then reclaim mut for merge).
         let result;
         let modifier;
+        let blocks;
         {
             let hooks_shared: Option<&HookEngine> = hooks.as_deref();
-            (result, modifier) = execute_single(registry, call, hooks_shared, compaction_level, toon_enabled).await;
+            (result, modifier, blocks) =
+                execute_single(registry, call, hooks_shared, compaction_level, toon_enabled).await;
         }
 
         // Emit tool_result event
@@ -327,13 +349,16 @@ pub async fn execute_tool_calls_with_approval(
 
         results.push(result);
         modifiers.push(modifier);
+        follow_up_blocks.extend(blocks);
     }
 
-    Ok(ToolCallOutcome { results, modifiers })
+    Ok(ToolCallOutcome {
+        results,
+        modifiers,
+        follow_up_blocks,
+    })
 }
 
-/// If `call` is a Skill tool call that returned successfully, parse and merge
-/// its declared hooks into the active HookEngine.
 /// If `call` is a Skill tool call that returned successfully, merge skill hooks into the engine.
 fn merge_skill_hooks_into(engine: &mut HookEngine, registry: &ToolRegistry, call: &ContentBlock) {
     let ContentBlock::ToolUse { name, input, .. } = call else {

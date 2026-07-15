@@ -1,4 +1,7 @@
+use std::{error, fmt};
+
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -84,8 +87,8 @@ pub enum ImageUrlError {
     InvalidBase64,
 }
 
-impl std::fmt::Display for ImageUrlError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for ImageUrlError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidFormat => write!(f, "image URL is not a data URI with base64 payload"),
             Self::UnsupportedMediaType(mime) => {
@@ -96,7 +99,7 @@ impl std::fmt::Display for ImageUrlError {
     }
 }
 
-impl std::error::Error for ImageUrlError {}
+impl error::Error for ImageUrlError {}
 
 impl ImageUrl {
     /// Validate that this URL is a supported base64-encoded image data URI.
@@ -111,9 +114,7 @@ impl ImageUrl {
             return Err(ImageUrlError::UnsupportedMediaType(mime.to_string()));
         }
         let payload = &self.url[self.url.find(',').unwrap() + 1..];
-        base64::engine::general_purpose::STANDARD
-            .decode(payload)
-            .map_err(|_| ImageUrlError::InvalidBase64)?;
+        STANDARD.decode(payload).map_err(|_| ImageUrlError::InvalidBase64)?;
         Ok(())
     }
 
@@ -125,6 +126,26 @@ impl ImageUrl {
     pub fn decoded_byte_size(&self) -> Option<usize> {
         let (_, payload) = self.url.strip_prefix("data:")?.split_once(",")?;
         Some(base64::decoded_len_estimate(payload.len()))
+    }
+}
+
+/// Resolved image-input support for the selected provider and model.
+///
+/// The engine deliberately does not infer this from a provider family. Hosts
+/// that own a model catalog must resolve the capability for the concrete
+/// provider/model pair and pass it through `ProviderCompat`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageInputCapability {
+    Supported,
+    Unsupported,
+    #[default]
+    Unknown,
+}
+
+impl ImageInputCapability {
+    pub fn supports_images(self) -> bool {
+        self == Self::Supported
     }
 }
 

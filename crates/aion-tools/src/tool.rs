@@ -3,8 +3,29 @@ use serde_json::Value;
 
 use aion_config::hooks::HooksConfig;
 use aion_protocol::events::ToolCategory;
+use aion_types::message::ContentBlock;
 use aion_types::skill_types::ContextModifier;
 use aion_types::tool::{JsonSchema, ToolResult};
+
+/// Complete output from one tool execution.
+///
+/// Most tools only return a textual [`ToolResult`]. Tools that load provider
+/// input, such as `ViewImage`, can additionally supply content blocks that the
+/// engine appends as a separate user message after the tool result.
+#[derive(Debug, Clone)]
+pub struct ToolExecutionOutput {
+    pub result: ToolResult,
+    pub follow_up_blocks: Vec<ContentBlock>,
+}
+
+impl From<ToolResult> for ToolExecutionOutput {
+    fn from(result: ToolResult) -> Self {
+        Self {
+            result,
+            follow_up_blocks: Vec::new(),
+        }
+    }
+}
 
 /// Truncate a string to at most `max_bytes`, snapping to a char boundary.
 pub fn truncate_utf8(s: &str, max_bytes: usize) -> &str {
@@ -35,6 +56,21 @@ pub trait Tool: Send + Sync {
 
     /// Execute the tool
     async fn execute(&self, input: Value) -> ToolResult;
+
+    /// Execute the tool and optionally provide content for the next model turn.
+    ///
+    /// The default preserves the existing text-only tool contract. Multimodal
+    /// loaders override this method so their binary payload never travels in
+    /// the textual tool-result channel.
+    async fn execute_with_follow_up(&self, input: Value) -> ToolExecutionOutput {
+        self.execute(input).await.into()
+    }
+
+    /// Whether advertising and executing this tool requires image-input
+    /// support from the currently selected model.
+    fn requires_image_input(&self) -> bool {
+        false
+    }
 
     /// Return an optional context modifier based on the tool input.
     /// Called after execute() to collect any engine-level overrides.

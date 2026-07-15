@@ -4,6 +4,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use aion_types::message::ImageInputCapability;
+
 /// Provider-level compatibility settings.
 /// Each child struct is flattened so on-disk TOML remains backward-compatible.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -18,6 +20,12 @@ pub struct ProviderCompat {
     pub schema: SchemaCompat,
     #[serde(flatten)]
     pub reasoning: ReasoningCompat,
+    /// Image-input support resolved for the concrete provider/model pair.
+    ///
+    /// `None` is treated as `Unknown`; provider presets intentionally do not
+    /// supply family-level defaults.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_input: Option<ImageInputCapability>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -254,6 +262,7 @@ impl ProviderCompat {
                 supports_effort: Some(false),
                 ..Default::default()
             },
+            image_input: None,
         }
     }
 
@@ -296,6 +305,7 @@ impl ProviderCompat {
             tools: ToolCompat::merge(defaults.tools, user.tools),
             schema: SchemaCompat::merge(defaults.schema, user.schema),
             reasoning: ReasoningCompat::merge(defaults.reasoning, user.reasoning),
+            image_input: user.image_input.or(defaults.image_input),
         }
     }
 
@@ -303,6 +313,10 @@ impl ProviderCompat {
 
     pub fn max_tokens_field(&self) -> &str {
         self.transport.max_tokens_field.as_deref().unwrap_or("max_tokens")
+    }
+
+    pub fn image_input(&self) -> ImageInputCapability {
+        self.image_input.unwrap_or_default()
     }
 
     pub fn default_max_tokens_for_model(&self, model: &str) -> Option<u32> {

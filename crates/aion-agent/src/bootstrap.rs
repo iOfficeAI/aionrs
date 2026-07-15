@@ -20,6 +20,7 @@ use aion_tools::grep::GrepTool;
 use aion_tools::read::ReadTool;
 use aion_tools::registry::ToolRegistry;
 use aion_tools::tool_search::ToolSearchTool;
+use aion_tools::view_image::ViewImageTool;
 use aion_tools::write::WriteTool;
 use anyhow::Result;
 use tracing::info;
@@ -209,6 +210,7 @@ impl AgentBootstrap {
         )));
         registry.register(Box::new(GrepTool::new(workspace_path.to_path_buf())));
         registry.register(Box::new(GlobTool::new(workspace_path.to_path_buf())));
+        registry.register(Box::new(ViewImageTool::new()));
 
         registry
     }

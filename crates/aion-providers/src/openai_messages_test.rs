@@ -5,6 +5,7 @@ mod tests {
     use super::*;
     use aion_types::message::{ContentBlock, ImageUrl, Message, Role};
     use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
 
     fn no_compat() -> ProviderCompat {
         ProviderCompat::default()
@@ -709,8 +710,8 @@ mod tests {
 
     #[test]
     fn test_build_messages_image_serializes_as_content_array() {
-        let data = base64::engine::general_purpose::STANDARD.encode(b"fake-image");
-        let url = format!("data:image/png;base64, {}", data);
+        let data = STANDARD.encode(b"fake-image");
+        let url = format!("data:image/png;base64,{}", data);
         let messages = vec![Message::new(
             Role::User,
             vec![
@@ -728,5 +729,25 @@ mod tests {
         assert_eq!(content[0]["text"], "look");
         assert_eq!(content[1]["type"], "image_url");
         assert_eq!(content[1]["image_url"]["url"], url);
+    }
+
+    #[test]
+    fn test_build_messages_skips_invalid_image_data_uri() {
+        let messages = vec![Message::new(
+            Role::User,
+            vec![
+                ContentBlock::Text { text: "look".into() },
+                ContentBlock::Image {
+                    image_url: ImageUrl {
+                        url: "data:image/png;base64,!!!".into(),
+                    },
+                },
+            ],
+        )];
+
+        let result = build_messages(&messages, "", &openai_compat());
+        let content = result[0]["content"].as_array().expect("content should be array");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "text");
     }
 }

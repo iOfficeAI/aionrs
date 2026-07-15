@@ -83,6 +83,14 @@ pub(crate) fn build_messages(messages: &[Message], system: &str, compat: &Provid
                                     }
                                 }
                                 ContentBlock::Image { image_url } => {
+                                    if let Err(error) = image_url.validate() {
+                                        tracing::warn!(
+                                            target: "aion_providers",
+                                            error = %error,
+                                            "skipping invalid image block in OpenAI projection"
+                                        );
+                                        continue;
+                                    }
                                     content_array.push(json!({
                                         "type": "image_url",
                                         "image_url": {

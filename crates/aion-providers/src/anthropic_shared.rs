@@ -148,7 +148,6 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                         tracing::warn!(
                             target: "aion_providers",
                             error = %e,
-                            url_prefix = %image_url.url.chars().take(40).collect::<String>(),
                             "skipping invalid image block in Anthropic projection"
                         );
                         continue;
