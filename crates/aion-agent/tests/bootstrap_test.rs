@@ -12,7 +12,7 @@ fn minimal_config() -> Config {
         api_key: "sk-test".into(),
         base_url: "http://localhost:0".into(),
         model: "gpt-test-model".into(),
-        max_tokens: 1024,
+        max_tokens: Some(1024),
         max_turns: Some(5),
         max_tool_call_malformed_turns: Some(3),
         max_tool_call_failure_turns: Some(3),
@@ -152,7 +152,7 @@ async fn bootstrap_config_accessor_returns_config() {
     let config = minimal_config();
     let bootstrap = AgentBootstrap::new(config, "/tmp/ws", null_output());
     assert_eq!(bootstrap.config().model, "gpt-test-model");
-    assert_eq!(bootstrap.config().max_tokens, 1024);
+    assert_eq!(bootstrap.config().max_tokens, Some(1024));
 }
 
 #[tokio::test]

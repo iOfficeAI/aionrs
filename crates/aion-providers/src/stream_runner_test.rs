@@ -48,7 +48,7 @@ mod tests {
                     }
                 }
             },
-            RetryPolicy::new(2, false, true),
+            RetryPolicy::new(2, false, true, false),
         )
         .await
         .unwrap();
@@ -99,7 +99,7 @@ mod tests {
                     }
                 }
             },
-            RetryPolicy::new(2, false, true),
+            RetryPolicy::new(2, false, true, false),
         )
         .await
         .unwrap();
@@ -111,6 +111,106 @@ mod tests {
         assert!(rx.recv().await.is_none());
         assert_eq!(send_count.load(Ordering::SeqCst), 3);
         assert_eq!(process_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_run_stream_retries_5xx_during_empty_stream_resend_when_enabled() {
+        tokio::time::pause();
+
+        let send_count = Arc::new(AtomicU32::new(0));
+        let process_count = Arc::new(AtomicU32::new(0));
+
+        let mut rx = run_stream(
+            {
+                let send_count = Arc::clone(&send_count);
+                move || {
+                    let send_count = Arc::clone(&send_count);
+                    async move {
+                        let attempt = send_count.fetch_add(1, Ordering::SeqCst);
+                        match attempt {
+                            0 => Ok(0),
+                            1 | 2 => Err(ProviderError::Api {
+                                status: 503,
+                                message: "busy".into(),
+                            }),
+                            _ => Ok(3),
+                        }
+                    }
+                }
+            },
+            {
+                let process_count = Arc::clone(&process_count);
+                move |response, tx| {
+                    let process_count = Arc::clone(&process_count);
+                    async move {
+                        process_count.fetch_add(1, Ordering::SeqCst);
+                        if response == 0 {
+                            StreamOutcome::FailedEmpty(ProviderError::Connection("disconnect".into()))
+                        } else {
+                            tx.send(LlmEvent::TextDelta("ok".into())).await.unwrap();
+                            StreamOutcome::Ok
+                        }
+                    }
+                }
+            },
+            RetryPolicy::new(2, false, true, true),
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            rx.recv().await,
+            Some(LlmEvent::TextDelta(text)) if text == "ok"
+        ));
+        assert!(rx.recv().await.is_none());
+        assert_eq!(send_count.load(Ordering::SeqCst), 4);
+        assert_eq!(process_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_run_stream_does_not_retry_5xx_during_empty_stream_resend_when_disabled() {
+        tokio::time::pause();
+
+        let send_count = Arc::new(AtomicU32::new(0));
+        let process_count = Arc::new(AtomicU32::new(0));
+
+        let mut rx = run_stream(
+            {
+                let send_count = Arc::clone(&send_count);
+                move || {
+                    let send_count = Arc::clone(&send_count);
+                    async move {
+                        let attempt = send_count.fetch_add(1, Ordering::SeqCst);
+                        if attempt == 0 {
+                            Ok(())
+                        } else {
+                            Err(ProviderError::Api {
+                                status: 503,
+                                message: "busy".into(),
+                            })
+                        }
+                    }
+                }
+            },
+            {
+                let process_count = Arc::clone(&process_count);
+                move |(), _tx| {
+                    let process_count = Arc::clone(&process_count);
+                    async move {
+                        process_count.fetch_add(1, Ordering::SeqCst);
+                        StreamOutcome::FailedEmpty(ProviderError::Connection("disconnect".into()))
+                    }
+                }
+            },
+            RetryPolicy::new(2, false, true, false),
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(rx.recv().await, Some(LlmEvent::Error(_))));
+        assert!(rx.recv().await.is_none());
+        assert_eq!(send_count.load(Ordering::SeqCst), 2);
+        assert_eq!(process_count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -148,7 +248,7 @@ mod tests {
                     }
                 }
             },
-            RetryPolicy::new(2, false, true),
+            RetryPolicy::new(2, false, true, false),
         )
         .await
         .unwrap();
@@ -177,7 +277,7 @@ mod tests {
                 }
             },
             move |(), _tx| async move { StreamOutcome::FailedPartial(ProviderError::Connection("disconnect".into())) },
-            RetryPolicy::new(2, false, true),
+            RetryPolicy::new(2, false, true, false),
         )
         .await
         .unwrap();
@@ -212,7 +312,7 @@ mod tests {
                 tx.send(LlmEvent::TextDelta("connected".into())).await.unwrap();
                 StreamOutcome::Ok
             },
-            RetryPolicy::new(2, true, true),
+            RetryPolicy::new(2, true, true, false),
         )
         .await
         .unwrap();
@@ -223,6 +323,74 @@ mod tests {
         ));
         assert!(rx.recv().await.is_none());
         assert_eq!(send_count.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_run_stream_retries_initial_5xx_when_enabled() {
+        tokio::time::pause();
+
+        let send_count = Arc::new(AtomicU32::new(0));
+
+        let mut rx = run_stream(
+            {
+                let send_count = Arc::clone(&send_count);
+                move || {
+                    let send_count = Arc::clone(&send_count);
+                    async move {
+                        let attempt = send_count.fetch_add(1, Ordering::SeqCst);
+                        if attempt < 2 {
+                            Err(ProviderError::Api {
+                                status: 503,
+                                message: "busy".into(),
+                            })
+                        } else {
+                            Ok(())
+                        }
+                    }
+                }
+            },
+            move |(), tx| async move {
+                tx.send(LlmEvent::TextDelta("connected".into())).await.unwrap();
+                StreamOutcome::Ok
+            },
+            RetryPolicy::new(2, false, true, true),
+        )
+        .await
+        .unwrap();
+
+        assert!(matches!(
+            rx.recv().await,
+            Some(LlmEvent::TextDelta(text)) if text == "connected"
+        ));
+        assert!(rx.recv().await.is_none());
+        assert_eq!(send_count.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_run_stream_does_not_retry_initial_5xx_when_disabled() {
+        let send_count = Arc::new(AtomicU32::new(0));
+
+        let result = run_stream(
+            {
+                let send_count = Arc::clone(&send_count);
+                move || {
+                    let send_count = Arc::clone(&send_count);
+                    async move {
+                        send_count.fetch_add(1, Ordering::SeqCst);
+                        Err::<(), _>(ProviderError::Api {
+                            status: 503,
+                            message: "busy".into(),
+                        })
+                    }
+                }
+            },
+            move |(), _tx| async move { StreamOutcome::Ok },
+            RetryPolicy::new(2, false, true, false),
+        )
+        .await;
+
+        assert!(matches!(result.unwrap_err(), ProviderError::Api { status: 503, .. }));
+        assert_eq!(send_count.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]
@@ -243,7 +411,7 @@ mod tests {
                 }
             },
             move |(), _tx| async move { StreamOutcome::Ok },
-            RetryPolicy::new(2, false, true),
+            RetryPolicy::new(2, false, true, false),
         )
         .await;
 
@@ -269,7 +437,7 @@ mod tests {
                 }
             },
             move |(), _tx| async move { StreamOutcome::FailedEmpty(ProviderError::Connection("disconnect".into())) },
-            RetryPolicy::new(2, false, false),
+            RetryPolicy::new(2, false, false, false),
         )
         .await
         .unwrap();

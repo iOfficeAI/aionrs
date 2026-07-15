@@ -3,6 +3,7 @@ use super::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aion_config::compat::ModelMaxTokensRule;
     use aion_config::schema::legalize_json_schema;
     use aion_types::message::{ContentBlock, Message, Role};
     use aion_types::tool::ToolDef;
@@ -18,7 +19,7 @@ mod tests {
                 }],
             )],
             tools,
-            max_tokens: 8192,
+            max_tokens: Some(8192),
             thinking,
             reasoning_effort: None,
         }
@@ -182,6 +183,29 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn test_anthropic_projector_uses_model_default_max_tokens_when_unset() {
+        let mut request = test_request(vec![], None);
+        request.model = "claude-sonnet-4-6".to_string();
+        request.max_tokens = None;
+
+        let body = AnthropicWireProjector::project(
+            &request,
+            &ProviderCompat::anthropic_defaults(),
+            WireParams {
+                provider: WireProvider::Anthropic,
+                anthropic_version: None,
+                include_model_in_body: true,
+                include_stream: true,
+                cache_enabled: false,
+                sanitize_schema: false,
+            },
+        )
+        .expect("request body projection should succeed");
+
+        assert_eq!(body["max_tokens"], 128_000);
     }
 
     #[test]
@@ -367,6 +391,36 @@ mod tests {
     }
 
     #[test]
+    fn test_openai_projector_omits_max_tokens_when_unset() {
+        let mut request = test_request(vec![], None);
+        request.max_tokens = None;
+
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert!(body.get("max_tokens").is_none());
+        assert!(body.get("max_completion_tokens").is_none());
+    }
+
+    #[test]
+    fn test_openai_projector_uses_compat_default_max_tokens_when_unset() {
+        let mut request = test_request(vec![], None);
+        request.model = "custom-large-model".to_string();
+        request.max_tokens = None;
+
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.default_max_tokens = Some(16_384);
+        compat.transport.model_max_tokens = Some(vec![ModelMaxTokensRule {
+            pattern: "custom-large".to_string(),
+            max_tokens: 32_768,
+        }]);
+
+        let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
+
+        assert_eq!(body["max_tokens"], 32_768);
+    }
+
+    #[test]
     fn test_openai_projector_returns_success_result() {
         let request = test_request(vec![], None);
         let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
@@ -419,6 +473,31 @@ mod tests {
         let body = OpenAiProjector::project(&request, &compat).expect("request body projection should succeed");
 
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn test_openai_projector_emits_enabled_thinking_when_requested() {
+        let request = test_request(vec![], Some(ThinkingConfig::Enabled { budget_tokens: 16_000 }));
+
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert_eq!(
+            body["thinking"],
+            json!({
+                "type": "enabled"
+            })
+        );
+    }
+
+    #[test]
+    fn test_openai_projector_emits_disabled_thinking_when_requested() {
+        let request = test_request(vec![], Some(ThinkingConfig::Disabled));
+
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert_eq!(body["thinking"], json!({ "type": "disabled" }));
     }
 
     #[test]

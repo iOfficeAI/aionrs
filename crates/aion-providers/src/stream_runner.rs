@@ -16,17 +16,24 @@ pub(crate) enum StreamOutcome {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct RetryPolicy {
-    pub max_stream_retries: u32,
-    pub initial_connect: bool,
-    pub can_resign: bool,
+    max_stream_retries: u32,
+    initial_connect: bool,
+    can_resign: bool,
+    initial_http_5xx: bool,
 }
 
 impl RetryPolicy {
-    pub(crate) const fn new(max_stream_retries: u32, initial_connect: bool, can_resign: bool) -> Self {
+    pub(crate) const fn new(
+        max_stream_retries: u32,
+        initial_connect: bool,
+        can_resign: bool,
+        initial_http_5xx: bool,
+    ) -> Self {
         Self {
             max_stream_retries,
             initial_connect,
             can_resign,
+            initial_http_5xx,
         }
     }
 }
@@ -43,10 +50,21 @@ where
     ProcessFn: Fn(Resp, mpsc::Sender<LlmEvent>) -> ProcessFut + Clone + Send + Sync + 'static,
     ProcessFut: Future<Output = StreamOutcome> + Send + 'static,
 {
-    let response = if policy.initial_connect {
-        crate::retry::with_initial_connect_retry(send.clone()).await?
+    let send_initial = || {
+        let send = send.clone();
+        async move {
+            if policy.initial_connect {
+                crate::retry::with_initial_connect_retry(send).await
+            } else {
+                send().await
+            }
+        }
+    };
+
+    let response = if policy.initial_http_5xx {
+        crate::retry::with_initial_http_5xx_retry(send_initial).await?
     } else {
-        send().await?
+        send_initial().await?
     };
 
     let (tx, rx) = mpsc::channel(64);
@@ -78,7 +96,14 @@ where
                     tokio::time::sleep(backoff).await;
                     backoff = (backoff * 2).min(Duration::from_secs(15));
 
-                    match send.clone()().await {
+                    let resend = send.clone();
+                    let resend_result = if policy.initial_http_5xx {
+                        crate::retry::with_initial_http_5xx_retry(resend).await
+                    } else {
+                        resend().await
+                    };
+
+                    match resend_result {
                         Ok(next_response) => {
                             response = next_response;
                             match process.clone()(response, tx.clone()).await {

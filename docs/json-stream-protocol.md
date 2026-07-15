@@ -426,13 +426,13 @@ Update model, thinking, or effort configuration at runtime.
 |-------|------|----------|-------------|
 | `model` | string | no | Switch to a different model |
 | `thinking` | string | no | `"enabled"` or `"disabled"` |
-| `thinking_budget` | number | no | Token budget for thinking (default: 10000) |
+| `thinking_budget` | number | no | Token budget for enabled thinking (default: 10000); sent on Anthropic requests and ignored by OpenAI-compatible requests |
 | `effort` | string | no | Reasoning effort level (e.g., `"low"`, `"medium"`, `"high"`) |
 | `compaction` | string | no | Output compaction level: `"off"`, `"safe"`, `"full"` |
 
 All fields are optional. Only provided fields are updated.
 
-> **Validation**: The agent validates `thinking` and `effort` values against the current provider's capabilities. If the provider does not support a feature, the change is rejected with a descriptive message in the `info` event. After processing, a `config_changed` event is always emitted with the updated capabilities.
+> **Validation**: The agent validates `effort` values against the current provider's capabilities. Explicit `thinking` updates are applied as request intent; if the provider rejects the wire field, that provider error is surfaced during the model request. After processing, a `config_changed` event is always emitted with the updated capabilities.
 
 ### 2.8 `add_mcp_server`
 

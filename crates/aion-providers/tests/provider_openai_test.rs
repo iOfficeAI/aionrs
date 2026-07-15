@@ -28,7 +28,7 @@ fn make_request() -> LlmRequest {
             }],
         )],
         tools: vec![],
-        max_tokens: 512,
+        max_tokens: Some(512),
         thinking: None,
         reasoning_effort: None,
     }
@@ -94,7 +94,7 @@ async fn start_server_after_initial_connect_refusal(sse_body: String) -> String 
         second.write_all(response.as_bytes()).await.unwrap();
     });
 
-    format!("http://{addr}")
+    format!("http://{addr}/v1")
 }
 
 // ---------------------------------------------------------------------------
@@ -151,7 +151,7 @@ async fn test_openai_stream_text_response() {
     let sse_body = build_sse_body(&[&chunk1, &chunk2, &chunk3]);
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .and(header("authorization", "Bearer test-key"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
@@ -302,7 +302,7 @@ async fn test_openai_stream_tool_call_aggregation() {
     let sse_body = build_sse_body(&[&chunk1, &chunk2, &chunk3]);
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
@@ -406,7 +406,7 @@ async fn test_openai_multiple_tool_calls() {
     let sse_body = build_sse_body(&[&chunk1, &chunk2, &chunk3]);
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
@@ -497,7 +497,7 @@ async fn test_openai_stream_state_transitions() {
         .push_str("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ignored\"},\"finish_reason\":null}]}\n\n");
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
@@ -536,7 +536,7 @@ async fn test_openai_api_error_non_success_status() {
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(
             ResponseTemplate::new(401)
                 .set_body_string(r#"{"error":{"message":"Invalid API key","type":"invalid_request_error"}}"#),
@@ -561,7 +561,7 @@ async fn test_aio_140_openai_tools_wire_shape_mismatch_error_is_readable_and_not
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(
             ResponseTemplate::new(400)
                 .set_body_string(r#"{"error":{"message":"Input tag function does not match expected custom"}}"#),
@@ -602,7 +602,7 @@ async fn test_openai_rate_limited() {
     let server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(429).set_body_string("Too Many Requests"))
         .mount(&server)
         .await;
@@ -612,8 +612,9 @@ async fn test_openai_rate_limited() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        aion_providers::ProviderError::RateLimited { retry_after_ms } => {
+        aion_providers::ProviderError::RateLimited { retry_after_ms, body } => {
             assert_eq!(retry_after_ms, 5000);
+            assert_eq!(body.as_deref(), Some("Too Many Requests"));
         }
         e => panic!("expected RateLimited error, got: {:?}", e),
     }
@@ -657,7 +658,7 @@ async fn test_openai_stream_max_tokens_stop_reason() {
     let sse_body = build_sse_body(&[&chunk1, &chunk2]);
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;
@@ -726,7 +727,7 @@ async fn test_openai_stream_empty_content_delta_skipped() {
     let sse_body = build_sse_body(&[&chunk_empty, &chunk_text, &chunk_done]);
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/chat/completions"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
         .mount(&server)
         .await;

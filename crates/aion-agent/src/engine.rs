@@ -19,9 +19,11 @@ use crate::plan::state::PlanState;
 use crate::session::{Session, SessionManager};
 use crate::stream::StreamOutcome;
 use crate::tool_call::{
-    DEFAULT_MAX_TOOL_CALL_FAILURE, DEFAULT_MAX_TOOL_CALL_MALFORMED, ToolCallMalformedFingerprint, merge_tool_results,
-    tool_call_malformed_fingerprint, tool_call_malformed_reason,
+    DEFAULT_MAX_TOOL_CALL_FAILURE, DEFAULT_MAX_TOOL_CALL_MALFORMED, ToolCallFailureFingerprint,
+    ToolCallMalformedFingerprint, merge_tool_results, tool_call_failure_fingerprint, tool_call_malformed_fingerprint,
+    tool_call_malformed_reason,
 };
+use crate::tool_policy::ToolPolicy;
 use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 use aion_compact::CompactLevel;
 use aion_config::compact::CompactConfig;
@@ -74,7 +76,7 @@ pub struct AgentEngine {
     /// Output message ID for the currently streaming run.
     msg_id: String,
     /// Maximum output tokens requested from the provider per turn.
-    max_tokens: u32,
+    max_tokens: Option<u32>,
     /// Optional cap on counted model turns within a single run.
     max_turns_per_run: Option<usize>,
     /// Consecutive malformed tool-call round limit before aborting.
@@ -85,6 +87,8 @@ pub struct AgentEngine {
     // Tool execution policy.
     /// Registry of tools available to the engine.
     tools: ToolRegistry,
+    /// Runtime authorization applied to tool advertisement and execution.
+    tool_policy: ToolPolicy,
     /// Shared tool confirmer used for approval policy decisions.
     confirmer: Arc<Mutex<ToolConfirmer>>,
     /// Tool names currently allowed without additional approval.
@@ -142,6 +146,17 @@ impl AgentEngine {
         output: Arc<dyn OutputSink>,
         cwd: PathBuf,
     ) -> Self {
+        Self::new_with_provider_and_env(provider, config, tools, output, cwd, Vec::new())
+    }
+
+    pub fn new_with_provider_and_env(
+        provider: Arc<dyn LlmProvider>,
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        cwd: PathBuf,
+        runtime_env: Vec<(String, String)>,
+    ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
         let confirmer = ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
@@ -176,9 +191,10 @@ impl AgentEngine {
                 .max_tool_call_failure_turns
                 .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
             tools,
+            tool_policy: ToolPolicy::default(),
             confirmer: Arc::new(Mutex::new(confirmer)),
             allow_list,
-            hooks: Some(HookEngine::new(config.hooks.clone(), cwd.clone())),
+            hooks: Some(HookEngine::new_with_env(config.hooks.clone(), cwd.clone(), runtime_env)),
             session_manager,
             current_session: None,
             output,
@@ -216,6 +232,18 @@ impl AgentEngine {
         session: Session,
         cwd: PathBuf,
     ) -> Self {
+        Self::resume_with_provider_and_env(provider, config, tools, output, session, cwd, Vec::new())
+    }
+
+    pub fn resume_with_provider_and_env(
+        provider: Arc<dyn LlmProvider>,
+        config: Config,
+        tools: ToolRegistry,
+        output: Arc<dyn OutputSink>,
+        session: Session,
+        cwd: PathBuf,
+        runtime_env: Vec<(String, String)>,
+    ) -> Self {
         let system_prompt = config.system_prompt.clone().unwrap_or_default();
         let confirmer = ToolConfirmer::new(config.tools.auto_approve, config.tools.allow_list.clone());
 
@@ -250,9 +278,10 @@ impl AgentEngine {
                 .max_tool_call_failure_turns
                 .unwrap_or(DEFAULT_MAX_TOOL_CALL_FAILURE),
             tools,
+            tool_policy: ToolPolicy::default(),
             confirmer: Arc::new(Mutex::new(confirmer)),
             allow_list,
-            hooks: Some(HookEngine::new(config.hooks.clone(), cwd)),
+            hooks: Some(HookEngine::new_with_env(config.hooks.clone(), cwd, runtime_env)),
             session_manager,
             current_session: Some(session),
             output,
@@ -289,6 +318,11 @@ impl AgentEngine {
 
     pub fn registry_mut(&mut self) -> &mut ToolRegistry {
         &mut self.tools
+    }
+
+    /// Replace the runtime authorization policy for registered tools.
+    pub(crate) fn set_tool_policy(&mut self, tool_policy: ToolPolicy) {
+        self.tool_policy = tool_policy;
     }
 
     /// Get the current session ID (if sessions are enabled and initialized)
@@ -437,7 +471,7 @@ impl AgentEngine {
                 tool_results,
                 tool_modifiers,
                 tool_call_malformed_fingerprint,
-                tool_call_failure_round,
+                tool_call_failure_fingerprint,
             } = self.execute_tool_round(&tool_calls, &assistant_text).await?;
 
             // Apply any context modifiers from skill executions before the next turn.
@@ -450,7 +484,7 @@ impl AgentEngine {
             // Save session after each tool round.
             self.save_session();
 
-            match guards.after_tool_round(tool_call_malformed_fingerprint, tool_call_failure_round) {
+            match guards.after_tool_round(tool_call_malformed_fingerprint, tool_call_failure_fingerprint) {
                 TurnGuardAction::Continue => {}
                 TurnGuardAction::Finalize => {
                     return self
@@ -475,11 +509,13 @@ impl AgentEngine {
             Vec::new()
         } else if self.plan_state.is_active {
             // Plan mode: only Info-category tools (excluding EnterPlanMode)
-            self.tools
-                .to_tool_defs_filtered(|t| t.category() == ToolCategory::Info && t.name() != "EnterPlanMode")
+            self.tools.to_tool_defs_filtered(|t| {
+                self.tool_policy.allows(t.name()) && t.category() == ToolCategory::Info && t.name() != "EnterPlanMode"
+            })
         } else {
             // Normal mode: all tools except ExitPlanMode
-            self.tools.to_tool_defs_filtered(|t| t.name() != "ExitPlanMode")
+            self.tools
+                .to_tool_defs_filtered(|t| self.tool_policy.allows(t.name()) && t.name() != "ExitPlanMode")
         };
 
         // Build system prompt: append plan mode instructions when active
@@ -538,11 +574,25 @@ impl AgentEngine {
             })
             .collect();
         let tool_call_malformed_fingerprint = tool_call_malformed_fingerprint(tool_calls, &tool_call_malformed_reasons);
+        let policy_denied_tool_names: Vec<_> = tool_calls
+            .iter()
+            .zip(&tool_call_malformed_reasons)
+            .map(|(call, malformed_reason)| {
+                if malformed_reason.is_some() {
+                    return None;
+                }
+                let ContentBlock::ToolUse { name, .. } = call else {
+                    return None;
+                };
+                (!self.tool_policy.allows(name)).then(|| name.clone())
+            })
+            .collect();
         let executable_tool_calls: Vec<_> = tool_calls
             .iter()
             .zip(&tool_call_malformed_reasons)
-            .filter(|(_, reason)| reason.is_none())
-            .map(|(call, _)| call.clone())
+            .zip(&policy_denied_tool_names)
+            .filter(|((_, malformed_reason), denied_name)| malformed_reason.is_none() && denied_name.is_none())
+            .map(|((call, _), _)| call.clone())
             .collect();
 
         let (executable_results, executable_modifiers) = if executable_tool_calls.is_empty() {
@@ -597,22 +647,25 @@ impl AgentEngine {
         let (tool_results, tool_modifiers) = merge_tool_results(
             tool_calls,
             &tool_call_malformed_reasons,
+            &policy_denied_tool_names,
             executable_results,
             executable_modifiers,
         );
 
-        let tool_call_failure_round = tool_call_malformed_fingerprint.is_none()
+        let tool_call_failure_fingerprint = (tool_call_malformed_fingerprint.is_none()
             && assistant_text.trim().is_empty()
             && !tool_results.is_empty()
             && tool_results
                 .iter()
-                .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. }));
+                .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. })))
+        .then(|| tool_call_failure_fingerprint(tool_calls))
+        .flatten();
 
         Ok(ToolRoundOutput {
             tool_results,
             tool_modifiers,
             tool_call_malformed_fingerprint,
-            tool_call_failure_round,
+            tool_call_failure_fingerprint,
         })
     }
 
@@ -974,22 +1027,18 @@ impl AgentEngine {
         }
 
         if let Some(thinking_str) = thinking {
-            if !self.compat.supports_thinking() {
-                changes.push("thinking: not supported by current provider".to_string());
-            } else {
-                match thinking_str.as_str() {
-                    "enabled" => {
-                        let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
-                        self.thinking = Some(ThinkingConfig::Enabled { budget_tokens: budget });
-                        changes.push(format!("thinking: enabled (budget: {budget})"));
-                    }
-                    "disabled" => {
-                        self.thinking = Some(ThinkingConfig::Disabled);
-                        changes.push("thinking: disabled".to_string());
-                    }
-                    other => {
-                        changes.push(format!("thinking: ignored invalid value \"{other}\""));
-                    }
+            match thinking_str.as_str() {
+                "enabled" => {
+                    let budget = thinking_budget.unwrap_or(Self::DEFAULT_THINKING_BUDGET);
+                    self.thinking = Some(ThinkingConfig::Enabled { budget_tokens: budget });
+                    changes.push(format!("thinking: enabled (budget: {budget})"));
+                }
+                "disabled" => {
+                    self.thinking = Some(ThinkingConfig::Disabled);
+                    changes.push("thinking: disabled".to_string());
+                }
+                other => {
+                    changes.push(format!("thinking: ignored invalid value \"{other}\""));
                 }
             }
         } else if let Some(new_budget) = thinking_budget
@@ -1149,10 +1198,6 @@ impl AgentEngine {
             if let Err(e) = mgr.save(session) {
                 self.output.emit_error(&format!("Failed to save session: {}", e));
             }
-            if let Err(e) = mgr.update_index_for(session) {
-                self.output
-                    .emit_error(&format!("Failed to update session index: {}", e));
-            }
         }
     }
 
@@ -1228,10 +1273,10 @@ struct ToolRoundOutput {
     /// `Some` only when every tool call in the round was malformed; feeds the
     /// tool-call-malformed breaker.
     tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,
-    /// True when this round produced executable (non-malformed) tool calls
-    /// that all errored and the model emitted no visible text; feeds the
-    /// consecutive-tool-call-failure breaker.
-    tool_call_failure_round: bool,
+    /// `Some` when this round produced executable (non-malformed) tool calls
+    /// with the same name+input pattern, all errored, and the model emitted no
+    /// visible text; feeds the consecutive-tool-call-failure breaker.
+    tool_call_failure_fingerprint: Option<ToolCallFailureFingerprint>,
 }
 
 /// Assemble the assistant message content blocks (thinking, text, tool calls)

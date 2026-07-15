@@ -28,7 +28,7 @@ mod tests {
             system: "You are a test assistant.".to_string(),
             messages,
             tools,
-            max_tokens: 8192,
+            max_tokens: Some(8192),
             thinking: None,
             reasoning_effort: None,
         }

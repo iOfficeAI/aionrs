@@ -23,7 +23,7 @@ fn anthropic_config(api_key: &str) -> Config {
         api_key: api_key.to_string(),
         base_url: "https://api.anthropic.com".to_string(),
         model: "claude-haiku-4-20250514".to_string(), // cheapest for e2e
-        max_tokens: 256,
+        max_tokens: Some(256),
         max_turns: Some(3),
         max_tool_call_malformed_turns: Some(3),
         max_tool_call_failure_turns: Some(3),

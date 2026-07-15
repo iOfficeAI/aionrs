@@ -29,6 +29,13 @@ where
 
 pub const MAX_STREAM_RETRIES: u32 = 2;
 pub const MAX_INITIAL_CONNECT_RETRIES: u32 = 2;
+const INITIAL_HTTP_5XX_RETRY_BACKOFFS: [Duration; 5] = [
+    Duration::from_secs(1),
+    Duration::from_secs(5),
+    Duration::from_secs(10),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+];
 const MAX_BACKOFF: Duration = Duration::from_secs(15);
 const INITIAL_CONNECT_BACKOFF: Duration = Duration::from_millis(300);
 const MAX_INITIAL_CONNECT_BACKOFF: Duration = Duration::from_secs(2);
@@ -65,6 +72,40 @@ fn is_initial_connect_error(error: &ProviderError) -> bool {
         ProviderError::Http(err) => err.is_connect(),
         ProviderError::Connection(_) => true,
         _ => false,
+    }
+}
+
+/// Retry transient provider-side HTTP failures before stream consumption starts.
+pub(crate) async fn with_initial_http_5xx_retry<F, Fut, T>(f: F) -> Result<T, ProviderError>
+where
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T, ProviderError>>,
+{
+    let max_retries = INITIAL_HTTP_5XX_RETRY_BACKOFFS.len();
+    for (attempt, backoff) in INITIAL_HTTP_5XX_RETRY_BACKOFFS.iter().enumerate() {
+        match f().await {
+            Ok(val) => return Ok(val),
+            Err(e) => match initial_http_5xx_status(&e) {
+                Some(status) => {
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        max_retries,
+                        status,
+                        "retrying initial provider request after server error"
+                    );
+                    tokio::time::sleep(*backoff).await;
+                }
+                _ => return Err(e),
+            },
+        }
+    }
+    f().await
+}
+
+fn initial_http_5xx_status(error: &ProviderError) -> Option<u16> {
+    match error {
+        ProviderError::Api { status, .. } if (500..=599).contains(status) => Some(*status),
+        _ => None,
     }
 }
 

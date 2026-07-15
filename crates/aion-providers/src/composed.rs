@@ -36,14 +36,18 @@ impl LlmProvider for ComposedProvider {
 
         tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
 
-        let projected_request =
-            self.transport
-                .build_projected_request(&request.model, body, &self.compat, tool_wire_shape)?;
         let transport = self.transport.clone();
+        let compat = self.compat.clone();
+        let model = request.model.clone();
         let send = move || {
             let transport = transport.clone();
-            let request = projected_request.clone();
-            async move { transport.send(request).await }
+            let compat = compat.clone();
+            let body = body.clone();
+            let model = model.clone();
+            async move {
+                let projected_request = transport.build_projected_request(&model, body, &compat, tool_wire_shape)?;
+                transport.send(projected_request).await
+            }
         };
 
         let decoder = self.transport.decoder(&self.compat);

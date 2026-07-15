@@ -9,6 +9,7 @@ mod tests {
     fn test_flattened_compat_deserializes_legacy_toml_keys() {
         let toml_str = r#"
 max_tokens_field = "max_completion_tokens"
+default_max_tokens = 128000
 api_path = "/chat/completions"
 max_request_body_bytes = 1048576
 include_stream_options = false
@@ -28,6 +29,10 @@ auto_tool_id = true
 supports_thinking = true
 supports_effort = false
 effort_levels = ["low", "medium"]
+
+[[model_max_tokens]]
+pattern = "claude-sonnet-4-6"
+max_tokens = 64000
 "#;
 
         let compat: ProviderCompat = toml::from_str(toml_str).unwrap();
@@ -35,6 +40,14 @@ effort_levels = ["low", "medium"]
         assert_eq!(
             compat.transport.max_tokens_field.as_deref(),
             Some("max_completion_tokens")
+        );
+        assert_eq!(compat.transport.default_max_tokens, Some(128_000));
+        assert_eq!(
+            compat.transport.model_max_tokens,
+            Some(vec![ModelMaxTokensRule {
+                pattern: "claude-sonnet-4-6".to_string(),
+                max_tokens: 64_000,
+            }])
         );
         assert_eq!(compat.transport.api_path.as_deref(), Some("/chat/completions"));
         assert_eq!(compat.max_request_body_bytes(), Some(1_048_576));
@@ -67,6 +80,11 @@ effort_levels = ["low", "medium"]
         let compat = ProviderCompat {
             transport: TransportCompat {
                 max_tokens_field: Some("max_completion_tokens".to_string()),
+                default_max_tokens: Some(128_000),
+                model_max_tokens: Some(vec![ModelMaxTokensRule {
+                    pattern: "claude-sonnet-4-6".to_string(),
+                    max_tokens: 64_000,
+                }]),
                 api_path: Some("/chat/completions".to_string()),
                 max_request_body_bytes: Some(1_048_576),
                 include_stream_options: Some(false),
@@ -100,6 +118,10 @@ effort_levels = ["low", "medium"]
         let toml = toml::to_string(&compat).unwrap();
 
         assert!(toml.contains("max_tokens_field = \"max_completion_tokens\""));
+        assert!(toml.contains("default_max_tokens = 128000"));
+        assert!(toml.contains("[[model_max_tokens]]"));
+        assert!(toml.contains("pattern = \"claude-sonnet-4-6\""));
+        assert!(toml.contains("max_tokens = 64000"));
         assert!(toml.contains("api_path = \"/chat/completions\""));
         assert!(toml.contains("max_request_body_bytes = 1048576"));
         assert!(toml.contains("include_stream_options = false"));
@@ -135,6 +157,7 @@ effort_levels = ["low", "medium"]
                 api_path: Some("/chat/completions".to_string()),
                 max_request_body_bytes: Some(2_048),
                 include_stream_options: None,
+                ..Default::default()
             },
             messages: MessageCompat {
                 merge_assistant_messages: Some(false),
@@ -168,6 +191,7 @@ effort_levels = ["low", "medium"]
             merged.transport.max_tokens_field.as_deref(),
             Some("max_completion_tokens")
         );
+        assert!(merged.default_max_tokens_for_model("claude-sonnet-4-6").is_none());
         assert_eq!(merged.transport.api_path.as_deref(), Some("/chat/completions"));
         assert_eq!(merged.max_request_body_bytes(), Some(2_048));
         assert!(merged.include_stream_options());
@@ -202,6 +226,8 @@ effort_levels = ["low", "medium"]
         assert!(merged.supports_thinking());
         assert!(!merged.supports_effort());
         assert!(merged.effort_levels().is_empty());
+        assert_eq!(merged.default_max_tokens_for_model("claude-sonnet-4-6"), Some(128_000));
+        assert_eq!(merged.default_max_tokens_for_model("unknown-model"), Some(128_000));
     }
 
     #[test]
@@ -213,6 +239,8 @@ effort_levels = ["low", "medium"]
         assert!(!compat.sanitize_schema());
         assert!(!compat.merge_assistant_messages());
         assert!(!compat.clean_orphan_tool_calls());
+        assert_eq!(compat.default_max_tokens_for_model("claude-sonnet-4-6"), Some(128_000));
+        assert_eq!(compat.default_max_tokens_for_model("unknown-model"), Some(128_000));
     }
 
     #[test]
@@ -222,6 +250,10 @@ effort_levels = ["low", "medium"]
         assert!(compat.merge_same_role());
         assert!(compat.auto_tool_id());
         assert!(compat.sanitize_schema());
+        assert_eq!(
+            compat.default_max_tokens_for_model("anthropic.claude-sonnet-4-20250514-v1:0"),
+            Some(64_000)
+        );
     }
 
     #[test]
@@ -237,6 +269,7 @@ effort_levels = ["low", "medium"]
         assert_eq!(compat.tools.emit_tools, Some(true));
         assert!(compat.include_stream_options());
         assert!(compat.emit_tools());
+        assert_eq!(compat.default_max_tokens_for_model("gpt-5"), None);
     }
 
     #[test]

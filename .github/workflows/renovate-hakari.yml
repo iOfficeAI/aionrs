@@ -1,0 +1,101 @@
+name: Renovate Hakari
+
+on:
+  pull_request_target:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-main
+  cancel-in-progress: false
+
+jobs:
+  renovate-hakari:
+    name: Regenerate Hakari
+    if: >-
+      (
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event.pull_request.merged == true &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          startsWith(github.event.pull_request.head.ref, 'renovate/') &&
+          (
+            github.event.pull_request.user.login == 'renovate[bot]' ||
+            github.event.pull_request.user.login == 'app/renovate'
+          )
+        )
+      )
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Ensure latest main
+        run: git pull --ff-only origin main
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.96.1
+
+      - name: Install cargo-hakari
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+
+      - name: Regenerate
+        run: |
+          cargo hakari generate
+          cargo hakari manage-deps --yes
+
+      - name: Create follow-up pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HAKARI_BRANCH: automation/renovate-hakari
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "${HAKARI_BRANCH}"
+          git add Cargo.toml Cargo.lock crates/*/Cargo.toml workspace-hack/Cargo.toml
+          git commit -m "chore(deps): regenerate hakari after renovate merge"
+          git push --force-with-lease origin "HEAD:${HAKARI_BRANCH}"
+
+          body_file="$(mktemp)"
+          cat > "${body_file}" <<EOF
+          Regenerated Hakari after Renovate dependency changes.
+
+          Commands:
+
+          \`\`\`bash
+          cargo hakari generate
+          cargo hakari manage-deps --yes
+          \`\`\`
+
+          Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          EOF
+
+          if gh pr view "${HAKARI_BRANCH}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh pr edit "${HAKARI_BRANCH}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "chore(deps): regenerate hakari after renovate merge" \
+              --body-file "${body_file}"
+          else
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base main \
+              --head "${HAKARI_BRANCH}" \
+              --title "chore(deps): regenerate hakari after renovate merge" \
+              --body-file "${body_file}"
+          fi

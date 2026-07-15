@@ -31,8 +31,8 @@ A Rust-based LLM tool-use agent for the command line. It connects to LLM APIs, a
 cargo build --release
 
 # Generate default config, then add your API key
-./target/release/aionrs --init-config
-# Edit the generated config (run `aionrs --config-path` to find it)
+./target/release/aionrs config init
+# Edit the generated config (run `aionrs config path` to find it)
 
 # Single-shot mode
 aionrs "Read Cargo.toml and explain the dependencies"

@@ -1,5 +1,73 @@
 # Changelog
 
+## [0.2.4](https://github.com/iOfficeAI/aionrs/compare/v0.2.3...v0.2.4) (2026-07-14)
+
+
+### Bug Fixes
+
+* **agent:** enforce runtime tool policies ([c504789](https://github.com/iOfficeAI/aionrs/commit/c504789c5ab6bcaf8ad725ac87a0adedc25a4c1e))
+* **agent:** enforce runtime tool policies ([609e6e5](https://github.com/iOfficeAI/aionrs/commit/609e6e592700a67657d79067992753ea5dceb8ff))
+* **agent:** inherit tool policy in sub-agents ([6626b61](https://github.com/iOfficeAI/aionrs/commit/6626b61a8b5c43feac8b43ce47423a84614efec3))
+* **agent:** scope tool search to runtime policy ([29ba1ab](https://github.com/iOfficeAI/aionrs/commit/29ba1ab511aec2e2ccff3236a0014a726fe26120))
+
+## [0.2.3](https://github.com/iOfficeAI/aionrs/compare/v0.2.2...v0.2.3) (2026-07-13)
+
+
+### Bug Fixes
+
+* **agent:** fingerprint tool-call failure breaker ([299853b](https://github.com/iOfficeAI/aionrs/commit/299853b348c0f3146369afff48fe9af7ace55ba4))
+* **agent:** fingerprint tool-call failure breaker ([5d86fe5](https://github.com/iOfficeAI/aionrs/commit/5d86fe51e4ecf2149f951ef29f3cd39d268741fd))
+
+## [0.2.2](https://github.com/iOfficeAI/aionrs/compare/v0.2.1...v0.2.2) (2026-07-09)
+
+
+### Bug Fixes
+
+* **deps:** update rust crate getrandom to 0.4 ([c78cbcf](https://github.com/iOfficeAI/aionrs/commit/c78cbcf8ac94d7b523e23a0b0f34d21b3fbbaaa8))
+* **deps:** update rust crate getrandom to 0.4 ([37666d3](https://github.com/iOfficeAI/aionrs/commit/37666d3379273fc599633610f63c83d249806a5b))
+* **deps:** update rust crate getrandom to 0.4 ([#193](https://github.com/iOfficeAI/aionrs/issues/193)) ([2a02775](https://github.com/iOfficeAI/aionrs/commit/2a027756269ffbf8328a3cf5906356482f8966fa))
+* honor compat max token defaults ([77029c3](https://github.com/iOfficeAI/aionrs/commit/77029c396be5f666fa3f782235af86e676e303ed))
+* make max tokens optional by provider ([6f2f8ad](https://github.com/iOfficeAI/aionrs/commit/6f2f8adb9fbb5f20af95710ba42d3ade4333a085))
+* **providers:** retry initial provider 5xx responses ([618f3ee](https://github.com/iOfficeAI/aionrs/commit/618f3eecb1a81aab04c5cc5ae62c091e9b0a2fd4))
+* **providers:** retry initial provider 5xx responses ([9c9b7ec](https://github.com/iOfficeAI/aionrs/commit/9c9b7ec2612d12498bdbf0d7e92c9513694d85ed))
+* **provider:** support OpenAI-compatible thinking and chat paths ([#203](https://github.com/iOfficeAI/aionrs/issues/203)) ([6a05d5a](https://github.com/iOfficeAI/aionrs/commit/6a05d5adfc3c106b8704d410c64acda3043d663d))
+* remove duplicate aws smithy lock entry ([f807a15](https://github.com/iOfficeAI/aionrs/commit/f807a157174e7f5d7c3d30409ee7132bb2cfdee0))
+* remove redundant compat default update ([b3ec51f](https://github.com/iOfficeAI/aionrs/commit/b3ec51fe7f8e98b3e29b18219b5c895a7bf3e22d))
+
+
+### Documentation
+
+* add aionrs code standards ([#214](https://github.com/iOfficeAI/aionrs/issues/214)) ([5d0eae1](https://github.com/iOfficeAI/aionrs/commit/5d0eae1cc0f5d901d627d16e7247261bebeec500))
+
+## [0.2.1](https://github.com/iOfficeAI/aionrs/compare/v0.2.0...v0.2.1) (2026-07-08)
+
+
+### Features
+
+* **providers:** preserve response body on 429 rate-limit errors ([52aade8](https://github.com/iOfficeAI/aionrs/commit/52aade888d5916db563d66beda3a5a5b68b05e7b))
+* **providers:** preserve response body on 429 rate-limit errors ([f2a2fb1](https://github.com/iOfficeAI/aionrs/commit/f2a2fb1e36ffb953e4c5f286f22aa5a2f6ed2100))
+
+## [0.2.0](https://github.com/iOfficeAI/aionrs/compare/v0.1.38...v0.2.0) (2026-07-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* **cli:** restructure management flags into subcommands ([#184](https://github.com/iOfficeAI/aionrs/issues/184))
+
+### Features
+
+* support parallel persisted sessions ([#195](https://github.com/iOfficeAI/aionrs/issues/195)) ([5e0f0b5](https://github.com/iOfficeAI/aionrs/commit/5e0f0b57a2db4f88fa6ff00457633fbc40316547))
+
+
+### Bug Fixes
+
+* **deps:** update rust crate getrandom to 0.4 ([#188](https://github.com/iOfficeAI/aionrs/issues/188)) ([e8f1a7d](https://github.com/iOfficeAI/aionrs/commit/e8f1a7dfa84c99d83b469dd6970ba2609ffbc10a))
+
+
+### Code Refactoring
+
+* **cli:** restructure management flags into subcommands ([#184](https://github.com/iOfficeAI/aionrs/issues/184)) ([7969fa2](https://github.com/iOfficeAI/aionrs/commit/7969fa2ff7ef22230e949566ba4192f3bd3070b9))
+
 ## [0.1.38](https://github.com/iOfficeAI/aionrs/compare/v0.1.37...v0.1.38) (2026-06-30)
 
 

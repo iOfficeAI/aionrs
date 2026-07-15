@@ -38,9 +38,20 @@ pub(crate) struct ToolCallMalformedFingerprint {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ToolCallFailureFingerprint {
+    calls: Vec<ToolCallFailureFingerprintPart>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct ToolCallMalformedFingerprintPart {
     reason: ToolCallMalformedReason,
     id: String,
+    name: String,
+    input: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ToolCallFailureFingerprintPart {
     name: String,
     input: String,
 }
@@ -123,16 +134,39 @@ pub(crate) fn tool_call_malformed_fingerprint(
     Some(ToolCallMalformedFingerprint { calls })
 }
 
+pub(crate) fn tool_call_failure_fingerprint(tool_calls: &[ContentBlock]) -> Option<ToolCallFailureFingerprint> {
+    if tool_calls.is_empty() {
+        return None;
+    }
+
+    let calls: Option<Vec<_>> = tool_calls
+        .iter()
+        .map(|block| {
+            let ContentBlock::ToolUse { name, input, .. } = block else {
+                return None;
+            };
+            Some(ToolCallFailureFingerprintPart {
+                name: name.trim().to_string(),
+                input: serde_json::to_string(input).unwrap_or_default(),
+            })
+        })
+        .collect();
+
+    Some(ToolCallFailureFingerprint { calls: calls? })
+}
+
 /// Interleave synthetic malformed-call results with executed-tool results back
 /// into the original `tool_calls` order.
 ///
 /// `tool_call_malformed_reasons[i]` is `Some` when call `i` was malformed (and gets a
-/// synthetic error result), otherwise the next executed result/modifier is
-/// pulled from the `executable_*` iterators. Kept as a free function so the
-/// interleaving invariant can be unit-tested in isolation.
+/// synthetic error result). `policy_denied_tool_names[i]` is `Some` when the
+/// runtime policy rejected an otherwise valid call. Remaining calls consume
+/// the next result/modifier from the `executable_*` iterators. Kept as a free
+/// function so the interleaving invariant can be unit-tested in isolation.
 pub(crate) fn merge_tool_results(
     tool_calls: &[ContentBlock],
     tool_call_malformed_reasons: &[Option<ToolCallMalformedReason>],
+    policy_denied_tool_names: &[Option<String>],
     executable_results: Vec<ContentBlock>,
     executable_modifiers: Vec<Option<ContextModifier>>,
 ) -> (Vec<ContentBlock>, Vec<Option<ContextModifier>>) {
@@ -141,7 +175,11 @@ pub(crate) fn merge_tool_results(
     let mut tool_results = Vec::with_capacity(tool_calls.len());
     let mut tool_modifiers = Vec::with_capacity(tool_calls.len());
 
-    for (call, reason) in tool_calls.iter().zip(tool_call_malformed_reasons) {
+    for ((call, reason), denied_name) in tool_calls
+        .iter()
+        .zip(tool_call_malformed_reasons)
+        .zip(policy_denied_tool_names)
+    {
         if let Some(reason) = reason {
             let ContentBlock::ToolUse { id, name, .. } = call else {
                 continue;
@@ -164,6 +202,26 @@ pub(crate) fn merge_tool_results(
                 is_error: true,
             });
             tool_modifiers.push(None);
+        } else if let Some(denied_name) = denied_name {
+            let ContentBlock::ToolUse { id, .. } = call else {
+                continue;
+            };
+            tracing::warn!(
+                target: "aion_agent",
+                event = "agent.tool_policy.denied",
+                tool_call_id = %id,
+                tool = %denied_name,
+                "rejected tool call by runtime policy"
+            );
+
+            tool_results.push(ContentBlock::ToolResult {
+                tool_use_id: id.clone(),
+                content: format!(
+                    "Tool '{denied_name}' is not available in this runtime. Use an available tool or answer in text."
+                ),
+                is_error: true,
+            });
+            tool_modifiers.push(None);
         } else {
             tool_results.push(
                 executable_results
@@ -182,13 +240,18 @@ pub(crate) fn merge_tool_results(
 }
 
 pub(crate) struct ToolCallFailureTracker {
+    last: Option<ToolCallFailureFingerprint>,
     count: usize,
     limit: usize,
 }
 
 impl ToolCallFailureTracker {
     pub(crate) fn new(limit: usize) -> Self {
-        Self { count: 0, limit }
+        Self {
+            last: None,
+            count: 0,
+            limit,
+        }
     }
 
     pub(crate) fn limit(&self) -> usize {
@@ -199,11 +262,18 @@ impl ToolCallFailureTracker {
         self.limit > 0 && self.count >= self.limit
     }
 
-    pub(crate) fn observe(&mut self, failed_round: bool) -> usize {
-        if failed_round {
+    pub(crate) fn observe(&mut self, current: Option<ToolCallFailureFingerprint>) -> usize {
+        let Some(current) = current else {
+            self.last = None;
+            self.count = 0;
+            return 0;
+        };
+
+        if self.last.as_ref() == Some(&current) {
             self.count += 1;
         } else {
-            self.count = 0;
+            self.last = Some(current);
+            self.count = 1;
         }
 
         self.count

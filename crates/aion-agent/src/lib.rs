@@ -18,6 +18,7 @@ pub mod spawn_tool;
 pub mod spawner;
 mod stream;
 mod tool_call;
+pub mod tool_policy;
 mod turn;
 pub mod vcr;
 

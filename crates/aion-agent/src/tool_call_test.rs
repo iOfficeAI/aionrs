@@ -60,28 +60,57 @@ mod tests {
     }
 
     #[test]
-    fn tool_call_failure_tracker_counts_consecutive_failed_rounds() {
+    fn tool_call_failure_tracker_counts_only_same_fingerprint() {
+        let command_a = ContentBlock::ToolUse {
+            id: "call-a".into(),
+            name: "ExecCommand".into(),
+            input: json!({ "cmd": "python update_config.py" }),
+            extra: None,
+        };
+        let command_a_reissued = ContentBlock::ToolUse {
+            id: "call-a-reissued".into(),
+            name: "ExecCommand".into(),
+            input: json!({ "cmd": "python update_config.py" }),
+            extra: None,
+        };
+        let command_b = ContentBlock::ToolUse {
+            id: "call-b".into(),
+            name: "ExecCommand".into(),
+            input: json!({ "cmd": "aioncore assistants update" }),
+            extra: None,
+        };
+        let command_a = tool_call_failure_fingerprint(&[command_a]);
+        let command_a_reissued = tool_call_failure_fingerprint(&[command_a_reissued]);
+        let command_b = tool_call_failure_fingerprint(&[command_b]);
         let mut tracker = ToolCallFailureTracker::new(3);
 
-        assert_eq!(tracker.observe(true), 1);
-        assert_eq!(tracker.observe(true), 2);
-        assert_eq!(tracker.observe(false), 0);
-        assert_eq!(tracker.observe(true), 1);
+        assert_eq!(tracker.observe(command_a.clone()), 1);
+        assert_eq!(tracker.observe(command_a_reissued), 2);
+        assert_eq!(tracker.observe(command_b), 1);
         assert_eq!(tracker.count(), 1);
         assert!(!tracker.is_limit_exceeded());
-        assert_eq!(tracker.observe(true), 2);
-        assert_eq!(tracker.observe(true), 3);
+        assert_eq!(tracker.observe(None), 0);
+        assert_eq!(tracker.observe(command_a.clone()), 1);
+        assert_eq!(tracker.observe(command_a.clone()), 2);
+        assert_eq!(tracker.observe(command_a), 3);
         assert!(tracker.is_limit_exceeded());
         assert_eq!(tracker.limit(), 3);
     }
 
     #[test]
     fn tool_call_failure_tracker_limit_zero_disables_breaker() {
+        let call = ContentBlock::ToolUse {
+            id: "call-a".into(),
+            name: "ExecCommand".into(),
+            input: json!({ "cmd": "python update_config.py" }),
+            extra: None,
+        };
+        let fingerprint = tool_call_failure_fingerprint(&[call]);
         let mut tracker = ToolCallFailureTracker::new(0);
 
-        assert_eq!(tracker.observe(true), 1);
+        assert_eq!(tracker.observe(fingerprint.clone()), 1);
         assert!(!tracker.is_limit_exceeded());
-        assert_eq!(tracker.observe(true), 2);
+        assert_eq!(tracker.observe(fingerprint), 2);
         assert!(!tracker.is_limit_exceeded());
     }
 }

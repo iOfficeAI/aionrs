@@ -17,7 +17,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.38"
+version = "0.2.4"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/iOfficeAI/aionrs"
@@ -47,6 +47,7 @@ reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"], defau
 # Serialization
 serde      = { version = "1", features = ["derive"] }
 serde_json = "1"
+uuid       = { version = "1", features = ["v7"] }
 
 # Async trait support
 async-trait = "0.1"

@@ -125,8 +125,8 @@ pub struct DefaultConfig {
     #[serde(default = "default_provider")]
     pub provider: String,
     pub model: Option<String>,
-    #[serde(default = "default_max_tokens")]
-    pub max_tokens: u32,
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
     #[serde(default)]
     pub max_turns: Option<usize>,
     #[serde(default)]
@@ -141,7 +141,7 @@ impl Default for DefaultConfig {
         Self {
             provider: default_provider(),
             model: None,
-            max_tokens: default_max_tokens(),
+            max_tokens: None,
             max_turns: None,
             max_tool_call_malformed_turns: None,
             max_tool_call_failure_turns: None,
@@ -240,9 +240,6 @@ impl Default for SessionConfig {
 fn default_provider() -> String {
     "anthropic".to_string()
 }
-fn default_max_tokens() -> u32 {
-    8192
-}
 fn default_allow_list() -> Vec<String> {
     vec!["Read".into(), "Grep".into(), "Glob".into()]
 }
@@ -273,7 +270,7 @@ pub struct Config {
     pub api_key: String,
     pub base_url: String,
     pub model: String,
-    pub max_tokens: u32,
+    pub max_tokens: Option<u32>,
     pub max_turns: Option<usize>,
     pub max_tool_call_malformed_turns: Option<usize>,
     pub max_tool_call_failure_turns: Option<usize>,
@@ -316,6 +313,8 @@ pub struct CliArgs {
     pub base_url: Option<String>,
     pub model: Option<String>,
     pub max_tokens: Option<u32>,
+    pub thinking: Option<String>,
+    pub thinking_budget: Option<u32>,
     pub max_turns: Option<usize>,
     pub max_tool_call_malformed_turns: Option<usize>,
     pub max_tool_call_failure_turns: Option<usize>,
@@ -361,10 +360,11 @@ impl Config {
             .or_else(|| provider_config.base_url.clone())
             .unwrap_or_else(|| match provider {
                 ProviderType::Anthropic => "https://api.anthropic.com".into(),
-                ProviderType::OpenAI => "https://api.openai.com".into(),
+                ProviderType::OpenAI => "https://api.openai.com/v1".into(),
                 // Bedrock/Vertex URLs are constructed from region/project, not base_url
                 ProviderType::Bedrock | ProviderType::Vertex => String::new(),
             });
+        let base_url = normalize_base_url(provider, base_url);
 
         let model = cli
             .model
@@ -378,7 +378,7 @@ impl Config {
                 ProviderType::Vertex => "claude-sonnet-4@20250514".into(),
             });
 
-        let max_tokens = cli.max_tokens.unwrap_or(merged.default.max_tokens);
+        let max_tokens = cli.max_tokens.or(merged.default.max_tokens);
         let max_turns = resolve_max_turns(cli.max_turns.or(merged.default.max_turns));
         let max_tool_call_malformed_turns = cli
             .max_tool_call_malformed_turns
@@ -413,6 +413,7 @@ impl Config {
         let user_compat = provider_config.compat.clone().unwrap_or_default();
 
         let compat = ProviderCompat::merge(compat_defaults, user_compat);
+        let thinking = resolve_cli_thinking(cli.thinking.as_deref(), cli.thinking_budget)?;
 
         Ok(Config {
             provider_label,
@@ -425,7 +426,7 @@ impl Config {
             max_tool_call_malformed_turns,
             max_tool_call_failure_turns,
             system_prompt,
-            thinking: None,
+            thinking,
             prompt_caching,
             compat,
             tools,
@@ -441,6 +442,35 @@ impl Config {
             logging: merged.logging,
         })
     }
+}
+
+const DEFAULT_THINKING_BUDGET: u32 = 10_000;
+
+fn resolve_cli_thinking(
+    thinking: Option<&str>,
+    thinking_budget: Option<u32>,
+) -> anyhow::Result<Option<ThinkingConfig>> {
+    match thinking {
+        Some("enabled") => Ok(Some(ThinkingConfig::Enabled {
+            budget_tokens: thinking_budget.unwrap_or(DEFAULT_THINKING_BUDGET),
+        })),
+        Some("disabled") => Ok(Some(ThinkingConfig::Disabled)),
+        Some(other) => anyhow::bail!("Invalid --thinking value: {other}. Expected 'enabled' or 'disabled'."),
+        None => Ok(None),
+    }
+}
+
+fn normalize_base_url(provider: ProviderType, base_url: String) -> String {
+    if provider != ProviderType::OpenAI {
+        return base_url;
+    }
+
+    let trimmed = base_url.trim_end_matches('/');
+    if trimmed.eq_ignore_ascii_case("https://api.openai.com") || trimmed.eq_ignore_ascii_case("http://api.openai.com") {
+        return format!("{trimmed}/v1");
+    }
+
+    base_url
 }
 
 fn parse_builtin_provider(s: &str) -> Option<ProviderType> {
@@ -557,7 +587,7 @@ fn resolve_api_key(cli_key: Option<&str>, config_key: Option<&str>, provider: Pr
 
     anyhow::bail!(
         "No API key found. Provide via --api-key, config file, environment variable \
-         (API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY), or run 'aionrs --login'."
+         (API_KEY, ANTHROPIC_API_KEY, or OPENAI_API_KEY), or run 'aionrs auth login'."
     )
 }
 
@@ -603,11 +633,7 @@ fn merge_config_files(global: ConfigFile, project: ConfigFile) -> ConfigFile {
             global.default.provider
         },
         model: project.default.model.or(global.default.model),
-        max_tokens: if project.default.max_tokens != default_max_tokens() {
-            project.default.max_tokens
-        } else {
-            global.default.max_tokens
-        },
+        max_tokens: project.default.max_tokens.or(global.default.max_tokens),
         max_turns: project.default.max_turns.or(global.default.max_turns),
         max_tool_call_malformed_turns: project
             .default
@@ -803,7 +829,7 @@ fn apply_profile(mut config: ConfigFile, profile_name: &str) -> anyhow::Result<C
         config.default.model = Some(model);
     }
     if let Some(max_tokens) = profile.max_tokens {
-        config.default.max_tokens = max_tokens;
+        config.default.max_tokens = Some(max_tokens);
     }
     if let Some(max_turns) = profile.max_turns {
         config.default.max_turns = Some(max_turns);
@@ -864,7 +890,7 @@ const DEFAULT_CONFIG_TEMPLATE: &str = r#"# aionrs configuration
 [default]
 provider = "anthropic"            # built-in provider or custom alias from [providers.<name>]
 # model = "claude-sonnet-4-20250514"
-max_tokens = 8192
+# max_tokens = 8192                  # optional per-response output cap; omit to use provider/model defaults
 # max_turns = 20                  # optional max model turns per run; omit or set 0 to disable
 # max_tool_call_malformed_turns = 3  # 0 disables the tool-call-malformed round breaker
 # max_tool_call_failure_turns = 3    # 0 disables the tool-call-failure round breaker
@@ -881,7 +907,7 @@ default = "auto"                 # auto, powershell, pwsh, cmd, bash, zsh, sh, o
 
 [providers.openai]
 # api_key = "sk-xxx"             # can also use env: OPENAI_API_KEY
-# base_url = "https://api.openai.com"
+# base_url = "https://api.openai.com/v1"
 
 # Custom provider alias (maps to a built-in provider type)
 # [providers.my-service]
@@ -912,7 +938,7 @@ default = "auto"                 # auto, powershell, pwsh, cmd, bash, zsh, sh, o
 # region = "us-central1"
 # credentials_file = "/path/to/service-account.json"  # or use ADC
 
-# OAuth settings (for --login with Claude.ai account)
+# OAuth settings (for `aionrs auth login` with Claude.ai account)
 # [auth]
 # auth_url = "https://claude.ai/oauth"
 # token_url = "https://claude.ai/oauth/token"
@@ -923,7 +949,17 @@ default = "auto"                 # auto, powershell, pwsh, cmd, bash, zsh, sh, o
 # provider = "openai"
 # model = "deepseek-chat"
 # api_key = "sk-xxx"
-# base_url = "https://api.deepseek.com"
+# base_url = "https://api.deepseek.com/v1"
+
+# [profiles.deepseek-v4-pro]
+# provider = "openai"
+# model = "deepseek-v4-pro"
+# api_key = "sk-xxx"
+# base_url = "https://api.deepseek.com/v1"
+# max_tokens = 16384
+#
+# [profiles.deepseek-v4-pro.compat]
+# supports_thinking = true
 
 # [profiles.ollama]
 # provider = "openai"

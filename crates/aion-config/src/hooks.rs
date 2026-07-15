@@ -43,11 +43,24 @@ fn default_hook_timeout() -> u64 {
 pub struct HookEngine {
     config: HooksConfig,
     cwd: PathBuf,
+    runtime_env: HashMap<String, String>,
 }
 
 impl HookEngine {
     pub fn new(config: HooksConfig, cwd: PathBuf) -> Self {
-        Self { config, cwd }
+        Self {
+            config,
+            cwd,
+            runtime_env: HashMap::new(),
+        }
+    }
+
+    pub fn new_with_env(config: HooksConfig, cwd: PathBuf, runtime_env: Vec<(String, String)>) -> Self {
+        Self {
+            config,
+            cwd,
+            runtime_env: runtime_env.into_iter().collect(),
+        }
     }
 
     /// Run pre-tool-use hooks. Returns Err if any hook blocks execution.
@@ -60,7 +73,7 @@ impl HookEngine {
             .collect();
 
         for hook in matching {
-            let env = build_env_vars(tool_name, tool_input);
+            let env = self.build_hook_env(tool_name, tool_input);
             let result = run_hook_command(&hook.command, &env, hook.timeout_ms, &self.cwd).await?;
             if !result.success {
                 return Err(HookError::Blocked {
@@ -88,7 +101,7 @@ impl HookEngine {
 
         let mut messages = Vec::new();
         for hook in matching {
-            let mut env = build_env_vars(tool_name, tool_input);
+            let mut env = self.build_hook_env(tool_name, tool_input);
             env.insert("TOOL_OUTPUT".to_string(), tool_output.to_string());
 
             match run_hook_command(&hook.command, &env, hook.timeout_ms, &self.cwd).await {
@@ -109,7 +122,7 @@ impl HookEngine {
     pub async fn run_stop(&self) -> Vec<String> {
         let mut messages = Vec::new();
         for hook in &self.config.stop {
-            match run_hook_command(&hook.command, &HashMap::new(), hook.timeout_ms, &self.cwd).await {
+            match run_hook_command(&hook.command, &self.runtime_env, hook.timeout_ms, &self.cwd).await {
                 Ok(result) => {
                     if !result.output.is_empty() {
                         messages.push(format!("[hook:{}] {}", hook.name, result.output.trim()));
@@ -134,6 +147,12 @@ impl HookEngine {
         merge_vec(&mut self.config.pre_tool_use, additional.pre_tool_use);
         merge_vec(&mut self.config.post_tool_use, additional.post_tool_use);
         merge_vec(&mut self.config.stop, additional.stop);
+    }
+
+    fn build_hook_env(&self, tool_name: &str, tool_input: &serde_json::Value) -> HashMap<String, String> {
+        let mut env = self.runtime_env.clone();
+        env.extend(build_env_vars(tool_name, tool_input));
+        env
     }
 }
 

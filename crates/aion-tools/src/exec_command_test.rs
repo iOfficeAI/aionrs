@@ -43,6 +43,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn execute_injects_runtime_env() {
+        let tool = ExecCommandTool::new_with_env(
+            std::env::temp_dir(),
+            vec![("AION_RUNTIME_ENV_TEST".to_string(), "exec-env-value".to_string())],
+        );
+        #[cfg(windows)]
+        let input = json!({"cmd": "Write-Output $env:AION_RUNTIME_ENV_TEST", "shell": "powershell"});
+        #[cfg(not(windows))]
+        let input = json!({"cmd": "printf '%s' \"$AION_RUNTIME_ENV_TEST\"", "shell": "sh"});
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert!(result.content.contains("exec-env-value"));
+    }
+
+    #[tokio::test]
     async fn execute_timeout_preserves_stdout_emitted_before_timeout() {
         let tool = ExecCommandTool::new(std::env::temp_dir());
         #[cfg(windows)]

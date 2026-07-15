@@ -242,7 +242,7 @@ pub fn test_config() -> Config {
         api_key: "test-key".to_string(),
         base_url: "http://localhost:0".to_string(),
         model: "test-model".to_string(),
-        max_tokens: 4096,
+        max_tokens: Some(4096),
         max_turns: Some(10),
         system_prompt: Some("You are a test assistant.".to_string()),
         thinking: None,

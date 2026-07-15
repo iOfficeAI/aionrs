@@ -27,6 +27,7 @@ anyhow.workspace      = true
 thiserror.workspace   = true
 glob.workspace        = true
 chrono.workspace      = true
+uuid.workspace        = true
 dirs.workspace        = true
 crossterm.workspace   = true
 is-terminal.workspace = true
@@ -52,4 +53,3 @@ path = "tests/e2e/mod.rs"
 name = "acceptance"
 path = "tests/acceptance/mod.rs"
 # Acceptance tests for evolution features; run via: cargo nextest run --profile e2e --test acceptance
-

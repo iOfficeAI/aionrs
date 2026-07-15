@@ -99,14 +99,110 @@ mod tests {
             let counter = Arc::clone(&counter);
             async move {
                 counter.fetch_add(1, Ordering::SeqCst);
-                Err::<(), _>(ProviderError::RateLimited { retry_after_ms: 5000 })
+                Err::<(), _>(ProviderError::RateLimited {
+                    retry_after_ms: 5000,
+                    body: None,
+                })
             }
         })
         .await;
 
         assert!(matches!(
             result.unwrap_err(),
-            ProviderError::RateLimited { retry_after_ms: 5000 }
+            ProviderError::RateLimited {
+                retry_after_ms: 5000,
+                body: None,
+            }
+        ));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_initial_http_5xx_retry_succeeds_after_server_errors() {
+        tokio::time::pause();
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let result = with_initial_http_5xx_retry(|| {
+            let counter = Arc::clone(&counter);
+            async move {
+                let attempt = counter.fetch_add(1, Ordering::SeqCst);
+                if attempt < 2 {
+                    Err(ProviderError::Api {
+                        status: 503,
+                        message: "busy".into(),
+                    })
+                } else {
+                    Ok(attempt)
+                }
+            }
+        })
+        .await;
+
+        assert_eq!(result.unwrap(), 2);
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_initial_http_5xx_retry_exhausts_after_five_retries() {
+        tokio::time::pause();
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let result = with_initial_http_5xx_retry(|| {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(ProviderError::Api {
+                    status: 503,
+                    message: "still busy".into(),
+                })
+            }
+        })
+        .await;
+
+        assert!(matches!(result.unwrap_err(), ProviderError::Api { status: 503, .. }));
+        assert_eq!(counter.load(Ordering::SeqCst), 6);
+    }
+
+    #[tokio::test]
+    async fn test_initial_http_5xx_retry_does_not_retry_4xx() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let result = with_initial_http_5xx_retry(|| {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(ProviderError::Api {
+                    status: 401,
+                    message: "unauthorized".into(),
+                })
+            }
+        })
+        .await;
+
+        assert!(matches!(result.unwrap_err(), ProviderError::Api { status: 401, .. }));
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_initial_http_5xx_retry_does_not_retry_rate_limit() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let result = with_initial_http_5xx_retry(|| {
+            let counter = Arc::clone(&counter);
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Err::<(), _>(ProviderError::RateLimited {
+                    retry_after_ms: 5000,
+                    body: None,
+                })
+            }
+        })
+        .await;
+
+        assert!(matches!(
+            result.unwrap_err(),
+            ProviderError::RateLimited {
+                retry_after_ms: 5000,
+                body: None,
+            }
         ));
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }

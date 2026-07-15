@@ -46,7 +46,7 @@ mod tests_set_config {
         super::AgentEngine {
             provider: Arc::new(NullProvider),
             model: model.to_string(),
-            max_tokens: 4096,
+            max_tokens: Some(4096),
             thinking: None,
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
@@ -58,6 +58,7 @@ mod tests_set_config {
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
             tools: ToolRegistry::new(),
+            tool_policy: Default::default(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
             allow_list: vec![],
             hooks: None,
@@ -262,6 +263,28 @@ mod tests_set_config {
     }
 
     #[test]
+    fn set_config_thinking_enabled_applies_even_when_capability_is_false() {
+        let compat = ProviderCompat {
+            reasoning: ReasoningCompat {
+                supports_thinking: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut engine = make_engine_with_compat("m", compat);
+
+        let changes = engine.apply_config_update(None, Some("enabled".into()), Some(16000), None, None);
+
+        match &engine.thinking {
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens }) => {
+                assert_eq!(*budget_tokens, 16000);
+            }
+            other => panic!("expected Enabled with 16000, got: {other:?}"),
+        }
+        assert_eq!(changes, vec!["thinking: enabled (budget: 16000)"]);
+    }
+
+    #[test]
     fn set_config_effort_valid_values() {
         let compat = ProviderCompat {
             reasoning: ReasoningCompat {
@@ -285,11 +308,14 @@ mod tests_set_config {
     // --- Capability validation tests ---
 
     #[test]
-    fn set_config_thinking_rejected_when_unsupported() {
+    fn set_config_thinking_applies_when_capability_is_false() {
         let mut engine = make_engine_with_compat("m", ProviderCompat::openai_defaults());
         let changes = engine.apply_config_update(None, Some("enabled".into()), None, None, None);
-        assert!(changes.iter().any(|c| c.contains("not supported")));
-        assert!(engine.thinking.is_none());
+        assert_eq!(changes, vec!["thinking: enabled (budget: 10000)"]);
+        assert!(matches!(
+            engine.thinking,
+            Some(aion_types::llm::ThinkingConfig::Enabled { budget_tokens: 10000 })
+        ));
     }
 
     #[test]
@@ -361,7 +387,7 @@ mod tests_phase6 {
         super::AgentEngine {
             provider: Arc::new(NullProvider),
             model: model.to_string(),
-            max_tokens: 4096,
+            max_tokens: Some(4096),
             thinking: None,
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
@@ -373,6 +399,7 @@ mod tests_phase6 {
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
             tools: ToolRegistry::new(),
+            tool_policy: Default::default(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
             allow_list,
             hooks: None,
@@ -601,7 +628,7 @@ mod tests_compact {
         super::AgentEngine {
             provider: Arc::new(NullProvider),
             model: "test-model".to_string(),
-            max_tokens: 4096,
+            max_tokens: Some(4096),
             thinking: None,
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
@@ -613,6 +640,7 @@ mod tests_compact {
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
             tools: ToolRegistry::new(),
+            tool_policy: Default::default(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
             allow_list: vec![],
             hooks: None,
@@ -967,7 +995,7 @@ mod tests_plan_mode {
         super::AgentEngine {
             provider: Arc::new(NullProvider),
             model: "test-model".to_string(),
-            max_tokens: 4096,
+            max_tokens: Some(4096),
             thinking: None,
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
@@ -979,6 +1007,7 @@ mod tests_plan_mode {
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
             tools: ToolRegistry::new(),
+            tool_policy: Default::default(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, allow_list.clone()))),
             allow_list,
             hooks: None,
@@ -1174,7 +1203,7 @@ mod tests_handle_command {
         super::AgentEngine {
             provider: Arc::new(NullProvider),
             model: "test-model".to_string(),
-            max_tokens: 4096,
+            max_tokens: Some(4096),
             thinking: None,
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
@@ -1186,6 +1215,7 @@ mod tests_handle_command {
             max_tool_call_malformed_turns: 3,
             max_tool_call_failure_turns: 3,
             tools: ToolRegistry::new(),
+            tool_policy: Default::default(),
             confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
             allow_list: vec![],
             hooks: None,
@@ -1369,16 +1399,27 @@ mod tests_loop_helpers {
 
     use super::{AgentError, merge_tool_results, tool_call_malformed_fingerprint};
     use crate::stream::StreamOutcome;
-    use crate::tool_call::{DEFAULT_MAX_TOOL_CALL_FAILURE, ToolCallMalformedReason};
+    use crate::tool_call::{
+        DEFAULT_MAX_TOOL_CALL_FAILURE, ToolCallFailureFingerprint, ToolCallMalformedReason,
+        tool_call_failure_fingerprint,
+    };
     use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 
     fn tool_use(id: &str, name: &str) -> ContentBlock {
+        tool_use_with_input(id, name, json!({}))
+    }
+
+    fn tool_use_with_input(id: &str, name: &str, input: serde_json::Value) -> ContentBlock {
         ContentBlock::ToolUse {
             id: id.to_string(),
             name: name.to_string(),
-            input: json!({}),
+            input,
             extra: None,
         }
+    }
+
+    fn failed_exec_fingerprint() -> Option<ToolCallFailureFingerprint> {
+        tool_call_failure_fingerprint(&[tool_use("call", "ExecCommand")])
     }
 
     fn executed_result(id: &str) -> ContentBlock {
@@ -1399,7 +1440,8 @@ mod tests_loop_helpers {
         let executed = vec![executed_result("ok1"), executed_result("ok2")];
         let modifiers = vec![None, None];
 
-        let (results, mods) = merge_tool_results(&calls, &reasons, executed, modifiers);
+        let denied = vec![None, None, None];
+        let (results, mods) = merge_tool_results(&calls, &reasons, &denied, executed, modifiers);
 
         assert_eq!(results.len(), 3);
         // Slot 0: synthetic malformed error result for "bad".
@@ -1427,7 +1469,8 @@ mod tests_loop_helpers {
             Some(ToolCallMalformedReason::EmptyFunctionName),
         ];
 
-        let (results, mods) = merge_tool_results(&calls, &reasons, Vec::new(), Vec::new());
+        let denied = vec![None, None];
+        let (results, mods) = merge_tool_results(&calls, &reasons, &denied, Vec::new(), Vec::new());
 
         assert_eq!(results.len(), 2);
         assert!(
@@ -1435,6 +1478,30 @@ mod tests_loop_helpers {
                 .iter()
                 .all(|r| matches!(r, ContentBlock::ToolResult { is_error: true, .. }))
         );
+        assert!(mods.iter().all(Option::is_none));
+    }
+
+    #[test]
+    fn merge_interleaves_policy_denial_without_executing_it() {
+        let calls = vec![tool_use("denied", "ExecCommand"), tool_use("ok", "Read")];
+        let reasons = vec![None, None];
+        let denied = vec![Some("ExecCommand".to_string()), None];
+        let executed = vec![executed_result("ok")];
+
+        let (results, mods) = merge_tool_results(&calls, &reasons, &denied, executed, vec![None]);
+
+        assert!(matches!(
+            &results[0],
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error: true,
+            } if tool_use_id == "denied" && content.contains("not available")
+        ));
+        assert!(matches!(
+            &results[1],
+            ContentBlock::ToolResult { tool_use_id, is_error: false, .. } if tool_use_id == "ok"
+        ));
         assert!(mods.iter().all(Option::is_none));
     }
 
@@ -1459,11 +1526,14 @@ mod tests_loop_helpers {
         let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         // First N-1 tool-call-failure rounds: no stop yet.
         for _ in 0..DEFAULT_MAX_TOOL_CALL_FAILURE - 1 {
-            assert!(matches!(guards.after_tool_round(None, true), TurnGuardAction::Continue));
+            assert!(matches!(
+                guards.after_tool_round(None, failed_exec_fingerprint()),
+                TurnGuardAction::Continue
+            ));
         }
         // The Nth consecutive tool-call-failure round trips the breaker.
         assert!(matches!(
-            guards.after_tool_round(None, true),
+            guards.after_tool_round(None, failed_exec_fingerprint()),
             TurnGuardAction::Stop(AgentError::ToolCallFailures { .. })
         ));
     }
@@ -1471,25 +1541,44 @@ mod tests_loop_helpers {
     #[test]
     fn after_tool_round_resets_tool_call_failure_streak_on_success() {
         let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
-        assert!(matches!(guards.after_tool_round(None, true), TurnGuardAction::Continue));
-        // A non-error tool round resets the streak.
         assert!(matches!(
-            guards.after_tool_round(None, false),
+            guards.after_tool_round(None, failed_exec_fingerprint()),
             TurnGuardAction::Continue
         ));
+        // A non-error tool round resets the streak.
+        assert!(matches!(guards.after_tool_round(None, None), TurnGuardAction::Continue));
         assert_eq!(guards.tool_call_failure_count(), 0);
         // So a single subsequent tool-call-failure round must not trip the breaker.
-        assert!(matches!(guards.after_tool_round(None, true), TurnGuardAction::Continue));
+        assert!(matches!(
+            guards.after_tool_round(None, failed_exec_fingerprint()),
+            TurnGuardAction::Continue
+        ));
+    }
+
+    #[test]
+    fn after_tool_round_does_not_trip_failure_breaker_for_different_tool_inputs() {
+        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
+
+        for index in 0..DEFAULT_MAX_TOOL_CALL_FAILURE {
+            let fingerprint = tool_call_failure_fingerprint(&[tool_use_with_input(
+                &format!("call-{index}"),
+                "ExecCommand",
+                json!({ "cmd": format!("command-{index}") }),
+            )]);
+
+            assert!(matches!(
+                guards.after_tool_round(None, fingerprint),
+                TurnGuardAction::Continue
+            ));
+            assert_eq!(guards.tool_call_failure_count(), 1);
+        }
     }
 
     #[test]
     fn after_tool_round_requests_finalize_when_budget_is_exhausted() {
         let mut guards = TurnGuards::new(Some(1), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
         guards.record_counted_turn();
-        assert!(matches!(
-            guards.after_tool_round(None, false),
-            TurnGuardAction::Finalize
-        ));
+        assert!(matches!(guards.after_tool_round(None, None), TurnGuardAction::Finalize));
     }
 
     #[test]
@@ -1502,7 +1591,7 @@ mod tests_loop_helpers {
         let fingerprint = tool_call_malformed_fingerprint(&calls, &reasons);
 
         assert!(matches!(
-            guards.after_tool_round(fingerprint, false),
+            guards.after_tool_round(fingerprint, None),
             TurnGuardAction::Stop(AgentError::ToolCallMalformed { count: 1, limit: 1 })
         ));
     }
@@ -1582,5 +1671,174 @@ mod tests_loop_helpers {
         let outcome = stream_outcome("   ", StopReason::EndTurn, Vec::new());
 
         assert!(matches!(TurnOutcome::from_stream(outcome), TurnOutcome::EmptyFinal(_)));
+    }
+}
+
+#[cfg(test)]
+mod tests_tool_policy_enforcement {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use aion_protocol::events::ToolCategory;
+    use aion_providers::error::ProviderError;
+    use aion_providers::provider::LlmProvider;
+    use aion_tools::Tool;
+    use aion_tools::registry::ToolRegistry;
+    use aion_types::llm::{LlmEvent, LlmRequest};
+    use aion_types::message::ContentBlock;
+    use aion_types::tool::ToolResult;
+    use async_trait::async_trait;
+    use serde_json::{Value, json};
+
+    use super::{AgentEngine, CacheBreakDetector, CompactLevel, CompactState, ProviderCompat};
+    use crate::commands::default_registry;
+    use crate::confirm::ToolConfirmer;
+    use crate::output::OutputSink;
+    use crate::tool_policy::ToolPolicy;
+    use crate::turn::TurnKind;
+
+    struct NullOutput;
+
+    impl OutputSink for NullOutput {
+        fn emit_text_delta(&self, _: &str, _: &str) {}
+        fn emit_thinking(&self, _: &str, _: &str) {}
+        fn emit_tool_call(&self, _: &str, _: &str, _: &str) {}
+        fn emit_tool_result(&self, _: &str, _: &str, _: bool, _: &str) {}
+        fn emit_stream_start(&self, _: &str) {}
+        fn emit_stream_end(&self, _: &str, _: usize, _: u64, _: u64, _: u64, _: u64) {}
+        fn emit_error(&self, _: &str) {}
+        fn emit_info(&self, _: &str) {}
+    }
+
+    struct NullProvider;
+
+    #[async_trait]
+    impl LlmProvider for NullProvider {
+        async fn stream(&self, _: &LlmRequest) -> Result<tokio::sync::mpsc::Receiver<LlmEvent>, ProviderError> {
+            let (_tx, rx) = tokio::sync::mpsc::channel(1);
+            Ok(rx)
+        }
+    }
+
+    struct CountingTool {
+        name: &'static str,
+        executions: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Tool for CountingTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            "count executions"
+        }
+
+        fn input_schema(&self) -> Value {
+            json!({"type": "object"})
+        }
+
+        fn is_concurrency_safe(&self, _: &Value) -> bool {
+            true
+        }
+
+        async fn execute(&self, _: Value) -> ToolResult {
+            self.executions.fetch_add(1, Ordering::SeqCst);
+            ToolResult {
+                content: "ok".to_string(),
+                is_error: false,
+            }
+        }
+
+        fn category(&self) -> ToolCategory {
+            ToolCategory::Info
+        }
+    }
+
+    fn make_engine(read_executions: Arc<AtomicUsize>, exec_executions: Arc<AtomicUsize>) -> AgentEngine {
+        let mut tools = ToolRegistry::new();
+        tools.register(Box::new(CountingTool {
+            name: "Read",
+            executions: read_executions,
+        }));
+        tools.register(Box::new(CountingTool {
+            name: "ExecCommand",
+            executions: exec_executions,
+        }));
+
+        AgentEngine {
+            provider: Arc::new(NullProvider),
+            compat: ProviderCompat::anthropic_defaults(),
+            thinking: None,
+            system_prompt: String::new(),
+            model: "test-model".to_string(),
+            reasoning_effort: None,
+            messages: Vec::new(),
+            total_usage: Default::default(),
+            msg_id: "test-message".to_string(),
+            max_tokens: Some(4096),
+            max_turns_per_run: Some(10),
+            max_tool_call_malformed_turns: 3,
+            max_tool_call_failure_turns: 3,
+            tools,
+            tool_policy: ToolPolicy::allow_only(["Read"]),
+            confirmer: Arc::new(Mutex::new(ToolConfirmer::new(true, vec![]))),
+            allow_list: vec![],
+            hooks: None,
+            session_manager: None,
+            current_session: None,
+            output: Arc::new(NullOutput),
+            approval_manager: None,
+            protocol_writer: None,
+            compact_config: Default::default(),
+            compact_state: CompactState::new(),
+            compact_level: CompactLevel::default(),
+            toon_enabled: false,
+            plan_state: Default::default(),
+            plan_active_flag: None,
+            cache_detector: CacheBreakDetector::new(),
+            commands: default_registry(),
+        }
+    }
+
+    fn tool_use(id: &str, name: &str) -> ContentBlock {
+        ContentBlock::ToolUse {
+            id: id.to_string(),
+            name: name.to_string(),
+            input: json!({}),
+            extra: None,
+        }
+    }
+
+    #[test]
+    fn build_request_only_advertises_policy_allowed_tools() {
+        let mut engine = make_engine(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+
+        let request = engine.build_request(TurnKind::Normal);
+        let tool_names: Vec<_> = request.tools.iter().map(|tool| tool.name.as_str()).collect();
+
+        assert_eq!(tool_names, vec!["Read"]);
+    }
+
+    #[tokio::test]
+    async fn execute_tool_round_rejects_denied_tools_before_execution() {
+        let read_executions = Arc::new(AtomicUsize::new(0));
+        let exec_executions = Arc::new(AtomicUsize::new(0));
+        let mut engine = make_engine(Arc::clone(&read_executions), Arc::clone(&exec_executions));
+        let calls = vec![tool_use("denied", "ExecCommand"), tool_use("allowed", "Read")];
+
+        let output = engine.execute_tool_round(&calls, "").await.unwrap();
+
+        assert_eq!(exec_executions.load(Ordering::SeqCst), 0);
+        assert_eq!(read_executions.load(Ordering::SeqCst), 1);
+        assert!(matches!(
+            &output.tool_results[0],
+            ContentBlock::ToolResult { is_error: true, content, .. } if content.contains("not available")
+        ));
+        assert!(matches!(
+            &output.tool_results[1],
+            ContentBlock::ToolResult { is_error: false, .. }
+        ));
     }
 }

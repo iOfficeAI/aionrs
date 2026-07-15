@@ -14,7 +14,13 @@ mod retryable_tests {
             }
             .is_retryable()
         );
-        assert!(ProviderError::RateLimited { retry_after_ms: 1000 }.is_retryable());
+        assert!(
+            ProviderError::RateLimited {
+                retry_after_ms: 1000,
+                body: None,
+            }
+            .is_retryable()
+        );
         assert!(ProviderError::Connection("x".into()).is_retryable());
     }
 }

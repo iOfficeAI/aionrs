@@ -26,8 +26,16 @@ pub struct TransportCompat {
     /// Default: "max_tokens" for all providers.
     pub max_tokens_field: Option<String>,
 
+    /// Default max_tokens when the request does not set one.
+    /// Default: provider-specific. None means omit the field if unset.
+    pub default_max_tokens: Option<u32>,
+
+    /// Model substring rules for default max_tokens.
+    /// The first matching pattern wins.
+    pub model_max_tokens: Option<Vec<ModelMaxTokensRule>>,
+
     /// Custom API path appended to base_url for chat completions.
-    /// Default: "/v1/chat/completions" for OpenAI provider.
+    /// Default: "/chat/completions" for OpenAI-compatible providers.
     pub api_path: Option<String>,
 
     /// Maximum serialized provider request body size in bytes.
@@ -37,6 +45,12 @@ pub struct TransportCompat {
     /// Whether OpenAI-compatible requests include stream_options.
     /// Default: true for OpenAI-compatible providers.
     pub include_stream_options: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Eq, PartialEq)]
+pub struct ModelMaxTokensRule {
+    pub pattern: String,
+    pub max_tokens: u32,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -129,6 +143,8 @@ impl TransportCompat {
     fn merge(defaults: Self, user: Self) -> Self {
         Self {
             max_tokens_field: user.max_tokens_field.or(defaults.max_tokens_field),
+            default_max_tokens: user.default_max_tokens.or(defaults.default_max_tokens),
+            model_max_tokens: user.model_max_tokens.or(defaults.model_max_tokens),
             api_path: user.api_path.or(defaults.api_path),
             max_request_body_bytes: user.max_request_body_bytes.or(defaults.max_request_body_bytes),
             include_stream_options: user.include_stream_options.or(defaults.include_stream_options),
@@ -186,6 +202,11 @@ impl ProviderCompat {
     /// Defaults for Anthropic-family providers (Anthropic, Vertex)
     pub fn anthropic_defaults() -> Self {
         Self {
+            transport: TransportCompat {
+                default_max_tokens: Some(128_000),
+                model_max_tokens: Some(anthropic_model_max_tokens_rules()),
+                ..Default::default()
+            },
             messages: MessageCompat {
                 ensure_alternation: Some(true),
                 merge_same_role: Some(true),
@@ -209,6 +230,11 @@ impl ProviderCompat {
     /// Defaults for Bedrock (Anthropic + schema sanitization)
     pub fn bedrock_defaults() -> Self {
         Self {
+            transport: TransportCompat {
+                default_max_tokens: Some(128_000),
+                model_max_tokens: Some(anthropic_model_max_tokens_rules()),
+                ..Default::default()
+            },
             messages: MessageCompat {
                 ensure_alternation: Some(true),
                 merge_same_role: Some(true),
@@ -228,7 +254,6 @@ impl ProviderCompat {
                 supports_effort: Some(false),
                 ..Default::default()
             },
-            ..Default::default()
         }
     }
 
@@ -237,6 +262,7 @@ impl ProviderCompat {
         Self {
             transport: TransportCompat {
                 max_tokens_field: Some("max_tokens".into()),
+                api_path: Some("/chat/completions".into()),
                 include_stream_options: Some(true),
                 ..Default::default()
             },
@@ -277,6 +303,20 @@ impl ProviderCompat {
 
     pub fn max_tokens_field(&self) -> &str {
         self.transport.max_tokens_field.as_deref().unwrap_or("max_tokens")
+    }
+
+    pub fn default_max_tokens_for_model(&self, model: &str) -> Option<u32> {
+        let normalized = normalize_model_pattern(model);
+        self.transport
+            .model_max_tokens
+            .as_deref()
+            .and_then(|rules| {
+                rules.iter().find_map(|rule| {
+                    let pattern = normalize_model_pattern(&rule.pattern);
+                    normalized.contains(&pattern).then_some(rule.max_tokens)
+                })
+            })
+            .or(self.transport.default_max_tokens)
     }
 
     pub fn max_request_body_bytes(&self) -> Option<usize> {
@@ -336,7 +376,7 @@ impl ProviderCompat {
     }
 
     pub fn api_path(&self) -> &str {
-        self.transport.api_path.as_deref().unwrap_or("/v1/chat/completions")
+        self.transport.api_path.as_deref().unwrap_or("/chat/completions")
     }
 
     pub fn supports_thinking(&self) -> bool {
@@ -350,6 +390,39 @@ impl ProviderCompat {
     pub fn effort_levels(&self) -> &[String] {
         self.reasoning.effort_levels.as_deref().unwrap_or(&[])
     }
+}
+
+fn normalize_model_pattern(value: &str) -> String {
+    value.to_ascii_lowercase().replace('.', "-")
+}
+
+fn anthropic_model_max_tokens_rules() -> Vec<ModelMaxTokensRule> {
+    [
+        ("claude-fable", 128_000),
+        ("claude-opus-4-8", 128_000),
+        ("claude-opus-4-7", 128_000),
+        ("claude-opus-4-6", 128_000),
+        ("claude-sonnet-4-6", 128_000),
+        ("claude-opus-4-5", 64_000),
+        ("claude-sonnet-4-5", 64_000),
+        ("claude-haiku-4-5", 64_000),
+        ("claude-opus-4", 32_000),
+        ("claude-sonnet-4", 64_000),
+        ("claude-3-7-sonnet", 128_000),
+        ("claude-3-5-sonnet", 8_192),
+        ("claude-3-5-haiku", 8_192),
+        ("claude-3-opus", 4_096),
+        ("claude-3-sonnet", 4_096),
+        ("claude-3-haiku", 4_096),
+        ("minimax", 131_072),
+        ("qwen3", 65_536),
+    ]
+    .into_iter()
+    .map(|(pattern, max_tokens)| ModelMaxTokensRule {
+        pattern: pattern.to_string(),
+        max_tokens,
+    })
+    .collect()
 }
 
 /// Sanitize a JSON Schema for strict providers (e.g., Bedrock).

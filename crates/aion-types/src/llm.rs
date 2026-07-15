@@ -10,7 +10,7 @@ pub struct LlmRequest {
     pub system: String,
     pub messages: Vec<crate::message::Message>,
     pub tools: Vec<ToolDef>,
-    pub max_tokens: u32,
+    pub max_tokens: Option<u32>,
     /// Optional: thinking config (Anthropic extended thinking)
     pub thinking: Option<ThinkingConfig>,
     /// Optional: reasoning effort for OpenAI reasoning models (low/medium/high)
