@@ -1,60 +1,13 @@
-use std::io::Write;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use aion_types::llm::LlmEvent;
 use aion_types::message::{StopReason, TokenUsage};
 use reqwest::header::{HeaderMap, HeaderValue};
-use serde_json::json;
+use serde_json::{Value, json};
 use tracing::{Level, subscriber};
-use tracing_subscriber::fmt::MakeWriter;
 
 use super::*;
-
-#[derive(Clone, Default)]
-struct SharedLogWriter {
-    bytes: Arc<Mutex<Vec<u8>>>,
-}
-
-struct SharedLogGuard {
-    bytes: Arc<Mutex<Vec<u8>>>,
-}
-
-impl Write for SharedLogGuard {
-    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        self.bytes
-            .lock()
-            .expect("log buffer mutex should not be poisoned")
-            .extend_from_slice(buffer);
-        Ok(buffer.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'writer> MakeWriter<'writer> for SharedLogWriter {
-    type Writer = SharedLogGuard;
-
-    fn make_writer(&'writer self) -> Self::Writer {
-        SharedLogGuard {
-            bytes: Arc::clone(&self.bytes),
-        }
-    }
-}
-
-impl SharedLogWriter {
-    fn contents(&self) -> String {
-        String::from_utf8(
-            self.bytes
-                .lock()
-                .expect("log buffer mutex should not be poisoned")
-                .clone(),
-        )
-        .expect("structured log should be UTF-8")
-    }
-}
+use crate::test_support::SharedLogWriter;
 
 fn data_frame() -> Frame {
     Frame {
@@ -105,7 +58,7 @@ fn diagnostics_retain_shape_without_payload_values() {
     assert_eq!(diagnostics.reasoning_delta_count, 1);
     assert_eq!(diagnostics.reasoning_bytes, secret_reasoning.len() as u64);
     assert!(diagnostics.delta_reasoning_field_seen);
-    assert!(!diagnostics.is_anomalous(StreamTermination::Done));
+    assert!(!diagnostics.assess(StreamTermination::Done).is_anomalous());
 
     let debug = format!("{diagnostics:?}");
     assert!(!debug.contains(secret_content));
@@ -126,7 +79,7 @@ fn thinking_only_response_is_anomalous() {
     diagnostics.observe_event(&LlmEvent::ThinkingDelta("private reasoning".to_string()));
     diagnostics.observe_frame(&done_frame());
 
-    assert!(diagnostics.is_anomalous(StreamTermination::Done));
+    assert!(diagnostics.assess(StreamTermination::Done).is_anomalous());
     assert_eq!(diagnostics.parsed_thinking_event_count, 1);
     assert_eq!(diagnostics.parsed_text_event_count, 0);
 }
@@ -193,7 +146,7 @@ fn invalid_json_or_incomplete_stream_is_anomalous() {
     let mut diagnostics = OpenAiStreamDiagnostics::default();
     diagnostics.observe_invalid_json();
 
-    assert!(diagnostics.is_anomalous(StreamTermination::Eof));
+    assert!(diagnostics.assess(StreamTermination::Eof).is_anomalous());
     assert_eq!(diagnostics.invalid_json_frame_count, 1);
 }
 
@@ -210,7 +163,57 @@ fn unsupported_standard_finish_reason_is_classified_without_wire_value_storage()
     diagnostics.observe_frame(&done_frame());
 
     assert_eq!(diagnostics.finish_reason, FinishReasonKind::ContentFilter);
-    assert!(diagnostics.is_anomalous(StreamTermination::Done));
+    assert!(diagnostics.assess(StreamTermination::Done).is_anomalous());
+}
+
+fn capture_summary(diagnostics: &OpenAiStreamDiagnostics, termination: StreamTermination) -> Value {
+    let writer = SharedLogWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .with_max_level(Level::TRACE)
+        .with_writer(writer.clone())
+        .finish();
+    subscriber::with_default(subscriber, || {
+        diagnostics.emit_summary(termination, Duration::from_millis(42), 10, 3);
+    });
+
+    serde_json::from_str(writer.contents().trim()).expect("summary should be valid JSON")
+}
+
+#[test]
+fn consumer_drop_is_debug_and_not_anomalous() {
+    let diagnostics = OpenAiStreamDiagnostics::default();
+
+    let output = capture_summary(&diagnostics, StreamTermination::ConsumerDropped);
+
+    assert!(!diagnostics.assess(StreamTermination::ConsumerDropped).is_anomalous());
+    assert_eq!(output["level"], "DEBUG");
+    assert_eq!(output["fields"]["termination"], "consumer_dropped");
+    assert_eq!(output["fields"]["empty_answer"], false);
+    assert_eq!(output["fields"]["incomplete_stream"], false);
+    assert_eq!(output["fields"]["malformed_json"], false);
+    assert_eq!(output["fields"]["unexpected_finish_reason"], false);
+}
+
+#[test]
+fn anomalous_summary_is_warn_with_all_reason_fields() {
+    let mut diagnostics = OpenAiStreamDiagnostics::default();
+    diagnostics.observe_invalid_json();
+    diagnostics.observe_json(&json!({
+        "choices": [{
+            "delta": {"reasoning_content": "private reasoning"},
+            "finish_reason": "content_filter"
+        }]
+    }));
+
+    let output = capture_summary(&diagnostics, StreamTermination::Eof);
+
+    assert!(diagnostics.assess(StreamTermination::Eof).is_anomalous());
+    assert_eq!(output["level"], "WARN");
+    assert_eq!(output["fields"]["empty_answer"], true);
+    assert_eq!(output["fields"]["incomplete_stream"], true);
+    assert_eq!(output["fields"]["malformed_json"], true);
+    assert_eq!(output["fields"]["unexpected_finish_reason"], true);
 }
 
 #[test]
@@ -231,17 +234,7 @@ fn emitted_summary_contains_shape_but_not_payload_values() {
     diagnostics.observe_event(&LlmEvent::ThinkingDelta(secret_reasoning.to_string()));
     diagnostics.observe_frame(&done_frame());
 
-    let writer = SharedLogWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .json()
-        .with_max_level(Level::TRACE)
-        .with_writer(writer.clone())
-        .finish();
-    subscriber::with_default(subscriber, || {
-        diagnostics.emit_summary(StreamTermination::Done, Duration::from_millis(42), 10, 3);
-    });
-
-    let output = writer.contents();
+    let output = capture_summary(&diagnostics, StreamTermination::Done).to_string();
     assert!(output.contains("provider_stream_summary"));
     assert!(output.contains("\"content_delta_count\":1"));
     assert!(output.contains("\"reasoning_delta_count\":1"));

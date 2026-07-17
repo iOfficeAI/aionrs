@@ -127,6 +127,20 @@ pub(crate) struct OpenAiStreamDiagnostics {
     parsed_done_event_count: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct StreamAssessment {
+    empty_answer: bool,
+    incomplete_stream: bool,
+    malformed_json: bool,
+    unexpected_finish_reason: bool,
+}
+
+impl StreamAssessment {
+    fn is_anomalous(self) -> bool {
+        self.empty_answer || self.incomplete_stream || self.malformed_json || self.unexpected_finish_reason
+    }
+}
+
 impl OpenAiStreamDiagnostics {
     pub(crate) fn observe_response(&mut self, status: u16, headers: &HeaderMap) {
         self.http_status = status;
@@ -259,11 +273,7 @@ impl OpenAiStreamDiagnostics {
     ) {
         let duration_ms = u128_to_u64(duration.as_millis());
         let request_id = self.request_id.as_deref().unwrap_or("none");
-        let empty_answer = !self.content_non_whitespace_seen && self.parsed_tool_call_event_count == 0;
-        let incomplete_stream = termination != StreamTermination::Done || !self.done_seen;
-        let malformed_json = self.invalid_json_frame_count > 0;
-        let unexpected_finish_reason = !self.finish_reason.is_supported();
-        let anomalous = empty_answer || incomplete_stream || malformed_json || unexpected_finish_reason;
+        let assessment = self.assess(termination);
 
         macro_rules! emit {
             ($level:expr) => {
@@ -317,29 +327,38 @@ impl OpenAiStreamDiagnostics {
                     parsed_thinking_event_count = self.parsed_thinking_event_count,
                     parsed_tool_call_event_count = self.parsed_tool_call_event_count,
                     parsed_done_event_count = self.parsed_done_event_count,
-                    empty_answer,
-                    incomplete_stream,
-                    malformed_json,
-                    unexpected_finish_reason,
+                    empty_answer = assessment.empty_answer,
+                    incomplete_stream = assessment.incomplete_stream,
+                    malformed_json = assessment.malformed_json,
+                    unexpected_finish_reason = assessment.unexpected_finish_reason,
                     "provider stream response shape"
                 );
             };
         }
 
-        if anomalous {
+        if assessment.is_anomalous() {
             emit!(Level::WARN);
         } else {
             emit!(Level::DEBUG);
         }
     }
 
-    #[cfg(test)]
-    fn is_anomalous(&self, termination: StreamTermination) -> bool {
-        (!self.content_non_whitespace_seen && self.parsed_tool_call_event_count == 0)
-            || termination != StreamTermination::Done
-            || !self.done_seen
-            || self.invalid_json_frame_count > 0
-            || !self.finish_reason.is_supported()
+    fn assess(&self, termination: StreamTermination) -> StreamAssessment {
+        if termination == StreamTermination::ConsumerDropped {
+            return StreamAssessment {
+                empty_answer: false,
+                incomplete_stream: false,
+                malformed_json: false,
+                unexpected_finish_reason: false,
+            };
+        }
+
+        StreamAssessment {
+            empty_answer: !self.content_non_whitespace_seen && self.parsed_tool_call_event_count == 0,
+            incomplete_stream: termination != StreamTermination::Done || !self.done_seen,
+            malformed_json: self.invalid_json_frame_count > 0,
+            unexpected_finish_reason: !self.finish_reason.is_supported(),
+        }
     }
 }
 

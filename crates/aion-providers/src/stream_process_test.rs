@@ -5,10 +5,13 @@ mod tests {
     use super::*;
     use base64::Engine as _;
     use base64::engine::general_purpose::STANDARD;
-    use serde_json::json;
+    use serde_json::{Value, json};
     use tokio::sync::mpsc;
+    use tracing::{Level, subscriber};
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use crate::test_support::SharedLogWriter;
 
     fn aws_event_message(payload: &[u8]) -> Vec<u8> {
         let total_len = 12 + payload.len() + 4;
@@ -50,6 +53,39 @@ mod tests {
         events
     }
 
+    fn openai_sse_body(include_done: bool) -> Vec<u8> {
+        let content = json!({
+            "choices": [{
+                "delta": {"content": "Hello"},
+                "finish_reason": null
+            }]
+        });
+        let finish = json!({
+            "choices": [{
+                "delta": {},
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 12,
+                "completion_tokens": 3
+            }
+        });
+        let mut body = format!("data: {content}\n\ndata: {finish}\n\n");
+        if include_done {
+            body.push_str("data: [DONE]\n\n");
+        }
+        body.into_bytes()
+    }
+
+    fn provider_stream_summary(writer: &SharedLogWriter) -> Value {
+        writer
+            .contents()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .find(|event| event["fields"]["diagnostic_event"] == "provider_stream_summary")
+            .expect("provider stream summary should be logged")
+    }
+
     #[test]
     fn parse_aws_event_waits_for_complete_message_and_extracts_payload() {
         let payload = b"payload";
@@ -60,6 +96,61 @@ mod tests {
         let (event_data, consumed) = parse_aws_event(&message).expect("complete event should parse");
         assert_eq!(event_data, Some(payload.to_vec()));
         assert_eq!(consumed, message.len());
+    }
+
+    #[tokio::test]
+    async fn openai_sse_stream_logs_done_termination_from_real_processing_path() {
+        let response = mock_response(openai_sse_body(true)).await;
+        let (tx, rx) = mpsc::channel(8);
+        let writer = SharedLogWriter::default();
+        let log_subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_max_level(Level::TRACE)
+            .with_writer(writer.clone())
+            .finish();
+        let _guard = subscriber::set_default(log_subscriber);
+
+        let outcome = process_openai_sse_stream(response, &tx, false).await;
+        drop(tx);
+        let events = collect_events(rx).await;
+        let summary = provider_stream_summary(&writer);
+
+        assert!(matches!(outcome, StreamOutcome::Ok));
+        assert_eq!(events.len(), 2);
+        assert_eq!(summary["level"], "DEBUG");
+        assert_eq!(summary["fields"]["termination"], "done");
+        assert_eq!(summary["fields"]["done_seen"], true);
+        assert_eq!(summary["fields"]["incomplete_stream"], false);
+        assert_eq!(summary["fields"]["parsed_text_event_count"], 1);
+        assert_eq!(summary["fields"]["parsed_done_event_count"], 1);
+    }
+
+    #[tokio::test]
+    async fn openai_sse_stream_logs_eof_termination_from_real_processing_path() {
+        let response = mock_response(openai_sse_body(false)).await;
+        let (tx, rx) = mpsc::channel(8);
+        let writer = SharedLogWriter::default();
+        let log_subscriber = tracing_subscriber::fmt()
+            .json()
+            .with_max_level(Level::TRACE)
+            .with_writer(writer.clone())
+            .finish();
+        let _guard = subscriber::set_default(log_subscriber);
+
+        let outcome = process_openai_sse_stream(response, &tx, false).await;
+        drop(tx);
+        let events = collect_events(rx).await;
+        let summary = provider_stream_summary(&writer);
+
+        assert!(matches!(outcome, StreamOutcome::Ok));
+        assert_eq!(events.len(), 1);
+        assert_eq!(summary["level"], "WARN");
+        assert_eq!(summary["fields"]["termination"], "eof");
+        assert_eq!(summary["fields"]["done_seen"], false);
+        assert_eq!(summary["fields"]["incomplete_stream"], true);
+        assert_eq!(summary["fields"]["empty_answer"], false);
+        assert_eq!(summary["fields"]["malformed_json"], false);
+        assert_eq!(summary["fields"]["unexpected_finish_reason"], false);
     }
 
     #[tokio::test]
