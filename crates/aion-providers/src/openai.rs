@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::mpsc;
@@ -7,6 +9,7 @@ use aion_types::message::{StopReason, TokenUsage};
 
 use crate::composed::ComposedProvider;
 use crate::openai_messages::generate_call_id;
+use crate::stream_diagnostics::{OpenAiStreamDiagnostics, StreamTermination};
 use crate::transport::{OpenAiTransport, ProviderTransport};
 use crate::{LlmProvider, ProviderError};
 use aion_config::compat::ProviderCompat;
@@ -43,6 +46,7 @@ pub(crate) struct StreamState {
     tool_calls: Vec<ToolCallAccumulator>,
     input_tokens: u64,
     output_tokens: u64,
+    diagnostics: OpenAiStreamDiagnostics,
     /// Deferred Done event: populated when finish_reason arrives, emitted on
     /// [DONE] so the final usage-only chunk has a chance to update token counts.
     pending_done: Option<LlmEvent>,
@@ -54,6 +58,7 @@ impl StreamState {
             tool_calls: Vec::new(),
             input_tokens: 0,
             output_tokens: 0,
+            diagnostics: OpenAiStreamDiagnostics::default(),
             pending_done: None,
         }
     }
@@ -90,6 +95,15 @@ impl StreamState {
         }
         &mut self.tool_calls[index]
     }
+
+    pub(crate) fn diagnostics_mut(&mut self) -> &mut OpenAiStreamDiagnostics {
+        &mut self.diagnostics
+    }
+
+    pub(crate) fn emit_diagnostics(&self, termination: StreamTermination, duration: Duration) {
+        self.diagnostics
+            .emit_summary(termination, duration, self.input_tokens, self.output_tokens);
+    }
 }
 
 pub(crate) fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id: bool) -> Vec<LlmEvent> {
@@ -97,8 +111,12 @@ pub(crate) fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id:
 
     let json: Value = match serde_json::from_str(data) {
         Ok(v) => v,
-        Err(_) => return events,
+        Err(_) => {
+            state.diagnostics.observe_invalid_json();
+            return events;
+        }
     };
+    state.diagnostics.observe_json(&json);
 
     // Extract usage if present
     if let Some(usage) = json.get("usage") {

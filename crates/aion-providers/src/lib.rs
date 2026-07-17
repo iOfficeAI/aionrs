@@ -10,8 +10,11 @@ pub(crate) mod parser;
 pub(crate) mod projector;
 pub mod provider;
 pub mod retry;
+pub(crate) mod stream_diagnostics;
 pub(crate) mod stream_process;
 pub(crate) mod stream_runner;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod tool_call_sanitize;
 pub(crate) mod transport;
 pub mod vertex;

@@ -1806,9 +1806,11 @@ mod tests_loop_helpers {
     fn turn_kind_finalization_has_control_prompt_and_disables_tools() {
         assert!(TurnKind::Normal.control_prompt().is_none());
         assert!(!TurnKind::Normal.disable_tools());
+        assert_eq!(TurnKind::Normal.diagnostic_phase(), "normal");
 
         let kind = TurnKind::Finalization(FinalizationReason::TurnBudget);
         assert!(kind.disable_tools());
+        assert_eq!(kind.diagnostic_phase(), "turn_budget_finalization");
         assert!(
             kind.control_prompt()
                 .expect("finalization must have a control prompt")
@@ -1818,20 +1820,22 @@ mod tests_loop_helpers {
 
     #[test]
     fn turn_kind_max_tokens_prompt_names_truncation() {
-        let prompt = TurnKind::Finalization(FinalizationReason::MaxTokens)
+        let kind = TurnKind::Finalization(FinalizationReason::MaxTokens);
+        let prompt = kind
             .control_prompt()
             .expect("max token continuation must have a prompt");
 
+        assert_eq!(kind.diagnostic_phase(), "max_tokens_finalization");
         assert!(prompt.contains("previous response was cut off"));
         assert!(prompt.contains("Finish the answer"));
     }
 
     #[test]
     fn turn_kind_empty_final_prompt_requests_visible_answer() {
-        let prompt = TurnKind::Finalization(FinalizationReason::EmptyFinal)
-            .control_prompt()
-            .expect("empty final nudge must have a prompt");
+        let kind = TurnKind::Finalization(FinalizationReason::EmptyFinal);
+        let prompt = kind.control_prompt().expect("empty final nudge must have a prompt");
 
+        assert_eq!(kind.diagnostic_phase(), "empty_final_retry");
         assert!(prompt.contains("visible answer text"));
         assert!(prompt.contains("Do not send reasoning only"));
     }
