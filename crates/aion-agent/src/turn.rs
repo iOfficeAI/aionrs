@@ -72,6 +72,15 @@ impl TurnKind {
             ),
         }
     }
+
+    pub(crate) fn diagnostic_phase(self) -> &'static str {
+        match self {
+            Self::Normal => "normal",
+            Self::Finalization(FinalizationReason::TurnBudget) => "turn_budget_finalization",
+            Self::Finalization(FinalizationReason::MaxTokens) => "max_tokens_finalization",
+            Self::Finalization(FinalizationReason::EmptyFinal) => "empty_final_retry",
+        }
+    }
 }
 
 #[derive(Debug)]

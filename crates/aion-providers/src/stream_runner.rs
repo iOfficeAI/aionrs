@@ -2,6 +2,7 @@ use std::future::Future;
 use std::time::Duration;
 
 use tokio::sync::mpsc;
+use tracing::Instrument;
 
 use aion_types::llm::LlmEvent;
 
@@ -69,7 +70,8 @@ where
 
     let (tx, rx) = mpsc::channel(64);
 
-    tokio::spawn(async move {
+    let stream_span = tracing::Span::current();
+    let stream_task = async move {
         let mut response = response;
 
         match process.clone()(response, tx.clone()).await {
@@ -137,7 +139,8 @@ where
                 let _ = tx.send(LlmEvent::Error(final_err.to_string())).await;
             }
         }
-    });
+    };
+    tokio::spawn(stream_task.instrument(stream_span));
 
     Ok(rx)
 }

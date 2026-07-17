@@ -34,7 +34,15 @@ impl LlmProvider for ComposedProvider {
     async fn stream(&self, request: &LlmRequest) -> Result<mpsc::Receiver<LlmEvent>, ProviderError> {
         let (body, tool_wire_shape) = self.transport.project_body(request, &self.compat)?;
 
-        tracing::debug!(target: "aion_providers", body = %serde_json::to_string_pretty(&body).unwrap_or_default(), "outgoing request");
+        tracing::debug!(
+            target: "aion_providers",
+            model = %request.model,
+            message_count = request.messages.len(),
+            tool_count = request.tools.len(),
+            max_tokens = ?request.max_tokens,
+            thinking_configured = request.thinking.is_some(),
+            "provider request projected"
+        );
 
         let transport = self.transport.clone();
         let compat = self.compat.clone();

@@ -455,6 +455,14 @@ impl AgentEngine {
                         .await;
                 }
                 TurnOutcome::EmptyFinal(outcome) => {
+                    warn!(
+                        target: "aion_agent",
+                        stop_reason = ?outcome.stop_reason,
+                        assistant_text_bytes = outcome.assistant_text.len(),
+                        thinking_text_bytes = outcome.thinking_text.len(),
+                        tool_call_count = outcome.tool_calls.len(),
+                        "provider turn produced no valid final answer; retrying finalization"
+                    );
                     return self
                         .finalize_once(
                             FinalizationReason::EmptyFinal,
@@ -730,15 +738,25 @@ impl AgentEngine {
     }
 
     async fn run_turn(&mut self, kind: TurnKind) -> Result<StreamOutcome, AgentError> {
-        // Run multi-level compaction before each API call.
-        // On the first model turn last_input_tokens is 0 so neither
-        // autocompact nor emergency will fire.
-        self.run_compaction().await?;
-        let request = self.build_request(kind);
-        let mut rx = self.provider.stream(&request).await?;
-        let outcome = self.consume_stream(&mut rx).await?;
-        self.record_turn_usage(&outcome.usage);
-        Ok(outcome)
+        let span = info_span!(
+            target: "aion_agent",
+            "llm_generation",
+            generation_phase = kind.diagnostic_phase(),
+            tools_disabled = kind.disable_tools(),
+        );
+        async {
+            // Run multi-level compaction before each API call.
+            // On the first model turn last_input_tokens is 0 so neither
+            // autocompact nor emergency will fire.
+            self.run_compaction().await?;
+            let request = self.build_request(kind);
+            let mut rx = self.provider.stream(&request).await?;
+            let outcome = self.consume_stream(&mut rx).await?;
+            self.record_turn_usage(&outcome.usage);
+            Ok(outcome)
+        }
+        .instrument(span)
+        .await
     }
 
     async fn finalize_once(
@@ -766,6 +784,15 @@ impl AgentEngine {
             });
         }
 
+        warn!(
+            target: "aion_agent",
+            finalization_reason = ?reason,
+            stop_reason = ?outcome.stop_reason,
+            assistant_text_bytes = outcome.assistant_text.len(),
+            thinking_text_bytes = outcome.thinking_text.len(),
+            tool_call_count = outcome.tool_calls.len(),
+            "provider finalization did not produce a valid final answer"
+        );
         let fallback = reason.fallback_prompt();
         self.output.emit_error(fallback);
         let fallback_text = if combined_text.trim().is_empty() {

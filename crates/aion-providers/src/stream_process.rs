@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use tokio::sync::mpsc;
 
 use aion_types::llm::LlmEvent;
@@ -6,6 +8,7 @@ use aion_types::message::{StopReason, TokenUsage};
 use crate::error::ProviderError;
 use crate::framing::{FrameKind, SseBlockFramer, SseLineFramer, bedrock_payload_to_frame};
 use crate::parser::{AnthropicParser, OpenAiParser, ResponseParser};
+use crate::stream_diagnostics::StreamTermination;
 use crate::stream_runner::StreamOutcome;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -34,6 +37,10 @@ pub(crate) async fn process_openai_sse_stream(
 
     let parser = OpenAiParser { auto_tool_id };
     let mut state = parser.new_state();
+    state
+        .diagnostics_mut()
+        .observe_response(response.status().as_u16(), response.headers());
+    let started_at = Instant::now();
     let mut framer = SseLineFramer::default();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
@@ -43,19 +50,23 @@ pub(crate) async fn process_openai_sse_stream(
             Ok(c) => c,
             Err(e) => {
                 let err = ProviderError::Connection(e.to_string());
-                return if emitted_content {
+                let outcome = if emitted_content {
                     StreamOutcome::FailedPartial(err)
                 } else {
                     StreamOutcome::FailedEmpty(err)
                 };
+                state.emit_diagnostics(StreamTermination::ConnectionError, started_at.elapsed());
+                return outcome;
             }
         };
+        state.diagnostics_mut().observe_network_chunk(chunk.len());
         let text = String::from_utf8_lossy(&chunk);
         for frame in framer.push_text(&text, "[DONE]") {
-            tracing::debug!(target: "aion_providers", chunk = %frame.data, "sse chunk received");
+            state.diagnostics_mut().observe_frame(&frame);
             let is_done = frame.kind == FrameKind::Done;
             let events = parser.parse_frame(&frame, &mut state);
             for event in events {
+                state.diagnostics_mut().observe_event(&event);
                 if matches!(
                     event,
                     LlmEvent::TextDelta(_) | LlmEvent::ThinkingDelta(_) | LlmEvent::ToolUse { .. }
@@ -63,21 +74,26 @@ pub(crate) async fn process_openai_sse_stream(
                     emitted_content = true;
                 }
                 if tx.send(event).await.is_err() {
+                    state.emit_diagnostics(StreamTermination::ConsumerDropped, started_at.elapsed());
                     return StreamOutcome::Ok;
                 }
             }
             if is_done {
+                state.emit_diagnostics(StreamTermination::Done, started_at.elapsed());
                 return StreamOutcome::Ok;
             }
         }
     }
 
     for event in parser.finish(&mut state) {
+        state.diagnostics_mut().observe_event(&event);
         if tx.send(event).await.is_err() {
+            state.emit_diagnostics(StreamTermination::ConsumerDropped, started_at.elapsed());
             return StreamOutcome::Ok;
         }
     }
 
+    state.emit_diagnostics(StreamTermination::Eof, started_at.elapsed());
     StreamOutcome::Ok
 }
 
@@ -107,7 +123,6 @@ pub(crate) async fn process_anthropic_sse_stream(
         };
         let text = String::from_utf8_lossy(&chunk);
         for frame in framer.push_text(&text) {
-            tracing::debug!(target: "aion_providers", chunk = %frame.data, "sse chunk received");
             let events = parser.parse_frame(&frame, &mut state);
             for event in events {
                 if matches!(
@@ -170,7 +185,6 @@ pub(crate) async fn process_bedrock_aws_event_stream(
             };
 
             if let Some(frame) = bedrock_payload_to_frame(&payload) {
-                tracing::debug!(target: "aion_providers", chunk = %frame.data, "bedrock event chunk");
                 let events = parser.parse_frame(&frame, &mut state);
                 for event in events {
                     if matches!(
