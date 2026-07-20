@@ -213,4 +213,43 @@ mod tests {
             event => panic!("expected synthesized Done event, got {event:?}"),
         }
     }
+
+    #[tokio::test]
+    async fn openai_responses_stream_decodes_typed_events_until_completed() {
+        let body = concat!(
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"Hello\"}\n\n",
+            "data: {\"type\":\"response.output_item.done\",\"item\":{\"id\":\"fc_1\",\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"read\",\"arguments\":\"{}\"}}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":8,\"output_tokens\":3}}}\n\n"
+        );
+        let response = mock_response(body.as_bytes().to_vec()).await;
+        let (tx, rx) = mpsc::channel(8);
+
+        let outcome = process_openai_responses_sse_stream(response, &tx).await;
+        drop(tx);
+        let events = collect_events(rx).await;
+
+        assert!(matches!(outcome, StreamOutcome::Ok));
+        assert_eq!(events.len(), 3);
+        assert!(matches!(&events[0], LlmEvent::TextDelta(text) if text == "Hello"));
+        assert!(matches!(&events[1], LlmEvent::ToolUse { id, .. } if id == "call_1"));
+        assert!(matches!(
+            &events[2],
+            LlmEvent::Done { stop_reason: StopReason::ToolUse, usage }
+                if usage.input_tokens == 8 && usage.output_tokens == 3
+        ));
+    }
+
+    #[tokio::test]
+    async fn openai_responses_stream_without_terminal_event_fails_partial() {
+        let body = b"data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n".to_vec();
+        let response = mock_response(body).await;
+        let (tx, rx) = mpsc::channel(8);
+
+        let outcome = process_openai_responses_sse_stream(response, &tx).await;
+        drop(tx);
+        let events = collect_events(rx).await;
+
+        assert!(matches!(outcome, StreamOutcome::FailedPartial(_)));
+        assert!(matches!(&events[0], LlmEvent::TextDelta(text) if text == "partial"));
+    }
 }

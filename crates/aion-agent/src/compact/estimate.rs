@@ -39,6 +39,9 @@ pub fn estimate_tokens_from_messages(messages: &[Message]) -> u64 {
                     let tokens = (bytes / BYTES_PER_TOKEN).clamp(MIN_IMAGE_TOKENS, MAX_IMAGE_TOKENS);
                     total_chars += tokens * CHARS_PER_TOKEN_TEXT;
                 }
+                ContentBlock::ProviderItem { item, .. } => {
+                    json_chars += item.to_string().len();
+                }
             }
         }
     }

@@ -161,6 +161,7 @@ pub fn build_messages(messages: &[Message], compat: &ProviderCompat) -> Vec<Valu
                         }
                     }));
                 }
+                ContentBlock::ProviderItem { .. } => {}
             }
         }
 

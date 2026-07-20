@@ -325,7 +325,7 @@ pub(crate) fn classify_tools_wire_shape_mismatch(
     ))
 }
 
-fn preflight_projected_body(
+pub(crate) fn preflight_projected_body(
     provider: WireProvider,
     body: &Value,
     tool_count: usize,

@@ -4,7 +4,7 @@ use super::*;
 mod tests {
     use super::*;
 
-    use aion_config::compat::ProviderCompat;
+    use aion_config::compat::{OpenAiApiMode, ProviderCompat};
     use aion_types::llm::LlmRequest;
     use aion_types::message::{ContentBlock, Message, Role};
     use aion_types::tool::ToolDef;
@@ -54,11 +54,21 @@ mod tests {
         let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", "https://example.test"));
         let compat = ProviderCompat::openai_defaults();
 
-        assert_eq!(transport.wire_protocol(), WireProtocol::OpenAiChat);
+        assert_eq!(transport.wire_protocol(&compat), WireProtocol::OpenAiChat);
         assert_eq!(
             transport.decoder(&compat),
             StreamDecoder::OpenAiSseLine { auto_tool_id: true }
         );
+    }
+
+    #[test]
+    fn openai_transport_selects_responses_wire_and_decoder_when_configured() {
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", "https://example.test"));
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.openai_api_mode = Some(OpenAiApiMode::Responses);
+
+        assert_eq!(transport.wire_protocol(&compat), WireProtocol::OpenAiResponses);
+        assert_eq!(transport.decoder(&compat), StreamDecoder::OpenAiResponsesSse);
     }
 
     #[test]
@@ -94,6 +104,23 @@ mod tests {
     }
 
     #[test]
+    fn openai_transport_uses_responses_path_when_configured() {
+        let transport = OpenAiTransport::new("test-key", "https://api.openai.com");
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.openai_api_mode = Some(OpenAiApiMode::Responses);
+
+        let request = transport
+            .build_projected_request(
+                json!({ "model": "gpt-5.6-sol" }),
+                &compat,
+                ResolvedToolWireShape::OpenAiFunction,
+            )
+            .expect("request projection should succeed");
+
+        assert_eq!(request.url, "https://api.openai.com/v1/responses");
+    }
+
+    #[test]
     fn openai_transport_custom_api_path_overrides_default_chat_path() {
         let transport = OpenAiTransport::new("test-key", "https://open.bigmodel.cn/api/paas/v4/");
         let mut compat = ProviderCompat::openai_defaults();
@@ -115,7 +142,7 @@ mod tests {
         let transport = ProviderTransport::Anthropic(AnthropicTransport::new("test-key", "https://example.test", true));
         let compat = ProviderCompat::anthropic_defaults();
 
-        assert_eq!(transport.wire_protocol(), WireProtocol::AnthropicMessages);
+        assert_eq!(transport.wire_protocol(&compat), WireProtocol::AnthropicMessages);
         assert_eq!(transport.decoder(&compat), StreamDecoder::AnthropicSseBlock);
     }
 
@@ -131,7 +158,7 @@ mod tests {
             .project_body(&request, &compat)
             .expect("request body projection should succeed");
 
-        assert_eq!(transport.wire_protocol(), WireProtocol::AnthropicMessages);
+        assert_eq!(transport.wire_protocol(&compat), WireProtocol::AnthropicMessages);
         assert_eq!(tool_wire_shape, ResolvedToolWireShape::AnthropicInputSchema);
         assert_eq!(body["anthropic_version"], "vertex-2023-10-16");
         assert_eq!(body["stream"], true);
@@ -160,7 +187,7 @@ mod tests {
             .project_body(&request, &compat)
             .expect("request body projection should succeed");
 
-        assert_eq!(transport.wire_protocol(), WireProtocol::AnthropicMessages);
+        assert_eq!(transport.wire_protocol(&compat), WireProtocol::AnthropicMessages);
         assert_eq!(transport.retry_policy(), RetryPolicy::new(0, false, false, true));
         assert_eq!(tool_wire_shape, ResolvedToolWireShape::AnthropicInputSchema);
         assert_eq!(body["anthropic_version"], "bedrock-2023-05-31");
@@ -186,6 +213,26 @@ mod tests {
         assert_eq!(body["messages"][1]["role"], "user");
         assert!(body["tools"][0].get("function").is_some());
         assert!(body["tools"][0].get("input_schema").is_none());
+    }
+
+    #[test]
+    fn openai_transport_projects_responses_body_shape_when_configured() {
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", "https://example.test"));
+        let request = test_request(vec![test_tool()]);
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.openai_api_mode = Some(OpenAiApiMode::Responses);
+
+        let (body, tool_wire_shape) = transport
+            .project_body(&request, &compat)
+            .expect("request body projection should succeed");
+
+        assert_eq!(tool_wire_shape, ResolvedToolWireShape::OpenAiFunction);
+        assert_eq!(body["model"], "test-model");
+        assert_eq!(body["stream"], true);
+        assert!(body.get("messages").is_none());
+        assert_eq!(body["input"][0]["role"], "user");
+        assert_eq!(body["tools"][0]["type"], "function");
+        assert!(body["tools"][0].get("function").is_none());
     }
 
     #[tokio::test]

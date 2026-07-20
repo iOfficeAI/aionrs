@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use aion_config::compat::ProviderCompat;
+use aion_config::compat::{OpenAiApiMode, ProviderCompat};
 use aion_providers::LlmProvider;
 use aion_providers::openai::OpenAIProvider;
 use aion_types::llm::{LlmEvent, LlmRequest};
@@ -182,6 +182,77 @@ async fn test_openai_stream_text_response() {
         }
         e => panic!("expected Done, got: {:?}", e),
     }
+}
+
+#[tokio::test]
+async fn test_openai_responses_request_and_typed_stream() {
+    let server = MockServer::start().await;
+    let reasoning_item = json!({
+        "id": "rs_1",
+        "type": "reasoning",
+        "encrypted_content": "encrypted",
+        "summary": []
+    });
+    let function_item = json!({
+        "id": "fc_1",
+        "type": "function_call",
+        "status": "completed",
+        "call_id": "call_1",
+        "name": "read",
+        "arguments": "{\"path\":\"README.md\"}"
+    });
+    let sse_body = format!(
+        "data: {}\n\ndata: {}\n\ndata: {}\n\n",
+        json!({"type": "response.output_item.done", "item": reasoning_item.clone()}),
+        json!({"type": "response.output_item.done", "item": function_item.clone()}),
+        json!({
+            "type": "response.completed",
+            "response": {
+                "status": "completed",
+                "output": [reasoning_item, function_item],
+                "usage": {
+                    "input_tokens": 30,
+                    "input_tokens_details": {"cached_tokens": 20},
+                    "output_tokens": 12
+                }
+            }
+        })
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/responses"))
+        .and(header("authorization", "Bearer test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_raw(sse_body, "text/event-stream"))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let mut compat = ProviderCompat::openai_defaults();
+    compat.transport.openai_api_mode = Some(OpenAiApiMode::Responses);
+    let provider = OpenAIProvider::new("test-key", &server.uri(), compat);
+    let mut request = make_request_with_tool();
+    request.model = "gpt-5.6-sol".to_string();
+    request.reasoning_effort = Some("high".to_string());
+    let rx = provider.stream(&request).await.unwrap();
+    let events = collect_events(rx).await;
+
+    assert_eq!(events.len(), 3, "expected provider item, tool use and done: {events:?}");
+    assert!(matches!(&events[0], LlmEvent::ProviderItem { item, .. } if item["id"] == "rs_1"));
+    assert!(matches!(&events[1], LlmEvent::ToolUse { id, name, .. } if id == "call_1" && name == "read"));
+    assert!(matches!(
+        &events[2],
+        LlmEvent::Done { stop_reason: StopReason::ToolUse, usage }
+            if usage.input_tokens == 30 && usage.cache_read_tokens == 20 && usage.output_tokens == 12
+    ));
+
+    let received = server.received_requests().await.unwrap();
+    let body: Value = received[0].body_json().unwrap();
+    assert_eq!(body["model"], "gpt-5.6-sol");
+    assert_eq!(body["reasoning"]["effort"], "high");
+    assert_eq!(body["input"][0]["content"][0]["type"], "input_text");
+    assert_eq!(body["tools"][0]["type"], "function");
+    assert_eq!(body["tools"][0]["name"], "read");
+    assert!(body.get("messages").is_none());
 }
 
 // ---------------------------------------------------------------------------

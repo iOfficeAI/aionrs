@@ -8,6 +8,7 @@ pub(crate) struct StreamOutcome {
     pub(crate) assistant_text: String,
     pub(crate) thinking_text: String,
     pub(crate) thinking_signature: Option<String>,
+    pub(crate) provider_items: Vec<ContentBlock>,
     pub(crate) tool_calls: Vec<ContentBlock>,
     pub(crate) stop_reason: StopReason,
     pub(crate) usage: TokenUsage,

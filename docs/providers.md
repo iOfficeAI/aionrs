@@ -90,6 +90,29 @@ aionrs --profile dev "Create a GitHub issue"
 
 ---
 
+## OpenAI Responses API
+
+OpenAI providers use Chat Completions by default so existing OpenAI-compatible
+services keep the same request and streaming format. Select Responses only for
+models or endpoints that require it:
+
+```toml
+[providers.openai]
+api_key = "sk-xxx"
+base_url = "https://api.openai.com/v1"
+
+[providers.openai.compat]
+openai_api_mode = "responses"
+```
+
+The setting changes the complete wire contract: the endpoint becomes
+`/responses`, requests use `input` items and flat function tools, and typed SSE
+events are decoded into the existing provider-neutral agent events. Tool calls
+and encrypted reasoning items are persisted and replayed for subsequent tool
+rounds. `chat_completions` remains the default when the setting is omitted.
+
+---
+
 ## OpenAI-Compatible Thinking Models
 
 Some OpenAI-compatible providers support a `thinking` request object in

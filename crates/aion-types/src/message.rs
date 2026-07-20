@@ -50,6 +50,11 @@ pub enum ContentBlock {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
     },
+
+    /// Opaque provider output item that must be replayed on later requests.
+    /// Providers other than the named owner must ignore this block.
+    #[serde(rename = "provider_item")]
+    ProviderItem { provider: String, item: Value },
 }
 
 /// Image URL for content blocks

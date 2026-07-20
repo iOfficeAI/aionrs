@@ -85,6 +85,21 @@ fn thinking_only_response_is_anomalous() {
 }
 
 #[test]
+fn provider_item_does_not_count_as_visible_stream_content() {
+    let mut diagnostics = OpenAiStreamDiagnostics::default();
+
+    diagnostics.observe_event(&LlmEvent::ProviderItem {
+        provider: "openai".to_string(),
+        item: json!({"type": "reasoning", "encrypted_content": "opaque"}),
+    });
+
+    assert_eq!(diagnostics.parsed_text_event_count, 0);
+    assert_eq!(diagnostics.parsed_thinking_event_count, 0);
+    assert_eq!(diagnostics.parsed_tool_call_event_count, 0);
+    assert_eq!(diagnostics.parsed_done_event_count, 0);
+}
+
+#[test]
 fn alternative_response_shapes_are_recorded_as_presence_only() {
     let mut diagnostics = OpenAiStreamDiagnostics::default();
     diagnostics.observe_json(&json!({

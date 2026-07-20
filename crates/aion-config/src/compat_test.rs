@@ -79,6 +79,7 @@ max_tokens = 64000
     fn test_flattened_compat_serializes_to_legacy_toml_keys() {
         let compat = ProviderCompat {
             transport: TransportCompat {
+                openai_api_mode: None,
                 max_tokens_field: Some("max_completion_tokens".to_string()),
                 default_max_tokens: Some(128_000),
                 model_max_tokens: Some(vec![ModelMaxTokensRule {
@@ -274,6 +275,51 @@ max_tokens = 64000
         assert!(compat.include_stream_options());
         assert!(compat.emit_tools());
         assert_eq!(compat.default_max_tokens_for_model("gpt-5"), None);
+    }
+
+    #[test]
+    fn openai_api_mode_defaults_to_chat_completions() {
+        let compat = ProviderCompat::openai_defaults();
+
+        assert_eq!(compat.openai_api_mode(), OpenAiApiMode::ChatCompletions);
+        assert_eq!(compat.openai_api_path(), "/chat/completions");
+    }
+
+    #[test]
+    fn responses_mode_replaces_inherited_chat_path() {
+        let user = ProviderCompat {
+            transport: TransportCompat {
+                openai_api_mode: Some(OpenAiApiMode::Responses),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let compat = ProviderCompat::merge(ProviderCompat::openai_defaults(), user);
+
+        assert_eq!(compat.openai_api_mode(), OpenAiApiMode::Responses);
+        assert_eq!(compat.openai_api_path(), "/responses");
+    }
+
+    #[test]
+    fn responses_mode_preserves_custom_api_path() {
+        let user = ProviderCompat {
+            transport: TransportCompat {
+                openai_api_mode: Some(OpenAiApiMode::Responses),
+                api_path: Some("/custom/responses".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let compat = ProviderCompat::merge(ProviderCompat::openai_defaults(), user);
+
+        assert_eq!(compat.openai_api_path(), "/custom/responses");
+    }
+
+    #[test]
+    fn responses_mode_deserializes_from_compat_toml() {
+        let compat: ProviderCompat = toml::from_str("openai_api_mode = \"responses\"").unwrap();
+
+        assert_eq!(compat.openai_api_mode(), OpenAiApiMode::Responses);
     }
 
     #[test]

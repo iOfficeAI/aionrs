@@ -825,6 +825,7 @@ impl AgentEngine {
         let mut assistant_text = String::new();
         let mut thinking_text = String::new();
         let mut thinking_signature: Option<String> = None;
+        let mut provider_items: Vec<ContentBlock> = Vec::new();
         let mut tool_calls: Vec<ContentBlock> = Vec::new();
         let mut stop_reason = StopReason::EndTurn;
         let mut usage = TokenUsage::default();
@@ -861,6 +862,9 @@ impl AgentEngine {
                 LlmEvent::ThinkingSignature(signature) => {
                     thinking_signature = Some(signature);
                 }
+                LlmEvent::ProviderItem { provider, item } => {
+                    provider_items.push(ContentBlock::ProviderItem { provider, item });
+                }
                 LlmEvent::Done {
                     stop_reason: sr,
                     usage: u,
@@ -878,6 +882,7 @@ impl AgentEngine {
             assistant_text,
             thinking_text,
             thinking_signature,
+            provider_items,
             tool_calls,
             stop_reason,
             usage,
@@ -1381,7 +1386,7 @@ struct ToolRoundOutput {
 /// Assemble the assistant message content blocks (thinking, text, tool calls)
 /// from a completed [`StreamOutcome`], preserving the canonical block order.
 fn build_assistant_content(outcome: &StreamOutcome) -> Vec<ContentBlock> {
-    let mut content: Vec<ContentBlock> = Vec::new();
+    let mut content = outcome.provider_items.clone();
     if !outcome.thinking_text.is_empty() || outcome.thinking_signature.is_some() {
         content.push(ContentBlock::Thinking {
             thinking: outcome.thinking_text.clone(),

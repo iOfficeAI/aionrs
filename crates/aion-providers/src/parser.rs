@@ -15,6 +15,28 @@ pub(crate) struct OpenAiParser {
     pub auto_tool_id: bool,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct OpenAiResponsesParser;
+
+impl ResponseParser for OpenAiResponsesParser {
+    type State = crate::openai_responses::StreamState;
+
+    fn new_state(&self) -> Self::State {
+        crate::openai_responses::StreamState::new()
+    }
+
+    fn parse_frame(&self, frame: &Frame, state: &mut Self::State) -> Vec<LlmEvent> {
+        match frame.kind {
+            FrameKind::Data => crate::openai_responses::parse_sse_chunk(&frame.data, state),
+            FrameKind::Done => Vec::new(),
+        }
+    }
+
+    fn finish(&self, _state: &mut Self::State) -> Vec<LlmEvent> {
+        Vec::new()
+    }
+}
+
 impl ResponseParser for OpenAiParser {
     type State = crate::openai::StreamState;
 

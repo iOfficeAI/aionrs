@@ -6,6 +6,8 @@ pub mod error;
 pub(crate) mod framing;
 pub mod openai;
 pub(crate) mod openai_messages;
+pub(crate) mod openai_responses;
+pub(crate) mod openai_responses_projector;
 pub(crate) mod parser;
 pub(crate) mod projector;
 pub mod provider;

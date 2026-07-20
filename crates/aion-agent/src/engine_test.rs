@@ -1,6 +1,6 @@
 use super::{
-    AgentEngine, AgentError, CacheBreakDetector, CompactLevel, CompactState, ProviderCompat, merge_tool_results,
-    tool_call_malformed_fingerprint,
+    AgentEngine, AgentError, CacheBreakDetector, CompactLevel, CompactState, ProviderCompat, build_assistant_content,
+    merge_tool_results, tool_call_malformed_fingerprint,
 };
 
 // ---------------------------------------------------------------------------
@@ -1603,7 +1603,7 @@ mod tests_loop_helpers {
     use aion_types::message::{ContentBlock, StopReason, TokenUsage};
     use serde_json::json;
 
-    use super::{AgentError, merge_tool_results, tool_call_malformed_fingerprint};
+    use super::{AgentError, build_assistant_content, merge_tool_results, tool_call_malformed_fingerprint};
     use crate::stream::StreamOutcome;
     use crate::tool_call::{
         DEFAULT_MAX_TOOL_CALL_FAILURE, ToolCallFailureFingerprint, ToolCallMalformedReason,
@@ -1845,6 +1845,7 @@ mod tests_loop_helpers {
             assistant_text: assistant_text.to_string(),
             thinking_text: String::new(),
             thinking_signature: None,
+            provider_items: Vec::new(),
             tool_calls,
             stop_reason,
             usage: TokenUsage::default(),
@@ -1860,6 +1861,21 @@ mod tests_loop_helpers {
         );
 
         assert!(matches!(TurnOutcome::from_stream(outcome), TurnOutcome::ToolRound(_)));
+    }
+
+    #[test]
+    fn assistant_content_keeps_provider_items_before_visible_content() {
+        let mut outcome = stream_outcome("Done", StopReason::ToolUse, vec![tool_use("call-1", "Read")]);
+        outcome.provider_items.push(ContentBlock::ProviderItem {
+            provider: "openai_responses".to_string(),
+            item: json!({"id": "rs_1", "type": "reasoning"}),
+        });
+
+        let content = build_assistant_content(&outcome);
+
+        assert!(matches!(content[0], ContentBlock::ProviderItem { .. }));
+        assert!(matches!(content[1], ContentBlock::Text { .. }));
+        assert!(matches!(content[2], ContentBlock::ToolUse { .. }));
     }
 
     #[test]

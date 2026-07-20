@@ -918,6 +918,7 @@ default = "auto"                 # auto, powershell, pwsh, cmd, bash, zsh, sh, o
 
 # Provider compatibility overrides (usually not needed — defaults work)
 # [providers.openai.compat]
+# openai_api_mode = "responses"               # default: "chat_completions"
 # max_tokens_field = "max_completion_tokens"  # for OpenAI official models
 # merge_assistant_messages = true
 # clean_orphan_tool_calls = true

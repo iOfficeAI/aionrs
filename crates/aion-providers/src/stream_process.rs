@@ -7,13 +7,14 @@ use aion_types::message::{StopReason, TokenUsage};
 
 use crate::error::ProviderError;
 use crate::framing::{FrameKind, SseBlockFramer, SseLineFramer, bedrock_payload_to_frame};
-use crate::parser::{AnthropicParser, OpenAiParser, ResponseParser};
+use crate::parser::{AnthropicParser, OpenAiParser, OpenAiResponsesParser, ResponseParser};
 use crate::stream_diagnostics::StreamTermination;
 use crate::stream_runner::StreamOutcome;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StreamDecoder {
     OpenAiSseLine { auto_tool_id: bool },
+    OpenAiResponsesSse,
     AnthropicSseBlock,
     BedrockAwsEventStream,
 }
@@ -22,9 +23,66 @@ impl StreamDecoder {
     pub(crate) async fn process(self, response: reqwest::Response, tx: &mpsc::Sender<LlmEvent>) -> StreamOutcome {
         match self {
             Self::OpenAiSseLine { auto_tool_id } => process_openai_sse_stream(response, tx, auto_tool_id).await,
+            Self::OpenAiResponsesSse => process_openai_responses_sse_stream(response, tx).await,
             Self::AnthropicSseBlock => process_anthropic_sse_stream(response, tx).await,
             Self::BedrockAwsEventStream => process_bedrock_aws_event_stream(response, tx).await,
         }
+    }
+}
+
+pub(crate) async fn process_openai_responses_sse_stream(
+    response: reqwest::Response,
+    tx: &mpsc::Sender<LlmEvent>,
+) -> StreamOutcome {
+    use futures::StreamExt;
+
+    let parser = OpenAiResponsesParser;
+    let mut state = parser.new_state();
+    let mut framer = SseLineFramer::default();
+    let mut stream = response.bytes_stream();
+    let mut emitted_content = false;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(error) => {
+                let error = ProviderError::Connection(error.to_string());
+                return if emitted_content {
+                    StreamOutcome::FailedPartial(error)
+                } else {
+                    StreamOutcome::FailedEmpty(error)
+                };
+            }
+        };
+        let text = String::from_utf8_lossy(&chunk);
+        for frame in framer.push_text(&text, "[DONE]") {
+            tracing::debug!(target: "aion_providers", event_type = ?frame.event, "OpenAI Responses SSE event received");
+            let events = parser.parse_frame(&frame, &mut state);
+            for event in events {
+                if matches!(
+                    event,
+                    LlmEvent::TextDelta(_)
+                        | LlmEvent::ThinkingDelta(_)
+                        | LlmEvent::ProviderItem { .. }
+                        | LlmEvent::ToolUse { .. }
+                ) {
+                    emitted_content = true;
+                }
+                if tx.send(event).await.is_err() {
+                    return StreamOutcome::Ok;
+                }
+            }
+            if state.is_terminal() {
+                return StreamOutcome::Ok;
+            }
+        }
+    }
+
+    let error = ProviderError::Connection("OpenAI Responses stream ended without a terminal event".to_string());
+    if emitted_content {
+        StreamOutcome::FailedPartial(error)
+    } else {
+        StreamOutcome::FailedEmpty(error)
     }
 }
 

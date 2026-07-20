@@ -1,10 +1,11 @@
-use aion_config::compat::ProviderCompat;
+use aion_config::compat::{OpenAiApiMode, ProviderCompat};
 use aion_types::llm::LlmRequest;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::Value;
 
 use crate::bedrock::BedrockTransportState;
 use crate::error::ProviderError;
+use crate::openai_responses_projector::OpenAiResponsesProjector;
 use crate::projector::{
     AnthropicWireProjector, OpenAiProjector, ResolvedToolWireShape, WireParams, WireProvider,
     classify_tools_wire_shape_mismatch, projection_to_provider_error,
@@ -18,6 +19,7 @@ use crate::vertex::VertexTransportState;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WireProtocol {
     OpenAiChat,
+    OpenAiResponses,
     AnthropicMessages,
 }
 
@@ -86,7 +88,7 @@ impl OpenAiTransport {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
 
         Ok(ProjectedHttpRequest {
-            url: join_base_url_and_api_path(&self.base_url, compat.api_path()),
+            url: join_base_url_and_api_path(&self.base_url, compat.openai_api_path()),
             headers,
             body,
             body_bytes: None,
@@ -140,9 +142,12 @@ impl AnthropicTransport {
 
 impl ProviderTransport {
     #[cfg(test)]
-    pub(crate) fn wire_protocol(&self) -> WireProtocol {
+    pub(crate) fn wire_protocol(&self, compat: &ProviderCompat) -> WireProtocol {
         match self {
-            Self::OpenAi(_) => WireProtocol::OpenAiChat,
+            Self::OpenAi(_) => match compat.openai_api_mode() {
+                OpenAiApiMode::ChatCompletions => WireProtocol::OpenAiChat,
+                OpenAiApiMode::Responses => WireProtocol::OpenAiResponses,
+            },
             Self::Anthropic(_) | Self::Vertex(_) | Self::Bedrock(_) => WireProtocol::AnthropicMessages,
         }
     }
@@ -157,8 +162,11 @@ impl ProviderTransport {
 
     pub(crate) fn decoder(&self, compat: &ProviderCompat) -> StreamDecoder {
         match self {
-            Self::OpenAi(_) => StreamDecoder::OpenAiSseLine {
-                auto_tool_id: compat.auto_tool_id(),
+            Self::OpenAi(_) => match compat.openai_api_mode() {
+                OpenAiApiMode::ChatCompletions => StreamDecoder::OpenAiSseLine {
+                    auto_tool_id: compat.auto_tool_id(),
+                },
+                OpenAiApiMode::Responses => StreamDecoder::OpenAiResponsesSse,
             },
             Self::Anthropic(_) | Self::Vertex(_) => StreamDecoder::AnthropicSseBlock,
             Self::Bedrock(_) => StreamDecoder::BedrockAwsEventStream,
@@ -171,10 +179,17 @@ impl ProviderTransport {
         compat: &ProviderCompat,
     ) -> Result<(Value, ResolvedToolWireShape), ProviderError> {
         match self {
-            Self::OpenAi(_) => {
-                let body = OpenAiProjector::project(request, compat).map_err(projection_to_provider_error)?;
-                Ok((body, OpenAiProjector::resolved_tool_wire_shape(compat)))
-            }
+            Self::OpenAi(_) => match compat.openai_api_mode() {
+                OpenAiApiMode::ChatCompletions => {
+                    let body = OpenAiProjector::project(request, compat).map_err(projection_to_provider_error)?;
+                    Ok((body, OpenAiProjector::resolved_tool_wire_shape(compat)))
+                }
+                OpenAiApiMode::Responses => {
+                    let body =
+                        OpenAiResponsesProjector::project(request, compat).map_err(projection_to_provider_error)?;
+                    Ok((body, ResolvedToolWireShape::OpenAiFunction))
+                }
+            },
 
             Self::Anthropic(transport) => {
                 let params = WireParams {

@@ -195,6 +195,30 @@ mod tests {
         assert_eq!(value["signature"], "sig-123");
     }
 
+    #[test]
+    fn provider_item_round_trips_opaque_json() {
+        let block = ContentBlock::ProviderItem {
+            provider: "openai_responses".to_string(),
+            item: json!({
+                "id": "rs_1",
+                "type": "reasoning",
+                "encrypted_content": "encrypted"
+            }),
+        };
+
+        let value = serde_json::to_value(&block).unwrap();
+        let round_trip = serde_json::from_value::<ContentBlock>(value.clone()).unwrap();
+
+        assert_eq!(value["type"], "provider_item");
+        assert_eq!(value["provider"], "openai_responses");
+        assert_eq!(value["item"]["encrypted_content"], "encrypted");
+        assert!(matches!(
+            round_trip,
+            ContentBlock::ProviderItem { provider, item }
+                if provider == "openai_responses" && item["id"] == "rs_1"
+        ));
+    }
+
     // --- StopReason variants ---
 
     #[test]
