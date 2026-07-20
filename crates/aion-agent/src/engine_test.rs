@@ -589,6 +589,7 @@ mod tests_compact {
     use serde_json::json;
 
     use super::{CompactLevel, ProviderCompat};
+    use crate::compact::auto::should_autocompact;
     use crate::compact::state::CompactState;
     use crate::confirm::ToolConfirmer;
     use crate::output::OutputSink;
@@ -781,6 +782,7 @@ mod tests_compact {
             matches!(&last.content[1], ContentBlock::ToolResult { tool_use_id, content, is_error }
                 if tool_use_id == "call_bash" && content == "Tool execution canceled by user" && *is_error)
         );
+        assert_eq!(engine.compact_state.last_input_tokens, 14);
 
         let emitted = output.tool_results.lock().unwrap();
         assert_eq!(emitted.len(), 2);
@@ -839,6 +841,61 @@ mod tests_compact {
                 .any(|msg| msg == "Cache full miss: TtlExpiry"),
             "full cache misses should remain visible as diagnostics"
         );
+    }
+
+    #[test]
+    fn provider_turn_total_replaces_previous_context_estimate() {
+        let mut state = CompactState::new();
+        state.last_input_tokens = 100_000;
+        let mut engine = make_compact_engine(CompactConfig::default(), state, vec![]);
+
+        engine.record_turn_usage(&TokenUsage {
+            input_tokens: 693,
+            output_tokens: 102,
+            cache_read_tokens: 512,
+            ..Default::default()
+        });
+
+        assert_eq!(engine.compact_state.last_input_tokens, 795);
+    }
+
+    #[test]
+    fn all_tool_results_are_added_before_the_next_threshold_check() {
+        let config = CompactConfig {
+            context_window: 1_000,
+            autocompact_threshold_pct: Some(60),
+            ..Default::default()
+        };
+        let mut engine = make_compact_engine(config, CompactState::new(), vec![]);
+        engine.record_turn_usage(&TokenUsage {
+            input_tokens: 500,
+            output_tokens: 50,
+            ..Default::default()
+        });
+        assert!(!should_autocompact(
+            engine.compact_state.last_input_tokens,
+            &engine.compact_config
+        ));
+
+        let tool_results = vec![
+            ContentBlock::ToolResult {
+                tool_use_id: "call-1".into(),
+                content: "a".repeat(200),
+                is_error: false,
+            },
+            ContentBlock::ToolResult {
+                tool_use_id: "call-2".into(),
+                content: "b".repeat(200),
+                is_error: false,
+            },
+        ];
+        engine.record_tool_context_estimate(&tool_results, &[]);
+
+        assert_eq!(engine.compact_state.last_input_tokens, 650);
+        assert!(should_autocompact(
+            engine.compact_state.last_input_tokens,
+            &engine.compact_config
+        ));
     }
 
     // -- Emergency check fires when at limit --
@@ -966,7 +1023,7 @@ mod tests_compact {
     #[tokio::test]
     async fn first_turn_zero_tokens_no_compaction() {
         let config = CompactConfig::default();
-        let state = CompactState::new(); // last_input_tokens = 0
+        let state = CompactState::new(); // context_tokens = 0
 
         let mut engine = make_compact_engine(config, state, vec![]);
         assert!(engine.run_compaction().await.is_ok());

@@ -46,6 +46,7 @@ pub(crate) struct StreamState {
     tool_calls: Vec<ToolCallAccumulator>,
     input_tokens: u64,
     output_tokens: u64,
+    cache_read_tokens: u64,
     diagnostics: OpenAiStreamDiagnostics,
     /// Deferred Done event: populated when finish_reason arrives, emitted on
     /// [DONE] so the final usage-only chunk has a chance to update token counts.
@@ -58,6 +59,7 @@ impl StreamState {
             tool_calls: Vec::new(),
             input_tokens: 0,
             output_tokens: 0,
+            cache_read_tokens: 0,
             diagnostics: OpenAiStreamDiagnostics::default(),
             pending_done: None,
         }
@@ -77,7 +79,7 @@ impl StreamState {
                     input_tokens: self.input_tokens,
                     output_tokens: self.output_tokens,
                     cache_creation_tokens: 0,
-                    cache_read_tokens: 0,
+                    cache_read_tokens: self.cache_read_tokens,
                 },
             },
             other => other,
@@ -120,15 +122,14 @@ pub(crate) fn parse_sse_chunk(data: &str, state: &mut StreamState, auto_tool_id:
 
     // Extract usage if present
     if let Some(usage) = json.get("usage") {
-        let base_prompt = usage["prompt_tokens"].as_u64().unwrap_or(state.input_tokens);
-
-        // DeepSeek-style: prompt_cache_hit_tokens is reported separately and
-        // prompt_tokens only contains the cache-miss portion.
-        // Add it to get the true total prompt size.
-        let cache_hit = usage["prompt_cache_hit_tokens"].as_u64().unwrap_or(0);
-
-        state.input_tokens = base_prompt + cache_hit;
+        state.input_tokens = usage["prompt_tokens"].as_u64().unwrap_or(state.input_tokens);
         state.output_tokens = usage["completion_tokens"].as_u64().unwrap_or(state.output_tokens);
+        state.cache_read_tokens = usage
+            .pointer("/prompt_tokens_details/cached_tokens")
+            .and_then(Value::as_u64)
+            .or_else(|| usage["cached_tokens"].as_u64())
+            .or_else(|| usage["prompt_cache_hit_tokens"].as_u64())
+            .unwrap_or(state.cache_read_tokens);
     }
 
     let Some(choice) = json["choices"].as_array().and_then(|c| c.first()) else {

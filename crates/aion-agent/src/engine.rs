@@ -7,7 +7,7 @@ use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::commands::{CommandContext, CommandRegistry, CommandResult, SlashCommand, default_registry};
 use crate::compact::auto::{CompactError, autocompact, should_autocompact};
 use crate::compact::emergency::is_at_emergency_limit;
-use crate::compact::estimate::estimate_tokens_from_messages;
+use crate::compact::estimate::{estimate_tokens_from_tool_image, estimate_tokens_from_tool_result};
 use crate::compact::micro::{microcompact, should_microcompact};
 use crate::compact::state::CompactState;
 use crate::confirm::ToolConfirmer;
@@ -113,7 +113,7 @@ pub struct AgentEngine {
     // Compaction and plan-mode state.
     /// Static compaction thresholds, flags, and sizing configuration.
     compact_config: CompactConfig,
-    /// Runtime compaction watermark and circuit-breaker state.
+    /// Runtime context-size and compaction circuit-breaker state.
     compact_state: CompactState,
     /// Active compaction strategy level.
     compact_level: CompactLevel,
@@ -487,6 +487,7 @@ impl AgentEngine {
             self.apply_context_modifiers(&tool_modifiers);
 
             self.emit_tool_results(&tool_calls, &tool_results);
+            self.record_tool_context_estimate(&tool_results, &follow_up_blocks);
 
             self.messages.push(Message::now(Role::User, tool_results));
             if !follow_up_blocks.is_empty() {
@@ -746,7 +747,7 @@ impl AgentEngine {
         );
         async {
             // Run multi-level compaction before each API call.
-            // On the first model turn last_input_tokens is 0 so neither
+            // On the first model turn context_tokens is 0 so neither
             // autocompact nor emergency will fire.
             self.run_compaction().await?;
             let request = self.build_request(kind);
@@ -889,29 +890,15 @@ impl AgentEngine {
         })
     }
 
-    /// Fold one turn's token usage into the running totals and update the
-    /// compaction watermark and cache-break diagnostics.
+    /// Fold one turn's token usage into the running totals and replace the
+    /// best-known context size with the provider's exact turn total.
     fn record_turn_usage(&mut self, turn_usage: &TokenUsage) {
         self.total_usage.input_tokens += turn_usage.input_tokens;
         self.total_usage.output_tokens += turn_usage.output_tokens;
         self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
         self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
 
-        // Track per-turn input tokens for compaction watermark.
-        // Use max(provider_reported, local_estimate) as a safety net:
-        // some providers (e.g. DeepSeek with prefix caching) underreport
-        // prompt_tokens, causing compaction to never trigger.
-        let local_estimate = estimate_tokens_from_messages(&self.messages);
-        let effective_watermark = turn_usage.input_tokens.max(local_estimate);
-
-        if local_estimate > turn_usage.input_tokens && local_estimate.saturating_sub(turn_usage.input_tokens) > 10_000 {
-            self.output.emit_info(&format!(
-                "Token watermark override: provider={}, local_estimate={}, using={}",
-                turn_usage.input_tokens, local_estimate, effective_watermark
-            ));
-        }
-
-        self.compact_state.last_input_tokens = effective_watermark;
+        self.compact_state.last_input_tokens = turn_usage.input_tokens.saturating_add(turn_usage.output_tokens);
 
         // Cache break detection
         let cache_stats = CacheStats {
@@ -940,6 +927,28 @@ impl AgentEngine {
         }
     }
 
+    /// Add content produced after the provider usage snapshot. Every final
+    /// tool result is estimated once; tool-emitted images are counted because
+    /// they are also sent in the next provider request.
+    fn record_tool_context_estimate(&mut self, tool_results: &[ContentBlock], tool_images: &[ContentBlock]) {
+        let tool_result_tokens = tool_results.iter().fold(0_u64, |total, result| {
+            total.saturating_add(estimate_tokens_from_tool_result(result))
+        });
+        let tool_image_tokens = tool_images.iter().fold(0_u64, |total, image| {
+            total.saturating_add(estimate_tokens_from_tool_image(image))
+        });
+        let added_tokens = tool_result_tokens.saturating_add(tool_image_tokens);
+
+        self.compact_state.last_input_tokens = self.compact_state.last_input_tokens.saturating_add(added_tokens);
+        debug!(
+            target: "aion_agent",
+            tool_result_tokens,
+            tool_image_tokens,
+            context_tokens = self.compact_state.last_input_tokens,
+            "tool results added to context token estimate"
+        );
+    }
+
     /// Run the multi-level compaction pipeline before each API call.
     ///
     /// Execution order: microcompact → autocompact → emergency check.
@@ -961,7 +970,7 @@ impl AgentEngine {
         let mut compacted = false;
         let should_compact = should_autocompact(self.compact_state.last_input_tokens, &self.compact_config);
         if should_compact {
-            info!(target: "aion_agent", last_input_tokens = self.compact_state.last_input_tokens, "context compaction triggered");
+            info!(target: "aion_agent", context_tokens = self.compact_state.last_input_tokens, "context compaction triggered");
             let threshold = if let Some(pct) = self.compact_config.autocompact_threshold_pct {
                 let t = self.compact_config.context_window * pct as usize / 100;
                 self.output.emit_info(&format!(
@@ -1008,7 +1017,7 @@ impl AgentEngine {
         } else if should_compact {
             self.output.emit_info(&format!(
                 "Autocompact: skipped (circuit breaker tripped after {} consecutive failures, \
-                 last_input_tokens={})",
+                 context_tokens={})",
                 self.compact_state.consecutive_failures, self.compact_state.last_input_tokens
             ));
         } else if !self.compact_config.enabled {
@@ -1023,7 +1032,7 @@ impl AgentEngine {
             if self.compact_state.last_input_tokens as usize >= threshold {
                 self.output.emit_info(&format!(
                     "Autocompact: disabled (compact.enabled=false, \
-                     last_input_tokens={}, threshold={})",
+                     context_tokens={}, threshold={})",
                     self.compact_state.last_input_tokens, threshold
                 ));
             }
@@ -1334,7 +1343,7 @@ impl AgentEngine {
             return;
         }
 
-        let result_blocks = pending_results
+        let result_blocks: Vec<ContentBlock> = pending_results
             .into_iter()
             .map(|(tool_use_id, name)| {
                 info!(
@@ -1352,6 +1361,7 @@ impl AgentEngine {
             })
             .collect();
 
+        self.record_tool_context_estimate(&result_blocks, &[]);
         self.messages.push(Message::now(Role::User, result_blocks));
         self.save_session();
     }

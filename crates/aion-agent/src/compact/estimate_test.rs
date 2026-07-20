@@ -112,21 +112,21 @@ mod tests {
     }
 
     #[test]
-    fn effective_watermark_uses_max() {
-        let provider_reported: u64 = 500;
-        let messages = vec![Message::new(
-            Role::User,
-            vec![ContentBlock::ToolResult {
-                tool_use_id: "c1".into(),
-                content: "x".repeat(400_000),
-                is_error: false,
-            }],
-        )];
-        let local_estimate = estimate_tokens_from_messages(&messages);
-        let effective = provider_reported.max(local_estimate);
+    fn final_tool_result_is_estimated_directly() {
+        let result = ContentBlock::ToolResult {
+            tool_use_id: "c1".into(),
+            content: "x".repeat(400_000),
+            is_error: false,
+        };
 
-        assert_eq!(effective, 100_000);
-        assert!(effective > provider_reported);
+        assert_eq!(estimate_tokens_from_tool_result(&result), 100_000);
+    }
+
+    #[test]
+    fn non_tool_result_is_not_counted_as_tool_output() {
+        let text = ContentBlock::Text { text: "x".repeat(400) };
+
+        assert_eq!(estimate_tokens_from_tool_result(&text), 0);
     }
 
     #[test]
@@ -168,5 +168,17 @@ mod tests {
         let estimate = estimate_tokens_from_messages(&[msg]);
         // Maximum 2048 tokens * 4 chars/token.
         assert_eq!(estimate, 2048);
+    }
+
+    #[test]
+    fn tool_image_is_estimated_directly() {
+        let data = STANDARD.encode(vec![0u8; 10_000]);
+        let image = ContentBlock::Image {
+            image_url: ImageUrl {
+                url: format!("data:image/png;base64,{}", data),
+            },
+        };
+
+        assert_eq!(estimate_tokens_from_tool_image(&image), 85);
     }
 }

@@ -1,6 +1,6 @@
-//! Autocompact: watermark-triggered LLM summarization.
+//! Autocompact: context-threshold-triggered LLM summarization.
 //!
-//! When the token watermark exceeds the configured threshold, this module
+//! When the best-known context size exceeds the configured threshold, this module
 //! calls the LLM to produce a structured summary of the conversation,
 //! then replaces the full history with a compact boundary marker and the
 //! summary.  A circuit breaker prevents runaway retries.
@@ -34,7 +34,7 @@ pub struct CompactResult {
     pub messages: Vec<Message>,
     /// How many original messages were summarized.
     pub messages_summarized: usize,
-    /// Input token count before compaction (from the last API call).
+    /// Best-known context token count before compaction.
     pub pre_compact_tokens: u64,
 }
 
@@ -55,11 +55,11 @@ pub enum CompactError {
 
 // ── Trigger check ───────────────────────────────────────────────────────────
 
-/// Check if autocompact should trigger based on the token watermark.
+/// Check if autocompact should trigger based on the best-known context size.
 ///
 /// When `autocompact_threshold_pct` is set, threshold = context_window * pct / 100.
 /// Otherwise falls back to: `threshold = context_window - output_reserve - autocompact_buffer`
-pub fn should_autocompact(last_input_tokens: u64, config: &CompactConfig) -> bool {
+pub fn should_autocompact(context_tokens: u64, config: &CompactConfig) -> bool {
     if !config.enabled {
         return false;
     }
@@ -69,7 +69,7 @@ pub fn should_autocompact(last_input_tokens: u64, config: &CompactConfig) -> boo
         let effective_window = config.context_window.saturating_sub(config.output_reserve);
         effective_window.saturating_sub(config.autocompact_buffer)
     };
-    last_input_tokens as usize >= threshold
+    context_tokens as usize >= threshold
 }
 
 // ── Core autocompact ────────────────────────────────────────────────────────

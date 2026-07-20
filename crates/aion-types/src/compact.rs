@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CompactTrigger {
-    /// Triggered automatically when token usage exceeded the watermark.
+    /// Triggered automatically when token usage exceeded the context threshold.
     Auto,
     /// Triggered manually by the user (e.g. `/compact` command).
     Manual,

@@ -210,10 +210,15 @@ pub enum StopReason {
 /// Token usage statistics
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TokenUsage {
+    /// Full provider input, including cache-read and cache-creation tokens.
     pub input_tokens: u64,
+    /// Full provider output, including reasoning tokens when reported as part
+    /// of the completion total.
     pub output_tokens: u64,
+    /// Subset of `input_tokens` used to create a provider-side prompt cache.
     #[serde(default)]
     pub cache_creation_tokens: u64,
+    /// Subset of `input_tokens` read from a provider-side prompt cache.
     #[serde(default)]
     pub cache_read_tokens: u64,
 }
