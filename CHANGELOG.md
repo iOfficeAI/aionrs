@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.2.6](https://github.com/iOfficeAI/aionrs/compare/v0.2.5...v0.2.6) (2026-07-20)
+
+
+### Features
+
+* **providers:** add openai responses api support ([d2bf89f](https://github.com/iOfficeAI/aionrs/commit/d2bf89f125b8bed437e561377bc40cb0cf3d9bd3))
+* **providers:** add openai responses api support ([3185442](https://github.com/iOfficeAI/aionrs/commit/3185442df3d164f4d249c4fa4d21f94d05cc4ffe))
+
+
+### Bug Fixes
+
+* **providers:** add sanitized stream diagnostics ([141635f](https://github.com/iOfficeAI/aionrs/commit/141635fe6bf29cf514a1174a690850ca2a5665a9))
+* **providers:** add sanitized stream diagnostics ([405a55b](https://github.com/iOfficeAI/aionrs/commit/405a55b2cce6881f624c747ebf77862b479a8604))
+* **providers:** ignore canceled stream diagnostics ([7f27e9d](https://github.com/iOfficeAI/aionrs/commit/7f27e9d988b333ce3978b183e545a5b0b22fceea))
+
 ## [0.2.5](https://github.com/iOfficeAI/aionrs/compare/v0.2.4...v0.2.5) (2026-07-17)
 
 
