@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -9,6 +10,40 @@ use aion_types::tool::{JsonSchema, ToolResult};
 
 use crate::Tool;
 use crate::file_cache::{FileStateCache, file_mtime_ms, update_cache_after_write};
+
+#[derive(Clone, Copy)]
+enum LineEnding {
+    Lf,
+    Crlf,
+}
+
+fn detect_line_ending(content: &str) -> LineEnding {
+    if content.contains("\r\n") {
+        LineEnding::Crlf
+    } else {
+        LineEnding::Lf
+    }
+}
+
+fn convert_line_endings(text: &str, line_ending: LineEnding) -> Cow<'_, str> {
+    match line_ending {
+        LineEnding::Lf => {
+            if text.contains("\r\n") {
+                Cow::Owned(text.replace("\r\n", "\n"))
+            } else {
+                Cow::Borrowed(text)
+            }
+        }
+        LineEnding::Crlf => {
+            if text.contains('\n') {
+                let normalized = text.replace("\r\n", "\n");
+                Cow::Owned(normalized.replace('\n', "\r\n"))
+            } else {
+                Cow::Borrowed(text)
+            }
+        }
+    }
+}
 
 pub struct EditTool {
     file_cache: Option<Arc<RwLock<FileStateCache>>>,
@@ -140,7 +175,13 @@ impl Tool for EditTool {
             }
         };
 
-        let match_count = content.matches(old_string).count();
+        // Tool arguments usually use LF even when the file uses CRLF. Adapt both
+        // strings to the file's actual line ending before exact matching so the
+        // replacement preserves the surrounding bytes and does not create mixed EOLs.
+        let line_ending = detect_line_ending(&content);
+        let old_string = convert_line_endings(old_string, line_ending);
+        let new_string = convert_line_endings(new_string, line_ending);
+        let match_count = content.matches(old_string.as_ref()).count();
 
         if match_count == 0 {
             return ToolResult {
@@ -160,9 +201,9 @@ impl Tool for EditTool {
         }
 
         let new_content = if replace_all {
-            content.replace(old_string, new_string)
+            content.replace(old_string.as_ref(), new_string.as_ref())
         } else {
-            content.replacen(old_string, new_string, 1)
+            content.replacen(old_string.as_ref(), new_string.as_ref(), 1)
         };
 
         if let Err(e) = std::fs::write(file_path, &new_content) {
