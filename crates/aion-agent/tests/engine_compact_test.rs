@@ -107,7 +107,7 @@ fn summary_turn(summary_text: &str) -> Vec<LlmEvent> {
 
 #[tokio::test]
 async fn tc_2_6_01_first_turn_no_compaction() {
-    // On the first turn last_input_tokens is 0, so neither autocompact
+    // On the first turn context_tokens is 0, so neither autocompact
     // nor emergency should fire.
     let provider = Arc::new(CompactMockProvider::new(vec![text_turn("Hello", 50_000)]));
 
@@ -130,9 +130,9 @@ async fn tc_2_6_01_first_turn_no_compaction() {
 async fn tc_2_6_03_emergency_returns_error() {
     // Emergency is the last safety net — it fires when autocompact is
     // disabled or circuit-broken.  We disable compact so only emergency
-    // is active, then push input_tokens above the emergency limit.
+    // is active, then push the provider turn total above the emergency limit.
     //
-    // Turn 1: tool use, returns input_tokens above emergency threshold
+    // Turn 1: tool use, returns a turn total above the emergency threshold
     // Turn 2: emergency fires before the API call → ContextTooLong
     let turn1 = vec![
         LlmEvent::ToolUse {
@@ -168,7 +168,8 @@ async fn tc_2_6_03_emergency_returns_error() {
 
     match err {
         AgentError::ContextTooLong { input_tokens, limit } => {
-            assert_eq!(input_tokens, 198_000);
+            // 198_000 input + 100 output + one token estimated from "result".
+            assert_eq!(input_tokens, 198_101);
             assert_eq!(limit, 197_000);
         }
         other => panic!("expected ContextTooLong, got: {:?}", other),
@@ -457,7 +458,7 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
             //
             // micro_keep_recent = 3 → count threshold = 6.
             // After 7 tool-use turns: 7 > 6 → micro fires.
-            // After turn 6: last_input_tokens = 170k > 167k → auto fires.
+            // After turn 6: context_tokens = 170k > 167k → auto fires.
             let events = if count < 7 {
                 let input_tokens = if count == 6 { 170_000 } else { 10_000 };
                 vec![
@@ -556,8 +557,8 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
 async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
     // Verify that microcompact and autocompact cooperate in the same
     // compaction cycle.  Microcompact frees some tokens from old tool
-    // results, and autocompact still fires because the input token
-    // watermark (which is not reduced by micro) remains above threshold.
+    // results, and autocompact still fires because the context estimate
+    // (which is not reduced by micro) remains above threshold.
 
     let compact_call_count: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
     let counter_ref = compact_call_count.clone();
@@ -605,7 +606,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
             // 7 tool-use turns (count 0-6).  Turn 6 returns high tokens.
             // micro_keep_recent = 3 → count threshold = 6.
             // After 7 tool results: 7 > 6 → micro fires.
-            // After turn 6: last_input_tokens = 170k > 167k → auto fires.
+            // After turn 6: context_tokens = 170k > 167k → auto fires.
             let events = if count < 7 {
                 let input_tokens = if count == 6 { 170_000 } else { 10_000 };
                 vec![
@@ -673,7 +674,7 @@ async fn tc_2_6_e2e_02_micro_and_auto_cooperative() {
     assert_eq!(result.text, "After cooperative compact");
 
     // Autocompact was called exactly once (micro freed tokens but
-    // did not reduce last_input_tokens, so auto still fired).
+    // did not reduce context_tokens, so auto still fired).
     let calls = *compact_call_count.lock().unwrap();
     assert_eq!(
         calls, 1,

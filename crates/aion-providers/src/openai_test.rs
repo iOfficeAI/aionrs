@@ -67,16 +67,37 @@ mod tests {
     }
 
     #[test]
-    fn usage_includes_prompt_cache_hit_tokens() {
-        // DeepSeek reports prompt_cache_hit_tokens separately;
-        // input_tokens should be the sum of prompt_tokens + prompt_cache_hit_tokens
+    fn deepseek_cache_hit_tokens_are_an_input_subset() {
         let mut state = StreamState::new();
 
-        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":500,"completion_tokens":100,"prompt_cache_hit_tokens":999500}}"#;
+        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":693,"completion_tokens":102,"total_tokens":795,"prompt_tokens_details":{"cached_tokens":512},"completion_tokens_details":{"reasoning_tokens":44},"prompt_cache_hit_tokens":512,"prompt_cache_miss_tokens":181}}"#;
         let _ = parse_sse_chunk(chunk, &mut state, false);
 
-        assert_eq!(state.input_tokens, 1_000_000);
-        assert_eq!(state.output_tokens, 100);
+        assert_eq!(state.input_tokens, 693);
+        assert_eq!(state.output_tokens, 102);
+        assert_eq!(state.cache_read_tokens, 512);
+
+        let done = state.flush_done().unwrap();
+        match done {
+            LlmEvent::Done { usage, .. } => {
+                assert_eq!(usage.input_tokens, 693);
+                assert_eq!(usage.output_tokens, 102);
+                assert_eq!(usage.cache_read_tokens, 512);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kimi_top_level_cached_tokens_are_an_input_subset() {
+        let mut state = StreamState::new();
+
+        let chunk = r#"{"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":19,"completion_tokens":21,"total_tokens":40,"cached_tokens":10}}"#;
+        let _ = parse_sse_chunk(chunk, &mut state, false);
+
+        assert_eq!(state.input_tokens, 19);
+        assert_eq!(state.output_tokens, 21);
+        assert_eq!(state.cache_read_tokens, 10);
     }
 
     #[test]
@@ -91,6 +112,7 @@ mod tests {
         // prompt_tokens is already the full total for OpenAI
         assert_eq!(state.input_tokens, 1_000_000);
         assert_eq!(state.output_tokens, 100);
+        assert_eq!(state.cache_read_tokens, 999_000);
     }
 
     #[test]

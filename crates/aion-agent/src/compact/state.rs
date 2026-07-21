@@ -8,7 +8,12 @@ use aion_config::compact::CompactConfig;
 pub struct CompactState {
     /// Number of consecutive autocompact failures.
     pub consecutive_failures: u32,
-    /// Input token count from the last API call (used as the watermark).
+    /// Best-known size of the context for the next provider request.
+    ///
+    /// A completed provider turn replaces this value with its exact
+    /// `input_tokens + output_tokens`. Content appended after that response,
+    /// such as tool results, is added using a local estimate.
+    /// The historical field name is retained for source compatibility.
     pub last_input_tokens: u64,
 }
 

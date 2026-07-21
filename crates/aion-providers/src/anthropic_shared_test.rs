@@ -942,6 +942,20 @@ mod tests {
         assert!(events.is_empty());
     }
 
+    #[test]
+    fn test_message_start_includes_cache_tokens_in_total_input() {
+        let mut state = StreamState::new();
+        let data =
+            r#"{"message":{"usage":{"input_tokens":12,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}}"#;
+
+        let events = parse_sse_data("message_start", data, &mut state);
+
+        assert!(events.is_empty());
+        assert_eq!(state.input_tokens, 19);
+        assert_eq!(state.cache_creation_tokens, 3);
+        assert_eq!(state.cache_read_tokens, 4);
+    }
+
     // --- Image block projection ---
 
     #[test]
