@@ -1512,15 +1512,23 @@ mod tests_handle_command {
                 requests.push(request.clone());
                 request_index
             };
-            let (tx, rx) = channel(4);
+            let (tx, rx) = channel(5);
 
             if request_index < 3 {
                 let _ = tx.send(LlmEvent::TextDelta("I will retry".to_string())).await;
                 let _ = tx
                     .send(LlmEvent::ToolUse {
-                        id: format!("call-{request_index}"),
+                        id: format!("failed-call-{request_index}"),
                         name: "FailingTool".to_string(),
                         input: json!({ "resource": "same" }),
+                        extra: None,
+                    })
+                    .await;
+                let _ = tx
+                    .send(LlmEvent::ToolUse {
+                        id: format!("successful-call-{request_index}"),
+                        name: "SuccessfulTool".to_string(),
+                        input: json!({ "resource": request_index }),
                         extra: None,
                     })
                     .await;
@@ -1583,6 +1591,41 @@ mod tests_handle_command {
         }
     }
 
+    struct SuccessfulTool {
+        executions: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Tool for SuccessfulTool {
+        fn name(&self) -> &str {
+            "SuccessfulTool"
+        }
+
+        fn description(&self) -> &str {
+            "always succeeds for loop-guard testing"
+        }
+
+        fn input_schema(&self) -> Value {
+            json!({ "type": "object" })
+        }
+
+        fn is_concurrency_safe(&self, _: &Value) -> bool {
+            true
+        }
+
+        async fn execute(&self, _: Value) -> ToolResult {
+            self.executions.fetch_add(1, Ordering::SeqCst);
+            ToolResult {
+                content: "progress recorded".to_string(),
+                is_error: false,
+            }
+        }
+
+        fn category(&self) -> ToolCategory {
+            ToolCategory::Info
+        }
+    }
+
     fn make_engine_with_provider(provider: Arc<dyn LlmProvider>) -> AgentEngine {
         let mut engine = make_engine();
         engine.provider = provider;
@@ -1609,18 +1652,23 @@ mod tests_handle_command {
     }
 
     #[tokio::test]
-    async fn visible_retry_text_does_not_reset_tool_failure_finalization() {
+    async fn visible_retry_text_and_successful_tools_do_not_reset_repeated_failure() {
         let provider = Arc::new(RetryingToolProvider::default());
-        let executions = Arc::new(AtomicUsize::new(0));
+        let failed_executions = Arc::new(AtomicUsize::new(0));
+        let successful_executions = Arc::new(AtomicUsize::new(0));
         let mut engine = make_engine_with_provider(provider.clone());
         engine.max_turns_per_run = Some(10);
         engine.tools.register(Box::new(FailingTool {
-            executions: executions.clone(),
+            executions: failed_executions.clone(),
+        }));
+        engine.tools.register(Box::new(SuccessfulTool {
+            executions: successful_executions.clone(),
         }));
 
         let result = engine.run("finish the task", "msg-tool-loop").await.unwrap();
 
-        assert_eq!(executions.load(Ordering::SeqCst), 3);
+        assert_eq!(failed_executions.load(Ordering::SeqCst), 3);
+        assert_eq!(successful_executions.load(Ordering::SeqCst), 3);
         assert_eq!(result.stop_reason, StopReason::EndTurn);
         assert_eq!(result.turns, 3);
         assert!(result.text.contains("tool is blocked"));
@@ -1951,6 +1999,24 @@ mod tests_loop_helpers {
         assert!(matches!(
             guards.after_tool_round(None, failed_exec_fingerprint(), true),
             TurnGuardAction::Continue
+        ));
+    }
+
+    #[test]
+    fn after_tool_round_tracks_repeated_failure_across_mixed_success_rounds() {
+        let mut guards = TurnGuards::new(Some(100), 3, DEFAULT_MAX_TOOL_CALL_FAILURE);
+
+        assert!(matches!(
+            guards.after_tool_round(None, failed_exec_fingerprint(), false),
+            TurnGuardAction::Continue
+        ));
+        assert!(matches!(
+            guards.after_tool_round(None, failed_exec_fingerprint(), false),
+            TurnGuardAction::Warn(ToolLoopWarning::ExactFailure { count: 2, limit: 3 })
+        ));
+        assert!(matches!(
+            guards.after_tool_round(None, failed_exec_fingerprint(), false),
+            TurnGuardAction::Finalize(FinalizationReason::ToolFailure)
         ));
     }
 
@@ -2377,5 +2443,6 @@ mod tests_tool_policy_enforcement {
             ContentBlock::ToolResult { is_error: false, .. }
         ));
         assert!(!output.all_tool_results_error);
+        assert!(output.tool_call_failure_fingerprint.is_some());
     }
 }

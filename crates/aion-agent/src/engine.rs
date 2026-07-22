@@ -676,14 +676,20 @@ impl AgentEngine {
             executable_modifiers,
         );
 
-        let all_tool_results_error = tool_call_malformed_fingerprint.is_none()
-            && !tool_results.is_empty()
+        let failed_tool_calls: Vec<_> = tool_calls
+            .iter()
+            .zip(&tool_call_malformed_reasons)
+            .zip(&tool_results)
+            .filter(|((_, malformed_reason), result)| {
+                malformed_reason.is_none() && matches!(result, ContentBlock::ToolResult { is_error: true, .. })
+            })
+            .map(|((call, _), _)| call.clone())
+            .collect();
+        let tool_call_failure_fingerprint = tool_call_failure_fingerprint(&failed_tool_calls);
+        let all_tool_results_error = tool_call_failure_fingerprint.is_some()
             && tool_results
                 .iter()
                 .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. }));
-        let tool_call_failure_fingerprint = all_tool_results_error
-            .then(|| tool_call_failure_fingerprint(tool_calls))
-            .flatten();
 
         Ok(ToolRoundOutput {
             tool_results,
@@ -1387,9 +1393,9 @@ struct ToolRoundOutput {
     /// `Some` only when every tool call in the round was malformed; feeds the
     /// tool-call-malformed breaker.
     tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,
-    /// `Some` when this round produced executable (non-malformed) tool calls
-    /// with the same name+input pattern and all errored; feeds the exact-call
-    /// and cycle breakers.
+    /// `Some` when at least one non-malformed tool call failed. The fingerprint
+    /// contains only failed calls, so successful sibling calls do not reset the
+    /// exact-call or cycle breakers.
     tool_call_failure_fingerprint: Option<ToolCallFailureFingerprint>,
     /// Whether the round had a non-malformed call and every result was an error.
     all_tool_results_error: bool,

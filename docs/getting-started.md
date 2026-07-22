@@ -173,9 +173,17 @@ the distinction between runs, turns, tool rounds, and tool calls.
 rounds from a provider. The default is `3`; `0` disables this breaker
 and leaves stopping to `max_turns` if a broad turn limit is configured.
 
-`max_tool_call_failure_turns` limits consecutive zero-text turns where every
-executable tool result failed. The default is `3`; `0` disables this breaker
-and leaves stopping to `max_turns` if a broad turn limit is configured.
+`max_tool_call_failure_turns` limits consecutive repeats of the same failed
+tool name and input pattern. Assistant explanation text does not reset the
+count, and successful sibling calls in a mixed round do not erase failures
+that are still repeating. A failure-free tool round resets the exact-call and
+cycle history. The default is `3`.
+
+The same guard also warns after 3 consecutive all-error rounds and finalizes
+after 8, and detects repeating 2-4 round call cycles after 2 repetitions before
+finalizing after 3. Setting `max_tool_call_failure_turns` to `0` disables all
+of these tool-failure guards and leaves stopping to `max_turns` if a broad turn
+limit is configured.
 
 Precedence is `CLI > profile > project config > global config > built-in default 3`. Use `--max-tool-call-malformed-turns <n>` or `--max-tool-call-failure-turns <n>` for a one-off CLI override.
 

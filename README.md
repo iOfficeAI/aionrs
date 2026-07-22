@@ -50,10 +50,12 @@ aionrs --help
 so runs have no broad model-turn limit unless you configure one. Set it to
 `0` to explicitly disable the broad limit. `max_tool_call_malformed_turns`
 stops repeated same tool-call-malformed rounds earlier; it defaults to `3`.
-`max_tool_call_failure_turns` stops zero-text turns where every executable
-tool result failed; it also defaults to `3`. Set either guard to `0` to
-disable that breaker and rely on `max_turns` if a broad turn limit is
-configured.
+`max_tool_call_failure_turns` finalizes repeated failed tool-call patterns
+based on failed tool names and inputs, regardless of assistant text or
+successful sibling calls in the same round; it also defaults to `3`. The
+failure guard additionally detects consecutive all-error rounds and short
+repeating call cycles. Set either guard to `0` to disable that breaker and
+rely on `max_turns` if a broad turn limit is configured.
 
 See [Core Concepts](docs/core-concepts.md) for the distinction between runs,
 turns, tool rounds, and tool calls.
