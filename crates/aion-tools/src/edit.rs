@@ -17,12 +17,81 @@ enum LineEnding {
     Crlf,
 }
 
+struct OldStringMatch<'a> {
+    old_string: Cow<'a, str>,
+    line_ending: LineEnding,
+    match_count: usize,
+}
+
+enum MatchSelectionError {
+    NotFound,
+    AmbiguousLineEndings,
+}
+
 fn detect_line_ending(content: &str) -> LineEnding {
     if content.contains("\r\n") {
         LineEnding::Crlf
     } else {
         LineEnding::Lf
     }
+}
+
+fn line_ending_in(text: &str) -> Option<LineEnding> {
+    if text.contains("\r\n") {
+        Some(LineEnding::Crlf)
+    } else if text.contains('\n') {
+        Some(LineEnding::Lf)
+    } else {
+        None
+    }
+}
+
+fn select_old_string<'a>(content: &str, old_string: &'a str) -> Result<OldStringMatch<'a>, MatchSelectionError> {
+    let exact_match_count = content.matches(old_string).count();
+    let normalized_candidates = [
+        (LineEnding::Lf, convert_line_endings(old_string, LineEnding::Lf)),
+        (LineEnding::Crlf, convert_line_endings(old_string, LineEnding::Crlf)),
+    ];
+
+    if exact_match_count > 0 {
+        // Exact bytes take priority. Other EOL forms are checked only to avoid
+        // silently choosing one of multiple visually identical regions.
+        let has_alternative_match = normalized_candidates
+            .iter()
+            .any(|(_, candidate)| candidate.as_ref() != old_string && content.contains(candidate.as_ref()));
+        if has_alternative_match {
+            return Err(MatchSelectionError::AmbiguousLineEndings);
+        }
+
+        return Ok(OldStringMatch {
+            old_string: Cow::Borrowed(old_string),
+            line_ending: line_ending_in(old_string).unwrap_or_else(|| detect_line_ending(content)),
+            match_count: exact_match_count,
+        });
+    }
+
+    let mut fallback_match = None;
+    for (line_ending, candidate) in normalized_candidates {
+        if candidate.as_ref() == old_string {
+            continue;
+        }
+
+        let match_count = content.matches(candidate.as_ref()).count();
+        if match_count == 0 {
+            continue;
+        }
+        if fallback_match.is_some() {
+            return Err(MatchSelectionError::AmbiguousLineEndings);
+        }
+
+        fallback_match = Some(OldStringMatch {
+            old_string: candidate,
+            line_ending,
+            match_count,
+        });
+    }
+
+    fallback_match.ok_or(MatchSelectionError::NotFound)
 }
 
 fn convert_line_endings(text: &str, line_ending: LineEnding) -> Cow<'_, str> {
@@ -175,20 +244,27 @@ impl Tool for EditTool {
             }
         };
 
-        // Tool arguments usually use LF even when the file uses CRLF. Adapt both
-        // strings to the file's actual line ending before exact matching so the
-        // replacement preserves the surrounding bytes and does not create mixed EOLs.
-        let line_ending = detect_line_ending(&content);
-        let old_string = convert_line_endings(old_string, line_ending);
-        let new_string = convert_line_endings(new_string, line_ending);
-        let match_count = content.matches(old_string.as_ref()).count();
-
-        if match_count == 0 {
-            return ToolResult {
-                content: "old_string not found in file".to_string(),
-                is_error: true,
-            };
-        }
+        // Prefer the exact bytes supplied by the caller. Only fall back to an
+        // EOL-adapted old_string when the exact form is absent.
+        let selected = match select_old_string(&content, old_string) {
+            Ok(selected) => selected,
+            Err(MatchSelectionError::NotFound) => {
+                return ToolResult {
+                    content: "old_string not found in file".to_string(),
+                    is_error: true,
+                };
+            }
+            Err(MatchSelectionError::AmbiguousLineEndings) => {
+                return ToolResult {
+                    content: "Ambiguous line-ending match: old_string matches both LF and CRLF text. \
+                              Provide more surrounding context."
+                        .to_string(),
+                    is_error: true,
+                };
+            }
+        };
+        let match_count = selected.match_count;
+        let new_string = convert_line_endings(new_string, selected.line_ending);
 
         if match_count > 1 && !replace_all {
             return ToolResult {
@@ -201,9 +277,9 @@ impl Tool for EditTool {
         }
 
         let new_content = if replace_all {
-            content.replace(old_string.as_ref(), new_string.as_ref())
+            content.replace(selected.old_string.as_ref(), new_string.as_ref())
         } else {
-            content.replacen(old_string.as_ref(), new_string.as_ref(), 1)
+            content.replacen(selected.old_string.as_ref(), new_string.as_ref(), 1)
         };
 
         if let Err(e) = std::fs::write(file_path, &new_content) {

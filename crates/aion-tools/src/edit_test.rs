@@ -135,6 +135,53 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn edit_exact_lf_match_in_mixed_line_endings_file() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("mixed.txt");
+        std::fs::write(&file_path, b"header\r\nalpha\nbeta\ngamma\r\n").unwrap();
+
+        let tool = EditTool::new(None);
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "alpha\nbeta",
+            "new_string": "alpha\nbeta updated\ninserted"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read(&file_path).unwrap(),
+            b"header\r\nalpha\nbeta updated\ninserted\ngamma\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_rejects_ambiguous_lf_and_crlf_matches() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("ambiguous.txt");
+        let original = b"alpha\nbeta\nseparator\r\nalpha\r\nbeta\r\n";
+        std::fs::write(&file_path, original).unwrap();
+
+        let tool = EditTool::new(None);
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "alpha\nbeta",
+            "new_string": "updated"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("Ambiguous line-ending match"),
+            "expected ambiguity error, got: {}",
+            result.content
+        );
+        assert_eq!(std::fs::read(&file_path).unwrap(), original);
+    }
+
     #[test]
     fn line_ending_conversion_preserves_lone_carriage_returns() {
         assert_eq!(
