@@ -926,13 +926,13 @@ async fn finalization_requests_can_be_asserted_without_tools() {
 }
 
 #[tokio::test]
-async fn repeated_tool_call_failure_turns_stop_before_another_provider_request() {
-    let provider = Arc::new(RecordingRequestProvider::new(vec![
+async fn repeated_tool_call_failure_turns_finalize_without_more_tools() {
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
         tool_call_failure_turn("tool-1"),
         tool_call_failure_turn("tool-2"),
         tool_call_failure_turn("tool-3"),
         vec![
-            LlmEvent::TextDelta("should not be requested".to_string()),
+            LlmEvent::TextDelta("The tool is blocked by permission settings.".to_string()),
             LlmEvent::Done {
                 stop_reason: StopReason::EndTurn,
                 usage: TokenUsage::default(),
@@ -948,27 +948,41 @@ async fn repeated_tool_call_failure_turns_stop_before_another_provider_request()
     registry.register(Box::new(MockTool::new("mock_tool", "permission denied", true)));
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, silent_output(), std::env::temp_dir());
-    let err = engine
+    let result = engine
         .run("keep retrying a failing tool", "")
         .await
-        .expect_err("engine should stop repeated tool-call-failure loops");
+        .expect("engine should finalize repeated tool-call-failure loops");
 
-    assert!(
-        err.to_string().contains("consecutive tool-call failures"),
-        "unexpected error: {err}"
-    );
-    assert_eq!(
-        requests.lock().unwrap().len(),
-        3,
-        "fourth provider request must not be sent"
-    );
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.text, "The tool is blocked by permission settings.");
+    assert_eq!(result.turns, 3);
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 4);
+    assert!(recorded[..3].iter().all(|request| request.tool_count > 0));
+    assert_eq!(recorded[3].tool_count, 0);
+    assert!(recorded[3].messages.iter().any(|message| {
+        message.content.iter().any(|block| {
+            matches!(
+                block,
+                ContentBlock::ToolResult { content, is_error: true, .. }
+                    if content.contains("permission denied")
+            )
+        })
+    }));
 }
 
 #[tokio::test]
-async fn repeated_tool_call_failure_threshold_one_stops_immediately() {
-    let provider = Arc::new(RecordingRequestProvider::new(vec![
+async fn repeated_tool_call_failure_threshold_one_finalizes_immediately() {
+    let provider = Arc::new(FullRecordingRequestProvider::new(vec![
         tool_call_failure_turn("tool-1"),
-        tool_call_failure_turn("tool-2"),
+        vec![
+            LlmEvent::TextDelta("The tool failed because permission was denied.".to_string()),
+            LlmEvent::Done {
+                stop_reason: StopReason::EndTurn,
+                usage: TokenUsage::default(),
+            },
+        ],
     ]));
     let requests = provider.requests();
 
@@ -980,13 +994,19 @@ async fn repeated_tool_call_failure_threshold_one_stops_immediately() {
     registry.register(Box::new(MockTool::new("mock_tool", "permission denied", true)));
 
     let mut engine = AgentEngine::new_with_provider(provider, config, registry, silent_output(), std::env::temp_dir());
-    let err = engine
+    let result = engine
         .run("keep retrying a failing tool", "")
         .await
-        .expect_err("engine should stop repeated tool-call-failure loops");
+        .expect("engine should finalize repeated tool-call-failure loops");
 
-    assert!(matches!(err, AgentError::ToolCallFailures { count: 1, limit: 1 }));
-    assert_eq!(requests.lock().unwrap().len(), 1);
+    assert_eq!(result.stop_reason, StopReason::EndTurn);
+    assert_eq!(result.text, "The tool failed because permission was denied.");
+    assert_eq!(result.turns, 1);
+
+    let recorded = requests.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+    assert!(recorded[0].tool_count > 0);
+    assert_eq!(recorded[1].tool_count, 0);
 }
 
 #[tokio::test]

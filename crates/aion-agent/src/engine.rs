@@ -24,7 +24,7 @@ use crate::tool_call::{
     tool_call_malformed_reason,
 };
 use crate::tool_policy::ToolPolicy;
-use crate::turn::{FinalizationReason, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
+use crate::turn::{FinalizationReason, ToolLoopWarning, TurnGuardAction, TurnGuards, TurnKind, TurnOutcome};
 use aion_compact::CompactLevel;
 use aion_config::compact::CompactConfig;
 use aion_config::compat::ProviderCompat;
@@ -425,11 +425,11 @@ impl AgentEngine {
             let outcome = self.run_turn(TurnKind::Normal).await?;
             guards.record_counted_turn();
 
-            let (assistant_text, tool_calls) = match TurnOutcome::from_stream(outcome) {
+            let tool_calls = match TurnOutcome::from_stream(outcome) {
                 TurnOutcome::ToolRound(outcome) => {
                     let assistant_content = build_assistant_content(&outcome);
                     self.messages.push(Message::now(Role::Assistant, assistant_content));
-                    (outcome.assistant_text, outcome.tool_calls)
+                    outcome.tool_calls
                 }
                 TurnOutcome::Final(outcome) => {
                     let assistant_content = build_assistant_content(&outcome);
@@ -476,15 +476,25 @@ impl AgentEngine {
 
             // need to execute tool calls before the next turn
             let ToolRoundOutput {
-                tool_results,
+                mut tool_results,
                 tool_modifiers,
                 follow_up_blocks,
                 tool_call_malformed_fingerprint,
                 tool_call_failure_fingerprint,
-            } = self.execute_tool_round(&tool_calls, &assistant_text).await?;
+                all_tool_results_error,
+            } = self.execute_tool_round(&tool_calls).await?;
 
             // Apply any context modifiers from skill executions before the next turn.
             self.apply_context_modifiers(&tool_modifiers);
+
+            let guard_action = guards.after_tool_round(
+                tool_call_malformed_fingerprint,
+                tool_call_failure_fingerprint,
+                all_tool_results_error,
+            );
+            if let TurnGuardAction::Warn(warning) = guard_action {
+                append_tool_loop_warning(&mut tool_results, warning);
+            }
 
             self.emit_tool_results(&tool_calls, &tool_results);
             self.record_tool_context_estimate(&tool_results, &follow_up_blocks);
@@ -497,16 +507,11 @@ impl AgentEngine {
             // Save session after each tool round.
             self.save_session();
 
-            match guards.after_tool_round(tool_call_malformed_fingerprint, tool_call_failure_fingerprint) {
-                TurnGuardAction::Continue => {}
-                TurnGuardAction::Finalize => {
+            match guard_action {
+                TurnGuardAction::Continue | TurnGuardAction::Warn(_) => {}
+                TurnGuardAction::Finalize(reason) => {
                     return self
-                        .finalize_once(
-                            FinalizationReason::TurnBudget,
-                            String::new(),
-                            guards.counted_turns(),
-                            StopReason::MaxTurns,
-                        )
+                        .finalize_once(reason, String::new(), guards.counted_turns(), StopReason::MaxTurns)
                         .await;
                 }
                 TurnGuardAction::Stop(err) => return Err(err),
@@ -575,16 +580,10 @@ impl AgentEngine {
     /// Malformed calls get synthetic error results; the rest are executed via
     /// the approval (JSON stream) or interactive (terminal) path. Results and
     /// skill modifiers are interleaved back into the original call order.
-    /// `assistant_text` is the visible text from the same turn, used only to
-    /// classify an all-error round for the consecutive-failure breaker.
     ///
     /// A `Quit` from tool execution is surfaced as `AgentError::UserAborted`
     /// after saving the session.
-    async fn execute_tool_round(
-        &mut self,
-        tool_calls: &[ContentBlock],
-        assistant_text: &str,
-    ) -> Result<ToolRoundOutput, AgentError> {
+    async fn execute_tool_round(&mut self, tool_calls: &[ContentBlock]) -> Result<ToolRoundOutput, AgentError> {
         let tool_call_malformed_reasons: Vec<_> = tool_calls
             .iter()
             .map(|call| {
@@ -677,14 +676,14 @@ impl AgentEngine {
             executable_modifiers,
         );
 
-        let tool_call_failure_fingerprint = (tool_call_malformed_fingerprint.is_none()
-            && assistant_text.trim().is_empty()
+        let all_tool_results_error = tool_call_malformed_fingerprint.is_none()
             && !tool_results.is_empty()
             && tool_results
                 .iter()
-                .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. })))
-        .then(|| tool_call_failure_fingerprint(tool_calls))
-        .flatten();
+                .all(|result| matches!(result, ContentBlock::ToolResult { is_error: true, .. }));
+        let tool_call_failure_fingerprint = all_tool_results_error
+            .then(|| tool_call_failure_fingerprint(tool_calls))
+            .flatten();
 
         Ok(ToolRoundOutput {
             tool_results,
@@ -692,6 +691,7 @@ impl AgentEngine {
             follow_up_blocks,
             tool_call_malformed_fingerprint,
             tool_call_failure_fingerprint,
+            all_tool_results_error,
         })
     }
 
@@ -1388,9 +1388,30 @@ struct ToolRoundOutput {
     /// tool-call-malformed breaker.
     tool_call_malformed_fingerprint: Option<ToolCallMalformedFingerprint>,
     /// `Some` when this round produced executable (non-malformed) tool calls
-    /// with the same name+input pattern, all errored, and the model emitted no
-    /// visible text; feeds the consecutive-tool-call-failure breaker.
+    /// with the same name+input pattern and all errored; feeds the exact-call
+    /// and cycle breakers.
     tool_call_failure_fingerprint: Option<ToolCallFailureFingerprint>,
+    /// Whether the round had a non-malformed call and every result was an error.
+    all_tool_results_error: bool,
+}
+
+fn append_tool_loop_warning(tool_results: &mut [ContentBlock], warning: ToolLoopWarning) {
+    let Some(content) = tool_results.iter_mut().rev().find_map(|result| {
+        let ContentBlock::ToolResult {
+            content,
+            is_error: true,
+            ..
+        } = result
+        else {
+            return None;
+        };
+        Some(content)
+    }) else {
+        return;
+    };
+
+    content.push_str("\n\n");
+    content.push_str(&warning.guidance());
 }
 
 /// Assemble the assistant message content blocks (thinking, text, tool calls)

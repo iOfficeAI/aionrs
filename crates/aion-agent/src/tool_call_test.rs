@@ -6,6 +6,15 @@ mod tests {
 
     use super::*;
 
+    fn failure_fingerprint(command: &str) -> Option<ToolCallFailureFingerprint> {
+        tool_call_failure_fingerprint(&[ContentBlock::ToolUse {
+            id: format!("call-{command}"),
+            name: "ExecCommand".into(),
+            input: json!({ "cmd": command }),
+            extra: None,
+        }])
+    }
+
     #[test]
     fn reason_detects_blank_name_before_blank_id() {
         assert_eq!(
@@ -112,5 +121,77 @@ mod tests {
         assert!(!tracker.is_limit_exceeded());
         assert_eq!(tracker.observe(fingerprint), 2);
         assert!(!tracker.is_limit_exceeded());
+    }
+
+    #[test]
+    fn all_error_round_tracker_counts_consecutive_rounds_and_resets_on_progress() {
+        let mut tracker = ToolCallAllErrorRoundTracker::new(3);
+
+        assert_eq!(tracker.observe(true), 1);
+        assert_eq!(tracker.observe(true), 2);
+        assert!(!tracker.is_limit_exceeded());
+        assert_eq!(tracker.observe(false), 0);
+        assert_eq!(tracker.observe(true), 1);
+        assert_eq!(tracker.observe(true), 2);
+        assert_eq!(tracker.observe(true), 3);
+        assert!(tracker.is_limit_exceeded());
+        assert_eq!(tracker.limit(), 3);
+    }
+
+    #[test]
+    fn cycle_tracker_detects_two_and_three_repetitions() {
+        let mut tracker = ToolCallCycleTracker::new(true);
+        let a = failure_fingerprint("command-a");
+        let b = failure_fingerprint("command-b");
+
+        assert_eq!(tracker.observe(a.clone()), None);
+        assert_eq!(tracker.observe(b.clone()), None);
+        assert_eq!(tracker.observe(a.clone()), None);
+        assert_eq!(
+            tracker.observe(b.clone()),
+            Some(ToolCallCycle {
+                period: 2,
+                repetitions: 2,
+            })
+        );
+        assert_eq!(
+            tracker.observe(a),
+            Some(ToolCallCycle {
+                period: 2,
+                repetitions: 2,
+            })
+        );
+        assert_eq!(
+            tracker.observe(b),
+            Some(ToolCallCycle {
+                period: 2,
+                repetitions: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn cycle_tracker_resets_on_non_failure_round() {
+        let mut tracker = ToolCallCycleTracker::new(true);
+        let a = failure_fingerprint("command-a");
+        let b = failure_fingerprint("command-b");
+
+        tracker.observe(a.clone());
+        tracker.observe(b.clone());
+        tracker.observe(a.clone());
+        assert_eq!(tracker.observe(None), None);
+        assert_eq!(tracker.observe(b), None);
+        assert_eq!(tracker.observe(a), None);
+    }
+
+    #[test]
+    fn disabled_cycle_tracker_never_accumulates_history() {
+        let mut tracker = ToolCallCycleTracker::new(false);
+        let a = failure_fingerprint("command-a");
+        let b = failure_fingerprint("command-b");
+
+        for fingerprint in [a.clone(), b.clone(), a, b] {
+            assert_eq!(tracker.observe(fingerprint), None);
+        }
     }
 }

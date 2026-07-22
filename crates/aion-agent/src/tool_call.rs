@@ -2,6 +2,9 @@ use aion_types::{message::ContentBlock, skill_types::ContextModifier};
 
 pub(crate) const DEFAULT_MAX_TOOL_CALL_MALFORMED: usize = 3;
 pub(crate) const DEFAULT_MAX_TOOL_CALL_FAILURE: usize = 3;
+pub(crate) const DEFAULT_MAX_ALL_ERROR_TOOL_ROUNDS: usize = 8;
+pub(crate) const DEFAULT_MAX_TOOL_CALL_CYCLE_REPETITIONS: usize = 3;
+const MAX_TOOL_CALL_CYCLE_PERIOD: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ToolCallMalformedReason {
@@ -282,6 +285,113 @@ impl ToolCallFailureTracker {
     #[cfg(test)]
     pub(crate) fn count(&self) -> usize {
         self.count
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct ToolCallAllErrorRoundTracker {
+    count: usize,
+    limit: usize,
+}
+
+impl ToolCallAllErrorRoundTracker {
+    pub(crate) fn new(limit: usize) -> Self {
+        Self { count: 0, limit }
+    }
+
+    pub(crate) fn observe(&mut self, all_error: bool) -> usize {
+        if all_error {
+            self.count += 1;
+        } else {
+            self.count = 0;
+        }
+        self.count
+    }
+
+    pub(crate) fn is_limit_exceeded(&self) -> bool {
+        self.limit > 0 && self.count >= self.limit
+    }
+
+    pub(crate) fn limit(&self) -> usize {
+        self.limit
+    }
+
+    #[cfg(test)]
+    pub(crate) fn count(&self) -> usize {
+        self.count
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ToolCallCycle {
+    pub(crate) period: usize,
+    pub(crate) repetitions: usize,
+}
+
+#[derive(Debug)]
+pub(crate) struct ToolCallCycleTracker {
+    enabled: bool,
+    history: Vec<ToolCallFailureFingerprint>,
+}
+
+impl ToolCallCycleTracker {
+    pub(crate) fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            history: Vec::new(),
+        }
+    }
+
+    pub(crate) fn observe(&mut self, current: Option<ToolCallFailureFingerprint>) -> Option<ToolCallCycle> {
+        if !self.enabled {
+            self.history.clear();
+            return None;
+        }
+
+        let Some(current) = current else {
+            self.history.clear();
+            return None;
+        };
+
+        self.history.push(current);
+        let max_history = MAX_TOOL_CALL_CYCLE_PERIOD * DEFAULT_MAX_TOOL_CALL_CYCLE_REPETITIONS;
+        if self.history.len() > max_history {
+            self.history.remove(0);
+        }
+
+        self.detect_cycle()
+    }
+
+    fn detect_cycle(&self) -> Option<ToolCallCycle> {
+        let history_len = self.history.len();
+        let max_period = MAX_TOOL_CALL_CYCLE_PERIOD.min(history_len / 2);
+        let mut best: Option<ToolCallCycle> = None;
+
+        for period in 2..=max_period {
+            let pattern_start = history_len - period;
+            let pattern = &self.history[pattern_start..];
+            let mut repetitions = 1;
+            let mut previous_end = pattern_start;
+
+            while previous_end >= period && self.history[previous_end - period..previous_end] == *pattern {
+                repetitions += 1;
+                previous_end -= period;
+            }
+
+            if repetitions < 2 {
+                continue;
+            }
+
+            let cycle = ToolCallCycle { period, repetitions };
+            if best.is_none_or(|current| {
+                cycle.repetitions > current.repetitions
+                    || (cycle.repetitions == current.repetitions && cycle.period < current.period)
+            }) {
+                best = Some(cycle);
+            }
+        }
+
+        best
     }
 }
 
