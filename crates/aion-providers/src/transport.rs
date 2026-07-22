@@ -15,6 +15,8 @@ use crate::stream_process::StreamDecoder;
 use crate::stream_runner::RetryPolicy;
 use crate::vertex::VertexTransportState;
 
+const MAX_JSON_RESPONSE_BYTES: usize = 64 * 1024;
+
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WireProtocol {
@@ -291,7 +293,102 @@ async fn send_projected_json_request(
         return Err(map_common_status(status.as_u16(), body_text, tool_wire_shape));
     }
 
+    if is_json_response(&response) {
+        let http_status = status.as_u16();
+        let body_text = read_json_response_body(response).await?;
+        let error = map_success_json_response(&body_text);
+        let provider_status = provider_error_status(&error);
+        tracing::warn!(
+            http_status,
+            provider_status,
+            "provider returned JSON instead of a stream with a successful HTTP status"
+        );
+        return Err(error);
+    }
+
     Ok(response)
+}
+
+fn is_json_response(response: &reqwest::Response) -> bool {
+    response
+        .headers()
+        .get(CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .map(str::trim)
+        .is_some_and(|media_type| {
+            media_type.eq_ignore_ascii_case("application/json") || media_type.to_ascii_lowercase().ends_with("+json")
+        })
+}
+
+async fn read_json_response_body(mut response: reqwest::Response) -> Result<String, ProviderError> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len().saturating_add(chunk.len()) > MAX_JSON_RESPONSE_BYTES {
+            return Err(ProviderError::Parse(format!(
+                "JSON response exceeded the {MAX_JSON_RESPONSE_BYTES}-byte limit"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    String::from_utf8(body).map_err(|error| ProviderError::Parse(format!("JSON response was not valid UTF-8: {error}")))
+}
+
+fn map_success_json_response(body_text: &str) -> ProviderError {
+    let body = match serde_json::from_str::<Value>(body_text) {
+        Ok(body) => body,
+        Err(error) => {
+            return ProviderError::Parse(format!(
+                "Expected a streaming response but received invalid JSON: {error}"
+            ));
+        }
+    };
+
+    let error = body.get("error").unwrap_or(&body);
+    let status = [
+        error.get("code"),
+        error.get("status"),
+        body.get("code"),
+        body.get("status"),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(json_http_status_code);
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| error.as_str())
+        .or_else(|| body.get("message").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|message| !message.is_empty())
+        .unwrap_or("Provider returned a JSON error response without a message")
+        .to_string();
+
+    match status {
+        Some(429) => ProviderError::RateLimited {
+            retry_after_ms: 5000,
+            body: (!body_text.is_empty()).then(|| body_text.to_string()),
+        },
+        Some(status @ 400..=599) => ProviderError::Api { status, message },
+        _ => ProviderError::Parse(format!("Provider returned an unexpected JSON response: {message}")),
+    }
+}
+
+fn json_http_status_code(value: &Value) -> Option<u16> {
+    value
+        .as_u64()
+        .and_then(|status| u16::try_from(status).ok())
+        .or_else(|| value.as_str().and_then(|status| status.parse().ok()))
+        .filter(|status| (400..=599).contains(status))
+}
+
+fn provider_error_status(error: &ProviderError) -> Option<u16> {
+    match error {
+        ProviderError::Api { status, .. } => Some(*status),
+        ProviderError::RateLimited { .. } => Some(429),
+        _ => None,
+    }
 }
 
 fn map_common_status(status: u16, body_text: String, tool_wire_shape: ResolvedToolWireShape) -> ProviderError {

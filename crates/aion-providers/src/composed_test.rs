@@ -1,5 +1,8 @@
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
     use aion_config::compat::{ProviderCompat, TransportCompat};
     use aion_types::llm::{LlmEvent, LlmRequest};
     use aion_types::message::{ContentBlock, Message, Role};
@@ -356,5 +359,87 @@ mod tests {
             rx.recv().await,
             Some(LlmEvent::TextDelta(text)) if text == "hi"
         ));
+    }
+
+    #[tokio::test]
+    async fn composed_provider_retries_successful_json_502_then_streams() {
+        let server = MockServer::start().await;
+        let attempt = Arc::new(AtomicU32::new(0));
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with({
+                let attempt = Arc::clone(&attempt);
+                move |_request: &wiremock::Request| {
+                    if attempt.fetch_add(1, Ordering::SeqCst) == 0 {
+                        ResponseTemplate::new(200).set_body_json(json!({
+                            "error": {
+                                "message": "upstream busy",
+                                "code": 502
+                            }
+                        }))
+                    } else {
+                        ResponseTemplate::new(200).set_body_raw(
+                            concat!(
+                                "data: {\"choices\":[{\"delta\":{\"content\":\"recovered\"}}]}\n\n",
+                                "data: [DONE]\n\n"
+                            ),
+                            "text/event-stream",
+                        )
+                    }
+                }
+            })
+            .expect(2)
+            .mount(&server)
+            .await;
+        tokio::time::pause();
+
+        let provider = ComposedProvider::new(
+            ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri())),
+            ProviderCompat::openai_defaults(),
+        );
+        let mut rx = provider
+            .stream(&test_request())
+            .await
+            .expect("embedded 502 should be retried");
+
+        assert!(matches!(
+            rx.recv().await,
+            Some(LlmEvent::TextDelta(text)) if text == "recovered"
+        ));
+        assert_eq!(attempt.load(Ordering::SeqCst), 2);
+        server.verify().await;
+    }
+
+    #[tokio::test]
+    async fn composed_provider_returns_typed_502_after_retry_exhaustion() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "error": {
+                    "message": "upstream busy",
+                    "code": 502
+                }
+            })))
+            .expect(6)
+            .mount(&server)
+            .await;
+        tokio::time::pause();
+
+        let provider = ComposedProvider::new(
+            ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri())),
+            ProviderCompat::openai_defaults(),
+        );
+
+        let error = provider
+            .stream(&test_request())
+            .await
+            .expect_err("exhausted retries should return a typed provider error");
+
+        assert!(matches!(
+            error,
+            ProviderError::Api { status: 502, message } if message == "upstream busy"
+        ));
+        server.verify().await;
     }
 }
