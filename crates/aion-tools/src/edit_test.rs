@@ -90,6 +90,108 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn edit_lf_multiline_strings_preserve_crlf_file_endings() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("crlf.txt");
+        std::fs::write(&file_path, b"alpha\r\nbeta\r\ngamma\r\n").unwrap();
+
+        let cache = make_cache();
+        simulate_read(&cache, &file_path);
+        let tool = EditTool::new(Some(cache));
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "alpha\nbeta",
+            "new_string": "alpha\nbeta updated\ninserted"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read(&file_path).unwrap(),
+            b"alpha\r\nbeta updated\r\ninserted\r\ngamma\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_crlf_multiline_strings_preserve_lf_file_endings() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("lf.txt");
+        std::fs::write(&file_path, b"alpha\nbeta\ngamma\n").unwrap();
+
+        let tool = EditTool::new(None);
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "alpha\r\nbeta",
+            "new_string": "alpha\r\nbeta updated\r\ninserted"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read(&file_path).unwrap(),
+            b"alpha\nbeta updated\ninserted\ngamma\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_exact_lf_match_in_mixed_line_endings_file() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("mixed.txt");
+        std::fs::write(&file_path, b"header\r\nalpha\nbeta\ngamma\r\n").unwrap();
+
+        let tool = EditTool::new(None);
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "alpha\nbeta",
+            "new_string": "alpha\nbeta updated\ninserted"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(!result.is_error, "unexpected error: {}", result.content);
+        assert_eq!(
+            std::fs::read(&file_path).unwrap(),
+            b"header\r\nalpha\nbeta updated\ninserted\ngamma\r\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_rejects_ambiguous_lf_and_crlf_matches() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("ambiguous.txt");
+        let original = b"alpha\nbeta\nseparator\r\nalpha\r\nbeta\r\n";
+        std::fs::write(&file_path, original).unwrap();
+
+        let tool = EditTool::new(None);
+        let input = json!({
+            "file_path": file_path.to_str().unwrap(),
+            "old_string": "alpha\nbeta",
+            "new_string": "updated"
+        });
+
+        let result = tool.execute(input).await;
+
+        assert!(result.is_error);
+        assert!(
+            result.content.contains("Ambiguous line-ending match"),
+            "expected ambiguity error, got: {}",
+            result.content
+        );
+        assert_eq!(std::fs::read(&file_path).unwrap(), original);
+    }
+
+    #[test]
+    fn line_ending_conversion_preserves_lone_carriage_returns() {
+        assert_eq!(
+            convert_line_endings("alpha\r\r\nbeta", LineEnding::Crlf),
+            "alpha\r\r\nbeta"
+        );
+        assert_eq!(convert_line_endings("alpha\r\r\nbeta", LineEnding::Lf), "alpha\r\nbeta");
+    }
+
+    #[tokio::test]
     async fn test_edit_nonexistent_file() {
         let dir = tempdir().unwrap();
         let file_path = dir.path().join("does_not_exist.txt");
