@@ -14,6 +14,61 @@ pub(crate) struct Frame {
     pub kind: FrameKind,
 }
 
+/// Decodes a byte stream into UTF-8 text incrementally, carrying an incomplete
+/// trailing multibyte sequence over to the next chunk.
+///
+/// `bytes_stream()` can split a multibyte UTF-8 character (e.g. a 3-byte CJK
+/// char) across two network chunks. Lossy-decoding each chunk on its own would
+/// turn both halves into U+FFFD and drop the character. This decoder only emits
+/// complete UTF-8 sequences and retains the incomplete tail until more bytes
+/// arrive.
+#[derive(Default)]
+pub(crate) struct Utf8StreamDecoder {
+    pending: Vec<u8>,
+}
+
+impl Utf8StreamDecoder {
+    /// Append `chunk` to the pending bytes and return the longest valid UTF-8
+    /// prefix as an owned `String`, retaining any incomplete trailing sequence
+    /// for the next call. The returned string may be empty.
+    pub(crate) fn push(&mut self, chunk: &[u8]) -> String {
+        self.pending.extend_from_slice(chunk);
+
+        let valid_up_to = match std::str::from_utf8(&self.pending) {
+            Ok(_) => self.pending.len(),
+            Err(error) => error.valid_up_to(),
+        };
+
+        // A truly invalid leading byte (valid_up_to == 0) would stick forever.
+        // The retained tail of an incomplete sequence is at most 3 bytes, so
+        // once pending grows past that, drop one leading byte lossily to make
+        // progress instead of buffering unboundedly.
+        if valid_up_to == 0 {
+            if self.pending.len() > 3 {
+                let dropped = self.pending.remove(0);
+                return String::from_utf8_lossy(&[dropped]).into_owned();
+            }
+            return String::new();
+        }
+
+        let decoded = String::from_utf8_lossy(&self.pending[..valid_up_to]).into_owned();
+        self.pending.drain(..valid_up_to);
+        decoded
+    }
+
+    /// Decode any remaining pending bytes at the true end of the stream. A
+    /// genuinely-truncated trailing sequence is decoded lossily (yielding
+    /// U+FFFD) since no further bytes will arrive.
+    pub(crate) fn flush(&mut self) -> String {
+        if self.pending.is_empty() {
+            return String::new();
+        }
+        let decoded = String::from_utf8_lossy(&self.pending).into_owned();
+        self.pending.clear();
+        decoded
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct SseLineFramer {
     buffer: String,
