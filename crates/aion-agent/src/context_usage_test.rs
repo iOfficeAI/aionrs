@@ -13,12 +13,12 @@ mod tests {
         let mut state = ContextState::default();
         state.replace_with_provider_usage(89_600);
         state.record_compact();
-        state.record_microcompact(600);
+        state.record_microcompact();
 
         let value = serde_json::to_value(state).unwrap();
 
         assert_eq!(value["schema_version"], 1);
-        assert_eq!(value["context_usage"], 89_000);
+        assert_eq!(value["context_usage"], 89_600);
         assert_eq!(value["source"], "local_projected");
         assert_eq!(value["compact_count"], 1);
         assert_eq!(value["microcompact_count"], 1);

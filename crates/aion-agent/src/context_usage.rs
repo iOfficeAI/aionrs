@@ -68,8 +68,9 @@ impl ContextState {
         self.touch();
     }
 
-    pub(crate) fn record_microcompact(&mut self, estimated_tokens_freed: u64) {
-        self.context_usage = self.context_usage.saturating_sub(estimated_tokens_freed);
+    pub(crate) fn record_microcompact(&mut self) {
+        // Local character-based savings estimates are not safe enough to lower the
+        // provider-derived watermark used by autocompact and the emergency guard.
         self.source = ContextUsageSource::LocalProjected;
         self.microcompact_count = self.microcompact_count.saturating_add(1);
         self.touch();

@@ -1141,7 +1141,59 @@ mod tests_compact {
 
         assert_eq!(cleared_count, 9);
         assert_eq!(engine.context_state.microcompact_count, 1);
-        assert!(engine.context_state.context_usage < 1_000);
+        assert_eq!(engine.context_state.context_usage, 1_000);
+        assert_eq!(engine.compact_state.last_input_tokens, 1_000);
+        assert_eq!(engine.context_state.source, ContextUsageSource::LocalProjected);
+    }
+
+    #[tokio::test]
+    async fn microcompact_does_not_lower_the_emergency_watermark() {
+        let mut messages = Vec::new();
+        for i in 0..3 {
+            let id = format!("t{i}");
+            messages.push(tool_use_msg(&id, "Read"));
+            messages.push(tool_result_msg(&id, &"x".repeat(4_000)));
+        }
+
+        let config = CompactConfig {
+            context_window: 200_000,
+            emergency_buffer: 3_000,
+            max_failures: 3,
+            micro_keep_recent: 1,
+            ..Default::default()
+        };
+        let mut state = CompactState::new();
+        state.last_input_tokens = 198_000;
+        state.consecutive_failures = 3;
+
+        let mut engine = make_compact_engine(config, state, messages);
+        engine.context_state.replace_with_provider_usage(198_000);
+        engine.sync_compact_watermark();
+
+        let result = engine.run_compaction().await;
+
+        assert!(matches!(
+            result,
+            Err(super::AgentError::ContextTooLong {
+                input_tokens: 198_000,
+                limit: 197_000
+            })
+        ));
+        let cleared_count = engine
+            .messages
+            .iter()
+            .flat_map(|message| &message.content)
+            .filter(|block| {
+                matches!(
+                    block,
+                    ContentBlock::ToolResult { content, .. } if content == "[Tool result cleared]"
+                )
+            })
+            .count();
+        assert_eq!(cleared_count, 2);
+        assert_eq!(engine.context_state.microcompact_count, 1);
+        assert_eq!(engine.context_state.context_usage, 198_000);
+        assert_eq!(engine.compact_state.last_input_tokens, 198_000);
         assert_eq!(engine.context_state.source, ContextUsageSource::LocalProjected);
     }
 

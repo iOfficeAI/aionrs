@@ -1076,8 +1076,7 @@ impl AgentEngine {
                     "Microcompact: cleared {} tool results (~{} tokens freed)",
                     result.cleared_count, result.estimated_tokens_freed
                 ));
-                self.context_state
-                    .record_microcompact(result.estimated_tokens_freed as u64);
+                self.context_state.record_microcompact();
                 self.sync_compact_watermark();
                 self.save_session();
             }
