@@ -149,6 +149,15 @@ aionrs --json-stream \
   --thinking enabled
 ```
 
+Anthropic-compatible gateways that enable thinking when the field is omitted
+can require an explicit disabled request. Enable that behavior per profile:
+
+```toml
+[profiles.glm-anthropic.compat]
+supports_thinking = true
+emit_disabled_thinking = true
+```
+
 `--thinking-budget` only has effect together with `--thinking enabled`, and is
 only sent on the Anthropic wire path. OpenAI-compatible requests currently send
 only `thinking.type`, so any configured budget is ignored by that provider path.

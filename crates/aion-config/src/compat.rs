@@ -142,6 +142,10 @@ pub struct ReasoningCompat {
     /// Default: true for anthropic/bedrock/vertex, false for openai.
     pub supports_thinking: Option<bool>,
 
+    /// Whether a disabled thinking request must be emitted explicitly.
+    /// Default: false, preserving providers where omission means disabled.
+    pub emit_disabled_thinking: Option<bool>,
+
     /// Whether this provider supports reasoning_effort.
     /// Default: false for anthropic/bedrock/vertex, true for openai.
     pub supports_effort: Option<bool>,
@@ -213,6 +217,7 @@ impl ReasoningCompat {
     fn merge(defaults: Self, user: Self) -> Self {
         Self {
             supports_thinking: user.supports_thinking.or(defaults.supports_thinking),
+            emit_disabled_thinking: user.emit_disabled_thinking.or(defaults.emit_disabled_thinking),
             supports_effort: user.supports_effort.or(defaults.supports_effort),
             effort_levels: user.effort_levels.or(defaults.effort_levels),
         }
@@ -304,6 +309,7 @@ impl ProviderCompat {
             },
             reasoning: ReasoningCompat {
                 supports_thinking: Some(false),
+                emit_disabled_thinking: None,
                 supports_effort: Some(true),
                 effort_levels: Some(vec!["low".into(), "medium".into(), "high".into()]),
             },
@@ -428,6 +434,10 @@ impl ProviderCompat {
 
     pub fn supports_thinking(&self) -> bool {
         self.reasoning.supports_thinking.unwrap_or(false)
+    }
+
+    pub fn emit_disabled_thinking(&self) -> bool {
+        self.reasoning.emit_disabled_thinking.unwrap_or(false)
     }
 
     pub fn supports_effort(&self) -> bool {
