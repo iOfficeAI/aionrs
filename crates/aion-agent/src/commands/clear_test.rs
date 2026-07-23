@@ -10,6 +10,7 @@ mod tests {
 
     use super::*;
     use crate::commands::{CommandContext, CommandRegistry};
+    use crate::context_usage::{ContextState, PromptUsage};
     use crate::output::null_sink::NullSink;
 
     struct NullProvider;
@@ -33,6 +34,9 @@ mod tests {
         let mut state = CompactState::new();
         state.last_input_tokens = 5000;
         state.consecutive_failures = 2;
+        let mut context_state = ContextState::default();
+        let prompt_usage = PromptUsage::default();
+        let context_tools = Vec::new();
         let config = aion_config::compact::CompactConfig::default();
 
         let mut ctx = CommandContext {
@@ -43,12 +47,16 @@ mod tests {
             model: "test",
             output: &output,
             registry: &registry,
+            context_state: &mut context_state,
+            prompt_usage: &prompt_usage,
+            context_tools: &context_tools,
+            dynamic_system_tokens: 0,
         };
 
         let cmd = ClearCommand;
         let result = cmd.execute(&mut ctx, "").await.unwrap();
 
-        assert_eq!(result, CommandResult::Continue);
+        assert_eq!(result, CommandResult::ContextChanged);
         assert!(ctx.messages.is_empty());
         assert_eq!(ctx.compact_state.last_input_tokens, 0);
         assert_eq!(ctx.compact_state.consecutive_failures, 0);
@@ -61,6 +69,9 @@ mod tests {
         let output = NullSink;
         let mut messages: Vec<Message> = vec![];
         let mut state = CompactState::new();
+        let mut context_state = ContextState::default();
+        let prompt_usage = PromptUsage::default();
+        let context_tools = Vec::new();
         let config = aion_config::compact::CompactConfig::default();
 
         let mut ctx = CommandContext {
@@ -71,11 +82,15 @@ mod tests {
             model: "test",
             output: &output,
             registry: &registry,
+            context_state: &mut context_state,
+            prompt_usage: &prompt_usage,
+            context_tools: &context_tools,
+            dynamic_system_tokens: 0,
         };
 
         let cmd = ClearCommand;
         let result = cmd.execute(&mut ctx, "").await.unwrap();
-        assert_eq!(result, CommandResult::Continue);
+        assert_eq!(result, CommandResult::ContextChanged);
         assert!(ctx.messages.is_empty());
     }
 }

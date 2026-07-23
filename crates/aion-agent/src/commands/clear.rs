@@ -19,7 +19,7 @@ impl SlashCommand for ClearCommand {
         ctx.messages.clear();
         *ctx.compact_state = CompactState::new();
         ctx.output.emit_info("Conversation cleared");
-        Ok(CommandResult::Continue)
+        Ok(CommandResult::ContextChanged)
     }
 }
 

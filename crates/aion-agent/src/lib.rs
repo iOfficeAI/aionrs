@@ -7,6 +7,7 @@ pub mod commands;
 pub mod compact;
 pub mod confirm;
 pub mod context;
+pub mod context_usage;
 pub mod engine;
 pub mod error;
 pub mod orchestration;

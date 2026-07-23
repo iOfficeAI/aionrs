@@ -11,6 +11,10 @@ use crate::compact::estimate::{estimate_tokens_from_tool_image, estimate_tokens_
 use crate::compact::micro::{microcompact, should_microcompact};
 use crate::compact::state::CompactState;
 use crate::confirm::ToolConfirmer;
+use crate::context_usage::{
+    ContextState, ContextStatus, PromptUsage, estimate_content_tokens, estimate_messages_tokens, estimate_text_tokens,
+    estimate_tool_definitions_tokens,
+};
 use crate::error::AgentError;
 use crate::orchestration::{ExecutionControl, execute_tool_calls, execute_tool_calls_with_approval};
 use crate::output::OutputSink;
@@ -38,6 +42,7 @@ use aion_tools::registry::ToolRegistry;
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, ImageInputCapability, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
+use aion_types::tool::ToolDef;
 use anyhow::{Error as AnyhowError, Result as AnyhowResult};
 use chrono::Utc;
 use serde_json::to_string;
@@ -115,6 +120,10 @@ pub struct AgentEngine {
     compact_config: CompactConfig,
     /// Runtime context-size and compaction circuit-breaker state.
     compact_state: CompactState,
+    /// Persisted usage, source, and successful compaction counters.
+    context_state: ContextState,
+    /// Estimated category metadata for the system prompt.
+    prompt_usage: PromptUsage,
     /// Active compaction strategy level.
     compact_level: CompactLevel,
     /// Whether TOON-formatted compaction output is enabled.
@@ -172,7 +181,8 @@ impl AgentEngine {
         let allow_list = config.tools.allow_list.clone();
         let compact_config = config.compact.clone();
 
-        Self {
+        let prompt_usage = PromptUsage::from_system_prompt(&system_prompt);
+        let mut engine = Self {
             provider,
             model: config.model,
             max_tokens: config.max_tokens,
@@ -202,13 +212,17 @@ impl AgentEngine {
             protocol_writer: None,
             compact_config,
             compact_state: CompactState::new(),
+            context_state: ContextState::default(),
+            prompt_usage,
             compact_level: config.compact.compaction,
             toon_enabled: config.compact.toon,
             plan_state: PlanState::default(),
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
             commands: default_registry(),
-        }
+        };
+        engine.refresh_local_context_estimate();
+        engine
     }
 
     /// Create from a resumed session
@@ -259,7 +273,11 @@ impl AgentEngine {
         let allow_list = config.tools.allow_list.clone();
         let compact_config = config.compact.clone();
 
-        Self {
+        let prompt_usage = PromptUsage::from_system_prompt(&system_prompt);
+        let context_state = session.context_state.clone();
+        let mut compact_state = CompactState::new();
+        compact_state.last_input_tokens = context_state.context_usage;
+        let mut engine = Self {
             provider,
             model: config.model.clone(),
             max_tokens: config.max_tokens,
@@ -288,14 +306,20 @@ impl AgentEngine {
             approval_manager: None,
             protocol_writer: None,
             compact_config,
-            compact_state: CompactState::new(),
+            compact_state,
+            context_state,
+            prompt_usage,
             compact_level: config.compact.compaction,
             toon_enabled: config.compact.toon,
             plan_state: PlanState::default(),
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
             commands: default_registry(),
+        };
+        if engine.context_state.context_usage == 0 {
+            engine.refresh_local_context_estimate();
         }
+        engine
     }
 
     pub fn compaction_level(&self) -> CompactLevel {
@@ -322,12 +346,35 @@ impl AgentEngine {
 
     /// Replace the runtime authorization policy for registered tools.
     pub(crate) fn set_tool_policy(&mut self, tool_policy: ToolPolicy) {
+        let changed = self.tool_policy != tool_policy;
         self.tool_policy = tool_policy;
+        if changed {
+            self.refresh_local_context_estimate();
+        }
+    }
+
+    /// Replace bootstrap-derived prompt category metadata.
+    pub(crate) fn set_prompt_usage(&mut self, prompt_usage: PromptUsage) {
+        self.prompt_usage = prompt_usage;
     }
 
     /// Get the current session ID (if sessions are enabled and initialized)
     pub fn current_session_id(&self) -> Option<String> {
         self.current_session.as_ref().map(|s| s.id.clone())
+    }
+
+    /// Return the current context accounting status for SDK hosts.
+    pub fn context_status(&self) -> ContextStatus {
+        ContextStatus {
+            schema_version: self.context_state.schema_version,
+            model: self.model.clone(),
+            context_window: self.compact_config.context_window as u64,
+            context_usage: self.context_state.context_usage,
+            source: self.context_state.source,
+            compact_count: self.context_state.compact_count,
+            microcompact_count: self.context_state.microcompact_count,
+            updated_at: self.context_state.updated_at,
+        }
     }
 
     /// Get a reference to the output sink
@@ -378,13 +425,24 @@ impl AgentEngine {
     /// Run the agent loop with structured content blocks.
     ///
     /// This is the host-integration entry point for multimodal input such as
-    /// text and images. No marker parsing or slash-command interception is
-    /// performed.
+    /// text and images. A single text block containing a recognized slash
+    /// command is handled locally; multimodal inputs are never interpreted as
+    /// commands.
     pub async fn run_with_blocks(
         &mut self,
         content_blocks: Vec<ContentBlock>,
         msg_id: &str,
     ) -> Result<AgentResult, AgentError> {
+        let command_input = match content_blocks.as_slice() {
+            [ContentBlock::Text { text }] => Some(text.clone()),
+            _ => None,
+        };
+        if let Some(input) = command_input
+            && let Some(result) = self.handle_command(&input).await?
+        {
+            return Ok(result);
+        }
+
         let session_id = self.current_session.as_ref().map(|s| s.id.clone()).unwrap_or_default();
         let span = info_span!(
             target: "aion_agent",
@@ -399,7 +457,10 @@ impl AgentEngine {
         self.msg_id = msg_id.to_string();
         self.output.emit_stream_start(msg_id);
 
+        let user_tokens = estimate_content_tokens(&content_blocks);
         self.messages.push(Message::now(Role::User, content_blocks));
+        self.record_local_context_addition(user_tokens);
+        self.save_session();
 
         let mut guards = TurnGuards::new(
             self.max_turns_per_run,
@@ -429,6 +490,7 @@ impl AgentEngine {
                 TurnOutcome::ToolRound(outcome) => {
                     let assistant_content = build_assistant_content(&outcome);
                     self.messages.push(Message::now(Role::Assistant, assistant_content));
+                    self.save_session();
                     outcome.tool_calls
                 }
                 TurnOutcome::Final(outcome) => {
@@ -445,6 +507,7 @@ impl AgentEngine {
                 TurnOutcome::Truncated(outcome) => {
                     let assistant_content = build_assistant_content(&outcome);
                     self.messages.push(Message::now(Role::Assistant, assistant_content));
+                    self.save_session();
                     return self
                         .finalize_once(
                             FinalizationReason::MaxTokens,
@@ -523,25 +586,7 @@ impl AgentEngine {
     /// and recording the prompt state for cache diagnostics.
     fn build_request(&mut self, kind: TurnKind) -> LlmRequest {
         let image_input = self.compat.image_input();
-        // Build tool list: filter based on plan mode state
-        let tools = if kind.disable_tools() {
-            Vec::new()
-        } else if self.plan_state.is_active {
-            // Plan mode: only Info-category tools (excluding EnterPlanMode)
-            self.tools.to_tool_defs_filtered(|t| {
-                self.tool_policy.allows(t.name())
-                    && (!t.requires_image_input() || image_input.supports_images())
-                    && t.category() == ToolCategory::Info
-                    && t.name() != "EnterPlanMode"
-            })
-        } else {
-            // Normal mode: all compatible tools except ExitPlanMode
-            self.tools.to_tool_defs_filtered(|t| {
-                self.tool_policy.allows(t.name())
-                    && (!t.requires_image_input() || image_input.supports_images())
-                    && t.name() != "ExitPlanMode"
-            })
-        };
+        let tools = self.tool_definitions_for_turn(kind);
 
         // Build system prompt: append plan mode instructions when active
         let system = if self.plan_state.is_active {
@@ -572,6 +617,26 @@ impl AgentEngine {
             max_tokens: self.max_tokens,
             thinking: self.thinking.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
+        }
+    }
+
+    fn tool_definitions_for_turn(&self, kind: TurnKind) -> Vec<ToolDef> {
+        let image_input = self.compat.image_input();
+        if kind.disable_tools() {
+            Vec::new()
+        } else if self.plan_state.is_active {
+            self.tools.to_tool_defs_filtered(|tool| {
+                self.tool_policy.allows(tool.name())
+                    && (!tool.requires_image_input() || image_input.supports_images())
+                    && tool.category() == ToolCategory::Info
+                    && tool.name() != "EnterPlanMode"
+            })
+        } else {
+            self.tools.to_tool_defs_filtered(|tool| {
+                self.tool_policy.allows(tool.name())
+                    && (!tool.requires_image_input() || image_input.supports_images())
+                    && tool.name() != "ExitPlanMode"
+            })
         }
     }
 
@@ -759,7 +824,11 @@ impl AgentEngine {
             let request = self.build_request(kind);
             let mut rx = self.provider.stream(&request).await?;
             let outcome = self.consume_stream(&mut rx).await?;
-            self.record_turn_usage(&outcome.usage);
+            let has_provider_usage = self.record_turn_usage(&outcome.usage);
+            if !has_provider_usage {
+                let assistant_content = build_assistant_content(&outcome);
+                self.record_local_context_addition(estimate_content_tokens(&assistant_content));
+            }
             Ok(outcome)
         }
         .instrument(span)
@@ -898,13 +967,20 @@ impl AgentEngine {
 
     /// Fold one turn's token usage into the running totals and replace the
     /// best-known context size with the provider's exact turn total.
-    fn record_turn_usage(&mut self, turn_usage: &TokenUsage) {
+    fn record_turn_usage(&mut self, turn_usage: &TokenUsage) -> bool {
         self.total_usage.input_tokens += turn_usage.input_tokens;
         self.total_usage.output_tokens += turn_usage.output_tokens;
         self.total_usage.cache_creation_tokens += turn_usage.cache_creation_tokens;
         self.total_usage.cache_read_tokens += turn_usage.cache_read_tokens;
 
-        self.compact_state.last_input_tokens = turn_usage.input_tokens.saturating_add(turn_usage.output_tokens);
+        let context_usage = turn_usage.input_tokens.saturating_add(turn_usage.output_tokens);
+        if context_usage == 0 {
+            debug!(target: "aion_agent", "provider omitted turn usage; retaining local context projection");
+            return false;
+        }
+
+        self.context_state.replace_with_provider_usage(context_usage);
+        self.sync_compact_watermark();
 
         // Cache break detection
         let cache_stats = CacheStats {
@@ -931,6 +1007,7 @@ impl AgentEngine {
                 }
             }
         }
+        true
     }
 
     /// Add content produced after the provider usage snapshot. Every final
@@ -945,7 +1022,7 @@ impl AgentEngine {
         });
         let added_tokens = tool_result_tokens.saturating_add(tool_image_tokens);
 
-        self.compact_state.last_input_tokens = self.compact_state.last_input_tokens.saturating_add(added_tokens);
+        self.record_local_context_addition(added_tokens);
         debug!(
             target: "aion_agent",
             tool_result_tokens,
@@ -953,6 +1030,36 @@ impl AgentEngine {
             context_tokens = self.compact_state.last_input_tokens,
             "tool results added to context token estimate"
         );
+    }
+
+    fn record_local_context_addition(&mut self, tokens: u64) {
+        self.context_state.add_local_estimate(tokens);
+        self.sync_compact_watermark();
+    }
+
+    fn sync_compact_watermark(&mut self) {
+        self.compact_state.last_input_tokens = self.context_state.context_usage;
+    }
+
+    fn refresh_local_context_estimate(&mut self) {
+        let tools = self.tool_definitions_for_turn(TurnKind::Normal);
+        let dynamic_system_tokens = self.dynamic_system_tokens();
+        let context_usage = self
+            .prompt_usage
+            .total_tokens()
+            .saturating_add(dynamic_system_tokens)
+            .saturating_add(estimate_tool_definitions_tokens(&tools))
+            .saturating_add(estimate_messages_tokens(&self.messages));
+        self.context_state.replace_with_local_estimate(context_usage);
+        self.sync_compact_watermark();
+    }
+
+    fn dynamic_system_tokens(&self) -> u64 {
+        if self.plan_state.is_active {
+            estimate_text_tokens(plan_mode_instructions())
+        } else {
+            0
+        }
     }
 
     /// Run the multi-level compaction pipeline before each API call.
@@ -969,6 +1076,9 @@ impl AgentEngine {
                     "Microcompact: cleared {} tool results (~{} tokens freed)",
                     result.cleared_count, result.estimated_tokens_freed
                 ));
+                self.context_state.record_microcompact();
+                self.sync_compact_watermark();
+                self.save_session();
             }
         }
 
@@ -1011,6 +1121,9 @@ impl AgentEngine {
                         result.messages_summarized, result.pre_compact_tokens
                     ));
                     self.messages = result.messages;
+                    self.context_state.record_compact();
+                    self.refresh_local_context_estimate();
+                    self.save_session();
                     compacted = true;
                 }
                 Err(CompactError::CircuitBroken { .. }) => {
@@ -1101,7 +1214,9 @@ impl AgentEngine {
     /// Initialize a new session for this engine run
     pub fn init_session(&mut self, provider_name: &str, cwd: &str, session_id: Option<&str>) -> AnyhowResult<()> {
         if let Some(mgr) = &self.session_manager {
-            let session = mgr.create(provider_name, &self.model, cwd, session_id)?;
+            let mut session = mgr.create(provider_name, &self.model, cwd, session_id)?;
+            session.context_state = self.context_state.clone();
+            mgr.save(&session)?;
             info!(target: "aion_agent", session_id = %session.id, provider = %provider_name, model = %self.model, "session started");
             self.current_session = Some(session);
         }
@@ -1225,6 +1340,20 @@ impl AgentEngine {
                     turns: 0,
                 }))
             }
+            Ok(CommandResult::ContextChanged) => {
+                self.refresh_local_context_estimate();
+                self.save_session();
+                info!(
+                    command = command.display_name,
+                    "Slash command executed and context persisted"
+                );
+                Ok(Some(AgentResult {
+                    text: String::new(),
+                    stop_reason: StopReason::EndTurn,
+                    usage: TokenUsage::default(),
+                    turns: 0,
+                }))
+            }
             Ok(CommandResult::Exit) => {
                 info!(command = command.display_name, "Slash command executed: exit");
                 Err(AgentError::UserAborted)
@@ -1238,6 +1367,8 @@ impl AgentEngine {
 
     async fn execute_command(&mut self, command: ParsedSlashCommand<'_>) -> Option<Result<CommandResult, AnyhowError>> {
         let cmd = self.commands.find(command.name)?;
+        let context_tools = self.tool_definitions_for_turn(TurnKind::Normal);
+        let dynamic_system_tokens = self.dynamic_system_tokens();
 
         // We need to borrow self mutably for CommandContext while also
         // borrowing self.commands immutably (already done above via find()).
@@ -1253,6 +1384,10 @@ impl AgentEngine {
             model: &self.model,
             output: self.output.as_ref(),
             registry: &self.commands,
+            context_state: &mut self.context_state,
+            prompt_usage: &self.prompt_usage,
+            context_tools: &context_tools,
+            dynamic_system_tokens,
         };
 
         // SAFETY: cmd_ptr points to a command inside self.commands which is only
@@ -1272,6 +1407,7 @@ impl AgentEngine {
 
     /// Apply context modifiers collected from skill tool executions.
     fn apply_context_modifiers(&mut self, modifiers: &[Option<ContextModifier>]) {
+        let mut request_shape_changed = false;
         for modifier in modifiers.iter().flatten() {
             if let Some(ref model) = modifier.model {
                 self.model = model.clone();
@@ -1295,6 +1431,7 @@ impl AgentEngine {
                         if let Some(ref flag) = self.plan_active_flag {
                             flag.store(true, Ordering::Release);
                         }
+                        request_shape_changed = true;
                     }
                     PlanModeTransition::Exit { .. } => {
                         self.plan_state.is_active = false;
@@ -1302,9 +1439,13 @@ impl AgentEngine {
                         if let Some(ref flag) = self.plan_active_flag {
                             flag.store(false, Ordering::Release);
                         }
+                        request_shape_changed = true;
                     }
                 }
             }
+        }
+        if request_shape_changed {
+            self.refresh_local_context_estimate();
         }
     }
 
@@ -1312,6 +1453,7 @@ impl AgentEngine {
         if let (Some(mgr), Some(session)) = (&self.session_manager, &mut self.current_session) {
             session.messages = self.messages.clone();
             session.total_usage = self.total_usage.clone();
+            session.context_state = self.context_state.clone();
             session.updated_at = Utc::now();
             if let Err(e) = mgr.save(session) {
                 self.output.emit_error(&format!("Failed to save session: {}", e));

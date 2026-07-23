@@ -2,18 +2,22 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use super::{clear, compact, help, quit};
+use super::{clear, compact, context, help, quit};
 use crate::compact::state::CompactState;
+use crate::context_usage::{ContextState, PromptUsage};
 use crate::output::OutputSink;
 use aion_config::compact::CompactConfig;
 use aion_providers::LlmProvider;
 use aion_types::message::Message;
+use aion_types::tool::ToolDef;
 
 /// Result of executing a slash command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CommandResult {
     /// Command handled, continue the REPL loop.
     Continue,
+    /// Command mutated context and the updated session must be persisted.
+    ContextChanged,
     /// Exit the REPL.
     Exit,
 }
@@ -27,6 +31,10 @@ pub struct CommandContext<'a> {
     pub model: &'a str,
     pub output: &'a dyn OutputSink,
     pub registry: &'a CommandRegistry,
+    pub(crate) context_state: &'a mut ContextState,
+    pub(crate) prompt_usage: &'a PromptUsage,
+    pub(crate) context_tools: &'a [ToolDef],
+    pub(crate) dynamic_system_tokens: u64,
 }
 
 /// A slash command that can be executed in the REPL.
@@ -79,6 +87,7 @@ impl Default for CommandRegistry {
 pub fn default_registry() -> CommandRegistry {
     let mut registry = CommandRegistry::new();
     registry.register(Box::new(compact::CompactCommand));
+    registry.register(Box::new(context::ContextCommand));
     registry.register(Box::new(clear::ClearCommand));
     registry.register(Box::new(help::HelpCommand));
     registry.register(Box::new(quit::QuitCommand));

@@ -1,5 +1,6 @@
 pub mod clear;
 pub mod compact;
+mod context;
 pub mod help;
 pub mod quit;
 mod registry;

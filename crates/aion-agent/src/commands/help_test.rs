@@ -11,6 +11,7 @@ mod tests {
     use super::*;
     use crate::commands::{CommandContext, default_registry};
     use crate::compact::state::CompactState;
+    use crate::context_usage::{ContextState, PromptUsage};
     use crate::output::OutputSink;
 
     struct CaptureSink {
@@ -58,6 +59,9 @@ mod tests {
         let output = CaptureSink::new();
         let mut messages: Vec<Message> = Vec::new();
         let mut state = CompactState::new();
+        let mut context_state = ContextState::default();
+        let prompt_usage = PromptUsage::default();
+        let context_tools = Vec::new();
         let config = aion_config::compact::CompactConfig::default();
 
         let mut ctx = CommandContext {
@@ -68,6 +72,10 @@ mod tests {
             model: "test",
             output: &output,
             registry: &registry,
+            context_state: &mut context_state,
+            prompt_usage: &prompt_usage,
+            context_tools: &context_tools,
+            dynamic_system_tokens: 0,
         };
 
         let cmd = HelpCommand;
@@ -79,6 +87,7 @@ mod tests {
         let help_text = &captured[0];
         assert!(help_text.contains("/clear"));
         assert!(help_text.contains("/compact"));
+        assert!(help_text.contains("/context"));
         assert!(help_text.contains("/help"));
         assert!(help_text.contains("/quit"));
     }
@@ -90,6 +99,9 @@ mod tests {
         let output = CaptureSink::new();
         let mut messages: Vec<Message> = Vec::new();
         let mut state = CompactState::new();
+        let mut context_state = ContextState::default();
+        let prompt_usage = PromptUsage::default();
+        let context_tools = Vec::new();
         let config = aion_config::compact::CompactConfig::default();
 
         let mut ctx = CommandContext {
@@ -100,6 +112,10 @@ mod tests {
             model: "test",
             output: &output,
             registry: &registry,
+            context_state: &mut context_state,
+            prompt_usage: &prompt_usage,
+            context_tools: &context_tools,
+            dynamic_system_tokens: 0,
         };
 
         let cmd = HelpCommand;
@@ -108,11 +124,13 @@ mod tests {
         let help_text = &output.captured()[0];
         let clear_pos = help_text.find("/clear").unwrap();
         let compact_pos = help_text.find("/compact").unwrap();
+        let context_pos = help_text.find("/context").unwrap();
         let help_pos = help_text.find("/help").unwrap();
         let quit_pos = help_text.find("/quit").unwrap();
 
         assert!(clear_pos < compact_pos);
-        assert!(compact_pos < help_pos);
+        assert!(compact_pos < context_pos);
+        assert!(context_pos < help_pos);
         assert!(help_pos < quit_pos);
     }
 }

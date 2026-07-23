@@ -11,6 +11,8 @@ use uuid::Uuid;
 
 use aion_types::message::{ContentBlock, Message, Role, TokenUsage};
 
+use crate::context_usage::ContextState;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: String,
@@ -20,6 +22,8 @@ pub struct Session {
     pub model: String,
     pub cwd: String,
     pub total_usage: TokenUsage,
+    #[serde(default)]
+    pub context_state: ContextState,
     pub messages: Vec<Message>,
 }
 
@@ -67,6 +71,7 @@ impl SessionManager {
             model: model.to_string(),
             cwd: cwd.to_string(),
             total_usage: TokenUsage::default(),
+            context_state: ContextState::default(),
             messages: Vec::new(),
         };
         self.with_session_lock(&session.id, || {
