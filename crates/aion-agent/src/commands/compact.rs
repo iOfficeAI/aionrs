@@ -2,7 +2,8 @@ use async_trait::async_trait;
 
 use super::{CommandContext, CommandResult, SlashCommand};
 use crate::compact::auto;
-use aion_types::compact::CompactTrigger;
+use aion_types::compact::{CompactMetadata, CompactTrigger};
+use aion_types::message::ContentBlock;
 
 pub struct CompactCommand;
 
@@ -42,10 +43,10 @@ impl SlashCommand for CompactCommand {
 
                 if let Some(boundary) = ctx.messages.first_mut() {
                     for block in &mut boundary.content {
-                        if let aion_types::message::ContentBlock::Text { text } = block
+                        if let ContentBlock::Text { text } = block
                             && text.starts_with(auto::BOUNDARY_PREFIX)
                         {
-                            let metadata = aion_types::compact::CompactMetadata {
+                            let metadata = CompactMetadata {
                                 trigger: CompactTrigger::Manual,
                                 pre_compact_tokens: pre_tokens,
                                 messages_summarized: msgs_summarized,
@@ -64,6 +65,8 @@ impl SlashCommand for CompactCommand {
                     pre_tokens / 1000,
                     msgs_summarized
                 ));
+                ctx.context_state.record_compact();
+                return Ok(CommandResult::ContextChanged);
             }
             Err(e) => {
                 ctx.output.emit_error(&format!("Compact failed: {}", e));

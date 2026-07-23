@@ -7,7 +7,7 @@ use aion_config::config::{Config, McpServerConfig};
 use aion_config::shell::{ResolvedShell, resolve_shell_config};
 use aion_mcp::manager::McpManager;
 use aion_mcp::tool_proxy::register_mcp_tools;
-use aion_memory::paths::auto_memory_dir;
+use aion_memory::paths::{ENTRYPOINT_NAME, auto_memory_dir};
 use aion_providers::{LlmProvider, create_provider};
 use aion_skills::loader::load_all_skills;
 use aion_skills::permissions::SkillPermissionChecker;
@@ -26,6 +26,7 @@ use anyhow::Result;
 use tracing::info;
 
 use crate::context::{SystemPromptCache, build_system_prompt_with_shell_and_tool_policy};
+use crate::context_usage::PromptUsage;
 use crate::engine::AgentEngine;
 use crate::output::OutputSink;
 use crate::plan::tools::{EnterPlanModeTool, ExitPlanModeTool};
@@ -157,7 +158,7 @@ impl AgentBootstrap {
         let mcp = self.connect_mcp(&mut registry, &builtin_names).await;
 
         let skills = self.load_skills(&environment.workspace, mcp.manager.as_deref()).await;
-        self.configure_system_prompt(&environment, &skills);
+        let prompt_usage = self.configure_system_prompt(&environment, &skills);
 
         self.register_agent_tools(&mut registry, &provider, &environment.workspace, skills);
         let plan_active_flag = self.register_plan_tools(&mut registry);
@@ -165,7 +166,13 @@ impl AgentBootstrap {
 
         let has_mcp = mcp.has_mcp();
         let mcp_managers = mcp.managers;
-        let engine = self.into_engine(provider.clone(), registry, plan_active_flag, environment.workspace);
+        let engine = self.into_engine(
+            provider.clone(),
+            registry,
+            plan_active_flag,
+            environment.workspace,
+            prompt_usage,
+        );
 
         Ok(BootstrapResult {
             engine,
@@ -265,7 +272,7 @@ impl AgentBootstrap {
         load_all_skills(workspace, &self.extra_skill_dirs, false, mcp_manager).await
     }
 
-    fn configure_system_prompt(&mut self, environment: &BootstrapEnvironment, skills: &[SkillMetadata]) {
+    fn configure_system_prompt(&mut self, environment: &BootstrapEnvironment, skills: &[SkillMetadata]) -> PromptUsage {
         let mut prompt_cache = SystemPromptCache::new();
         let workspace = self.workspace.to_string_lossy();
         let system_prompt = build_system_prompt_with_shell_and_tool_policy(
@@ -281,7 +288,34 @@ impl AgentBootstrap {
             self.config.compact.toon,
             &self.tool_policy,
         );
+        let memory_prompt = prompt_cache.sections.get("memory").map(String::as_str);
+        let skills_prompt = prompt_cache.sections.get("skills").map(String::as_str);
+        let memory_files = if memory_prompt.is_some() {
+            environment
+                .memory_dir
+                .as_ref()
+                .map(|directory| directory.join(ENTRYPOINT_NAME))
+                .filter(|path| path.is_file())
+                .map(|path| path.display().to_string())
+                .into_iter()
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let visible_skills = skills
+            .iter()
+            .filter(|skill| self.tool_policy.allows("Skill") && !skill.disable_model_invocation)
+            .map(|skill| skill.name.clone())
+            .collect();
+        let prompt_usage = PromptUsage::from_sections(
+            &system_prompt,
+            memory_prompt,
+            skills_prompt,
+            memory_files,
+            visible_skills,
+        );
         self.config.system_prompt = Some(system_prompt);
+        prompt_usage
     }
 
     fn register_agent_tools(
@@ -334,6 +368,7 @@ impl AgentBootstrap {
         registry: ToolRegistry,
         plan_active_flag: Arc<AtomicBool>,
         workspace: PathBuf,
+        prompt_usage: PromptUsage,
     ) -> AgentEngine {
         let runtime_env = self.runtime_env.clone();
         let mut engine = if let Some(session) = self.resume_session {
@@ -351,6 +386,7 @@ impl AgentBootstrap {
         };
         engine.set_plan_active_flag(plan_active_flag);
         engine.set_tool_policy(self.tool_policy);
+        engine.set_prompt_usage(prompt_usage);
         engine
     }
 }

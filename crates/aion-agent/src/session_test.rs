@@ -27,6 +27,12 @@ mod tests {
         assert!(session.messages.is_empty());
         assert!(manager.state_path(&session.id).is_file());
         assert!(!dir.path().join("index.json").exists());
+
+        let state_json: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(manager.state_path(&session.id)).unwrap()).unwrap();
+        assert_eq!(state_json["context_state"]["schema_version"], 1);
+        assert_eq!(state_json["context_state"]["context_usage"], 0);
+        assert!(state_json["context_state"].get("observed_context_window").is_none());
     }
 
     #[test]
@@ -41,6 +47,18 @@ mod tests {
         assert_eq!(loaded.provider, "anthropic");
         assert_eq!(loaded.model, "claude-3");
         assert_eq!(loaded.cwd, "/home");
+    }
+
+    #[test]
+    fn test_load_session_without_context_state_uses_backward_compatible_default() {
+        let mut value = serde_json::to_value(sample_session("old-session", "old-model")).unwrap();
+        value.as_object_mut().unwrap().remove("context_state");
+
+        let loaded: Session = serde_json::from_value(value).unwrap();
+
+        assert_eq!(loaded.context_state.context_usage, 0);
+        assert_eq!(loaded.context_state.compact_count, 0);
+        assert_eq!(loaded.context_state.microcompact_count, 0);
     }
 
     #[test]
@@ -313,6 +331,7 @@ mod tests {
             model: model.to_string(),
             cwd: "/tmp".to_string(),
             total_usage: TokenUsage::default(),
+            context_state: ContextState::default(),
             messages: vec![Message::new(
                 Role::User,
                 vec![ContentBlock::Text {
