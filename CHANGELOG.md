@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.7](https://github.com/iOfficeAI/aionrs/compare/v0.2.6...v0.2.7) (2026-07-23)
+
+
+### Bug Fixes
+
+* **agent:** finalize repeated tool failures without tools ([d459812](https://github.com/iOfficeAI/aionrs/commit/d45981211fb13549a1fc2280c9dc6c61c51471ad))
+* **agent:** finalize repeated tool failures without tools ([1f784b1](https://github.com/iOfficeAI/aionrs/commit/1f784b14752931a54fbda4ceac5d5fb2996c0676))
+* **agent:** retain repeated failures across mixed rounds ([559aa3f](https://github.com/iOfficeAI/aionrs/commit/559aa3f1b8a7de5ec5b489d7d1d7c024da946786))
+* **compact:** correct context token accounting ([#233](https://github.com/iOfficeAI/aionrs/issues/233)) ([ca5cef0](https://github.com/iOfficeAI/aionrs/commit/ca5cef09ba2d15801a39b320299c68383799b68d))
+* **providers:** buffer partial UTF-8 across SSE chunk boundaries ([a23390d](https://github.com/iOfficeAI/aionrs/commit/a23390d0466cc948cb1d131dee6e28224ef69635))
+* **providers:** buffer partial UTF-8 across SSE chunk boundaries ([49b83ad](https://github.com/iOfficeAI/aionrs/commit/49b83adfb4edd8957024a64ad7d70cb89f10ec0f))
+* **providers:** handle embedded json errors in streaming responses ([386c6fe](https://github.com/iOfficeAI/aionrs/commit/386c6fe1f41cd20ee584b37a98e93973fc7397e0))
+* **providers:** handle embedded json stream errors ([2ed229b](https://github.com/iOfficeAI/aionrs/commit/2ed229b6afed28ae22885903676dbbfdd8a0e16e))
+* **providers:** preserve successful json responses ([161b815](https://github.com/iOfficeAI/aionrs/commit/161b815ed91c0a9ae4a3e2b6c0d47096f341aa2e))
+* **tools:** handle line ending differences in edit ([de03e6b](https://github.com/iOfficeAI/aionrs/commit/de03e6b971d0eed858b29bdba2e3a1bd50c286ec))
+* **tools:** handle line ending differences in edit ([84be8fa](https://github.com/iOfficeAI/aionrs/commit/84be8fa60f404f7179d1f4a6883677b46fe63817))
+* **tools:** prioritize exact edit matches ([e95043a](https://github.com/iOfficeAI/aionrs/commit/e95043a5e8affcfa8007397a09907802b1b72de1))
+
 ## [0.2.6](https://github.com/iOfficeAI/aionrs/compare/v0.2.5...v0.2.6) (2026-07-20)
 
 
