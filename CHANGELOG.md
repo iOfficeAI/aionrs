@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.8](https://github.com/iOfficeAI/aionrs/compare/v0.2.7...v0.2.8) (2026-07-23)
+
+
+### Features
+
+* **agent:** persist and report context usage ([bda1c18](https://github.com/iOfficeAI/aionrs/commit/bda1c18f1358b34e94de62c2c0fa321d9b3fe938))
+* **agent:** persist and report context usage ([b3c78a6](https://github.com/iOfficeAI/aionrs/commit/b3c78a6d94df907d2a02f6ebddf9903d01cc4b21))
+
+
+### Bug Fixes
+
+* **agent:** preserve emergency watermark after microcompact ([fbe70ed](https://github.com/iOfficeAI/aionrs/commit/fbe70ed50ff1b44a1174aa1756b897965c73cb0f))
+
 ## [0.2.7](https://github.com/iOfficeAI/aionrs/compare/v0.2.6...v0.2.7) (2026-07-23)
 
 
