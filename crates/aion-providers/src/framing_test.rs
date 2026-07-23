@@ -2,8 +2,54 @@ use super::*;
 
 #[cfg(test)]
 mod tests {
-    use super::{Frame, FrameKind, SseBlockFramer, SseLineFramer, bedrock_payload_to_frame};
+    use super::{Frame, FrameKind, SseBlockFramer, SseLineFramer, Utf8StreamDecoder, bedrock_payload_to_frame};
     use base64::Engine as _;
+
+    #[test]
+    fn test_utf8_decoder_reassembles_cjk_split_across_chunks() {
+        let original = "权限管理服务器";
+        let bytes = original.as_bytes();
+
+        // Split at byte offsets that fall in the MIDDLE of multibyte (3-byte
+        // CJK) characters, across three push() calls.
+        let split_a = 4; // inside the 2nd char (chars start at 0, 3, 6, ...)
+        let split_b = 13; // inside the 5th char
+        assert!(!original.is_char_boundary(split_a));
+        assert!(!original.is_char_boundary(split_b));
+
+        let mut decoder = Utf8StreamDecoder::default();
+        let mut out = String::new();
+        out.push_str(&decoder.push(&bytes[..split_a]));
+        out.push_str(&decoder.push(&bytes[split_a..split_b]));
+        out.push_str(&decoder.push(&bytes[split_b..]));
+        out.push_str(&decoder.flush());
+
+        assert_eq!(out, original);
+        assert!(!out.contains('\u{FFFD}'));
+    }
+
+    #[test]
+    fn test_utf8_decoder_flush_handles_truncated_tail_without_panic() {
+        let mut decoder = Utf8StreamDecoder::default();
+
+        // A single leading byte of a 3-byte sequence with no continuation.
+        let head = &"权".as_bytes()[..1];
+        assert_eq!(decoder.push(head), "");
+
+        // Genuinely truncated stream end: flush decodes lossily, no panic.
+        let flushed = decoder.flush();
+        assert!(flushed.contains('\u{FFFD}'));
+
+        // Decoder is drained after flush.
+        assert_eq!(decoder.flush(), "");
+    }
+
+    #[test]
+    fn test_utf8_decoder_passes_through_complete_ascii() {
+        let mut decoder = Utf8StreamDecoder::default();
+        assert_eq!(decoder.push(b"data: hello\n"), "data: hello\n");
+        assert_eq!(decoder.flush(), "");
+    }
 
     #[test]
     fn test_sse_line_framer_extracts_data_and_done() {

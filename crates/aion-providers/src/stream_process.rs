@@ -6,7 +6,7 @@ use aion_types::llm::LlmEvent;
 use aion_types::message::{StopReason, TokenUsage};
 
 use crate::error::ProviderError;
-use crate::framing::{FrameKind, SseBlockFramer, SseLineFramer, bedrock_payload_to_frame};
+use crate::framing::{FrameKind, SseBlockFramer, SseLineFramer, Utf8StreamDecoder, bedrock_payload_to_frame};
 use crate::parser::{AnthropicParser, OpenAiParser, OpenAiResponsesParser, ResponseParser};
 use crate::stream_diagnostics::StreamTermination;
 use crate::stream_runner::StreamOutcome;
@@ -39,6 +39,7 @@ pub(crate) async fn process_openai_responses_sse_stream(
     let parser = OpenAiResponsesParser;
     let mut state = parser.new_state();
     let mut framer = SseLineFramer::default();
+    let mut decoder = Utf8StreamDecoder::default();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
 
@@ -54,7 +55,7 @@ pub(crate) async fn process_openai_responses_sse_stream(
                 };
             }
         };
-        let text = String::from_utf8_lossy(&chunk);
+        let text = decoder.push(&chunk);
         for frame in framer.push_text(&text, "[DONE]") {
             tracing::debug!(target: "aion_providers", event_type = ?frame.event, "OpenAI Responses SSE event received");
             let events = parser.parse_frame(&frame, &mut state);
@@ -75,6 +76,30 @@ pub(crate) async fn process_openai_responses_sse_stream(
             if state.is_terminal() {
                 return StreamOutcome::Ok;
             }
+        }
+    }
+
+    // Flush any bytes left over at the true end of the stream.
+    let text = decoder.flush();
+    for frame in framer.push_text(&text, "[DONE]") {
+        tracing::debug!(target: "aion_providers", event_type = ?frame.event, "OpenAI Responses SSE event received");
+        let events = parser.parse_frame(&frame, &mut state);
+        for event in events {
+            if matches!(
+                event,
+                LlmEvent::TextDelta(_)
+                    | LlmEvent::ThinkingDelta(_)
+                    | LlmEvent::ProviderItem { .. }
+                    | LlmEvent::ToolUse { .. }
+            ) {
+                emitted_content = true;
+            }
+            if tx.send(event).await.is_err() {
+                return StreamOutcome::Ok;
+            }
+        }
+        if state.is_terminal() {
+            return StreamOutcome::Ok;
         }
     }
 
@@ -100,6 +125,7 @@ pub(crate) async fn process_openai_sse_stream(
         .observe_response(response.status().as_u16(), response.headers());
     let started_at = Instant::now();
     let mut framer = SseLineFramer::default();
+    let mut decoder = Utf8StreamDecoder::default();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
 
@@ -118,7 +144,7 @@ pub(crate) async fn process_openai_sse_stream(
             }
         };
         state.diagnostics_mut().observe_network_chunk(chunk.len());
-        let text = String::from_utf8_lossy(&chunk);
+        let text = decoder.push(&chunk);
         for frame in framer.push_text(&text, "[DONE]") {
             state.diagnostics_mut().observe_frame(&frame);
             let is_done = frame.kind == FrameKind::Done;
@@ -143,6 +169,25 @@ pub(crate) async fn process_openai_sse_stream(
         }
     }
 
+    // Flush any bytes left over at the true end of the stream.
+    let text = decoder.flush();
+    for frame in framer.push_text(&text, "[DONE]") {
+        state.diagnostics_mut().observe_frame(&frame);
+        let is_done = frame.kind == FrameKind::Done;
+        let events = parser.parse_frame(&frame, &mut state);
+        for event in events {
+            state.diagnostics_mut().observe_event(&event);
+            if tx.send(event).await.is_err() {
+                state.emit_diagnostics(StreamTermination::ConsumerDropped, started_at.elapsed());
+                return StreamOutcome::Ok;
+            }
+        }
+        if is_done {
+            state.emit_diagnostics(StreamTermination::Done, started_at.elapsed());
+            return StreamOutcome::Ok;
+        }
+    }
+
     for event in parser.finish(&mut state) {
         state.diagnostics_mut().observe_event(&event);
         if tx.send(event).await.is_err() {
@@ -164,6 +209,7 @@ pub(crate) async fn process_anthropic_sse_stream(
     let parser = AnthropicParser;
     let mut state = parser.new_state();
     let mut framer = SseBlockFramer::default();
+    let mut decoder = Utf8StreamDecoder::default();
     let mut stream = response.bytes_stream();
     let mut emitted_content = false;
 
@@ -179,7 +225,7 @@ pub(crate) async fn process_anthropic_sse_stream(
                 };
             }
         };
-        let text = String::from_utf8_lossy(&chunk);
+        let text = decoder.push(&chunk);
         for frame in framer.push_text(&text) {
             let events = parser.parse_frame(&frame, &mut state);
             for event in events {
@@ -195,6 +241,17 @@ pub(crate) async fn process_anthropic_sse_stream(
                 if tx.send(event).await.is_err() {
                     return StreamOutcome::Ok;
                 }
+            }
+        }
+    }
+
+    // Flush any bytes left over at the true end of the stream.
+    let text = decoder.flush();
+    for frame in framer.push_text(&text) {
+        let events = parser.parse_frame(&frame, &mut state);
+        for event in events {
+            if tx.send(event).await.is_err() {
+                return StreamOutcome::Ok;
             }
         }
     }
