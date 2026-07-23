@@ -1,5 +1,7 @@
 use aion_config::compat::{OpenAiApiMode, ProviderCompat};
 use aion_types::llm::LlmRequest;
+use futures::StreamExt;
+use reqwest::ResponseBuilderExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::Value;
 
@@ -15,7 +17,7 @@ use crate::stream_process::StreamDecoder;
 use crate::stream_runner::RetryPolicy;
 use crate::vertex::VertexTransportState;
 
-const MAX_JSON_RESPONSE_BYTES: usize = 64 * 1024;
+const MAX_JSON_ERROR_INSPECTION_BYTES: usize = 64 * 1024;
 
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -295,15 +297,7 @@ async fn send_projected_json_request(
 
     if is_json_response(&response) {
         let http_status = status.as_u16();
-        let body_text = read_json_response_body(response).await?;
-        let error = map_success_json_response(&body_text);
-        let provider_status = provider_error_status(&error);
-        tracing::warn!(
-            http_status,
-            provider_status,
-            "provider returned JSON instead of a stream with a successful HTTP status"
-        );
-        return Err(error);
+        return inspect_success_json_response(response, http_status).await;
     }
 
     Ok(response)
@@ -321,31 +315,52 @@ fn is_json_response(response: &reqwest::Response) -> bool {
         })
 }
 
-async fn read_json_response_body(mut response: reqwest::Response) -> Result<String, ProviderError> {
-    let mut body = Vec::new();
-    while let Some(chunk) = response.chunk().await? {
-        if body.len().saturating_add(chunk.len()) > MAX_JSON_RESPONSE_BYTES {
-            return Err(ProviderError::Parse(format!(
-                "JSON response exceeded the {MAX_JSON_RESPONSE_BYTES}-byte limit"
-            )));
+async fn inspect_success_json_response(
+    response: reqwest::Response,
+    http_status: u16,
+) -> Result<reqwest::Response, ProviderError> {
+    let status = response.status();
+    let version = response.version();
+    let headers = response.headers().clone();
+    let url = response.url().clone();
+    let mut stream = response.bytes_stream();
+    let mut buffered_chunks = Vec::new();
+    let mut buffered_bytes = 0usize;
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        buffered_bytes = buffered_bytes.saturating_add(chunk.len());
+        buffered_chunks.push(chunk);
+
+        if buffered_bytes > MAX_JSON_ERROR_INSPECTION_BYTES {
+            let prefix = futures::stream::iter(buffered_chunks.into_iter().map(Ok::<_, reqwest::Error>));
+            let body = reqwest::Body::wrap_stream(prefix.chain(stream));
+            return rebuild_response(status, version, headers, url, body);
         }
-        body.extend_from_slice(&chunk);
     }
 
-    String::from_utf8(body).map_err(|error| ProviderError::Parse(format!("JSON response was not valid UTF-8: {error}")))
+    let mut body_bytes = Vec::with_capacity(buffered_bytes);
+    for chunk in buffered_chunks {
+        body_bytes.extend_from_slice(&chunk);
+    }
+
+    if let Ok(body) = serde_json::from_slice::<Value>(&body_bytes)
+        && let Some(error) = map_success_json_error(&body, &body_bytes)
+    {
+        let provider_status = provider_error_status(&error);
+        tracing::warn!(
+            http_status,
+            provider_status,
+            "provider returned a JSON error with a successful HTTP status"
+        );
+        return Err(error);
+    }
+
+    rebuild_response(status, version, headers, url, body_bytes)
 }
 
-fn map_success_json_response(body_text: &str) -> ProviderError {
-    let body = match serde_json::from_str::<Value>(body_text) {
-        Ok(body) => body,
-        Err(error) => {
-            return ProviderError::Parse(format!(
-                "Expected a streaming response but received invalid JSON: {error}"
-            ));
-        }
-    };
-
-    let error = body.get("error").unwrap_or(&body);
+fn map_success_json_error(body: &Value, body_bytes: &[u8]) -> Option<ProviderError> {
+    let error = body.get("error").unwrap_or(body);
     let status = [
         error.get("code"),
         error.get("status"),
@@ -366,13 +381,36 @@ fn map_success_json_response(body_text: &str) -> ProviderError {
         .to_string();
 
     match status {
-        Some(429) => ProviderError::RateLimited {
+        Some(429) => Some(ProviderError::RateLimited {
             retry_after_ms: 5000,
-            body: (!body_text.is_empty()).then(|| body_text.to_string()),
-        },
-        Some(status @ 400..=599) => ProviderError::Api { status, message },
-        _ => ProviderError::Parse(format!("Provider returned an unexpected JSON response: {message}")),
+            body: (!body_bytes.is_empty()).then(|| String::from_utf8_lossy(body_bytes).into_owned()),
+        }),
+        Some(status) => Some(ProviderError::Api { status, message }),
+        None if body.get("error").is_some() => Some(ProviderError::Parse(format!(
+            "Provider returned a JSON error response without an HTTP status: {message}"
+        ))),
+        None => None,
     }
+}
+
+fn rebuild_response<B>(
+    status: http::StatusCode,
+    version: http::Version,
+    headers: HeaderMap,
+    url: url::Url,
+    body: B,
+) -> Result<reqwest::Response, ProviderError>
+where
+    B: Into<reqwest::Body>,
+{
+    let mut response = http::Response::builder()
+        .status(status)
+        .version(version)
+        .url(url)
+        .body(body)
+        .map_err(|error| ProviderError::Connection(format!("Failed to preserve provider response: {error}")))?;
+    *response.headers_mut() = headers;
+    Ok(reqwest::Response::from(response))
 }
 
 fn json_http_status_code(value: &Value) -> Option<u16> {

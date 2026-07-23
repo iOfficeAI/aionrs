@@ -338,9 +338,91 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn openai_transport_preserves_successful_json_response() {
+        let server = MockServer::start().await;
+        let response_body = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "hello"
+                },
+                "finish_reason": "stop"
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+            .mount(&server)
+            .await;
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri()));
+        let compat = ProviderCompat::openai_defaults();
+        let (body, tool_wire_shape) = transport
+            .project_body(&test_request(vec![]), &compat)
+            .expect("request body projection should succeed");
+        let request = transport
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
+
+        let response = transport
+            .send(request)
+            .await
+            .expect("successful JSON should remain a successful response");
+
+        assert_eq!(
+            response
+                .json::<Value>()
+                .await
+                .expect("preserved response should remain valid JSON"),
+            response_body
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_transport_preserves_large_successful_json_response() {
+        let server = MockServer::start().await;
+        let response_body = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "x".repeat(MAX_JSON_ERROR_INSPECTION_BYTES + 1)
+                },
+                "finish_reason": "stop"
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+            .mount(&server)
+            .await;
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri()));
+        let compat = ProviderCompat::openai_defaults();
+        let (body, tool_wire_shape) = transport
+            .project_body(&test_request(vec![]), &compat)
+            .expect("request body projection should succeed");
+        let request = transport
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
+
+        let response = transport
+            .send(request)
+            .await
+            .expect("large successful JSON should remain a successful response");
+
+        assert_eq!(
+            response
+                .json::<Value>()
+                .await
+                .expect("preserved response should remain valid JSON"),
+            response_body
+        );
+    }
+
     #[test]
     fn successful_json_top_level_error_shape_is_normalized() {
-        let error = map_success_json_response(r#"{"code":"503","message":"upstream busy"}"#);
+        let body_text = r#"{"code":"503","message":"upstream busy"}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+        let error = map_success_json_error(&body, body_text.as_bytes()).expect("status 503 should map to an error");
 
         assert!(matches!(
             error,
@@ -350,7 +432,9 @@ mod tests {
 
     #[test]
     fn successful_json_uses_http_status_when_provider_code_is_not_http() {
-        let error = map_success_json_response(r#"{"error":{"code":1001,"message":"upstream busy"},"status":503}"#);
+        let body_text = r#"{"error":{"code":1001,"message":"upstream busy"},"status":503}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+        let error = map_success_json_error(&body, body_text.as_bytes()).expect("status 503 should map to an error");
 
         assert!(matches!(
             error,
@@ -359,12 +443,22 @@ mod tests {
     }
 
     #[test]
-    fn successful_json_without_error_status_is_a_parse_error() {
-        let error = map_success_json_response(r#"{"choices":[]}"#);
+    fn successful_json_without_error_shape_is_not_mapped_to_an_error() {
+        let body_text = r#"{"choices":[]}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+
+        assert!(map_success_json_error(&body, body_text.as_bytes()).is_none());
+    }
+
+    #[test]
+    fn successful_json_error_without_http_status_is_a_parse_error() {
+        let body_text = r#"{"error":{"code":"resource_exhausted","message":"upstream busy"}}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+        let error = map_success_json_error(&body, body_text.as_bytes()).expect("explicit error should be surfaced");
 
         assert!(matches!(
             error,
-            ProviderError::Parse(message) if message.contains("unexpected JSON response")
+            ProviderError::Parse(message) if message.contains("without an HTTP status")
         ));
     }
 

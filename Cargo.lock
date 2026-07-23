@@ -183,6 +183,7 @@ dependencies = [
  "chrono",
  "dirs",
  "futures",
+ "http 1.4.0",
  "insta",
  "jsonwebtoken",
  "reqwest",
