@@ -12,6 +12,7 @@ aion-config.workspace = true
 
 tokio.workspace        = true
 futures.workspace      = true
+http.workspace         = true
 reqwest.workspace      = true
 serde.workspace        = true
 serde_json.workspace   = true

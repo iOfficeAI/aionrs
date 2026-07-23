@@ -267,6 +267,202 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn openai_transport_maps_successful_json_502_to_api_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "error": {
+                    "message": "Upstream error from Nvidia: ResourceExhausted: Worker local total request limit reached (33/32)",
+                    "code": 502
+                }
+            })))
+            .mount(&server)
+            .await;
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri()));
+        let compat = ProviderCompat::openai_defaults();
+        let (body, tool_wire_shape) = transport
+            .project_body(&test_request(vec![]), &compat)
+            .expect("request body projection should succeed");
+        let request = transport
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
+
+        let error = transport
+            .send(request)
+            .await
+            .expect_err("embedded 502 should map to an API error");
+
+        assert!(matches!(
+            error,
+            ProviderError::Api { status: 502, message }
+                if message == "Upstream error from Nvidia: ResourceExhausted: Worker local total request limit reached (33/32)"
+        ));
+    }
+
+    #[tokio::test]
+    async fn openai_transport_maps_successful_json_429_to_rate_limited() {
+        let server = MockServer::start().await;
+        let response_body = json!({
+            "error": {
+                "message": "Too many requests",
+                "code": "429"
+            }
+        });
+        let response_body_text = response_body.to_string();
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+            .mount(&server)
+            .await;
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri()));
+        let compat = ProviderCompat::openai_defaults();
+        let (body, tool_wire_shape) = transport
+            .project_body(&test_request(vec![]), &compat)
+            .expect("request body projection should succeed");
+        let request = transport
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
+
+        let error = transport
+            .send(request)
+            .await
+            .expect_err("embedded 429 should map to rate limited");
+
+        match error {
+            ProviderError::RateLimited { retry_after_ms, body } => {
+                assert_eq!(retry_after_ms, 5000);
+                assert_eq!(body.as_deref(), Some(response_body_text.as_str()));
+            }
+            other => panic!("expected RateLimited, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn openai_transport_preserves_successful_json_response() {
+        let server = MockServer::start().await;
+        let response_body = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "hello"
+                },
+                "finish_reason": "stop"
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+            .mount(&server)
+            .await;
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri()));
+        let compat = ProviderCompat::openai_defaults();
+        let (body, tool_wire_shape) = transport
+            .project_body(&test_request(vec![]), &compat)
+            .expect("request body projection should succeed");
+        let request = transport
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
+
+        let response = transport
+            .send(request)
+            .await
+            .expect("successful JSON should remain a successful response");
+
+        assert_eq!(
+            response
+                .json::<Value>()
+                .await
+                .expect("preserved response should remain valid JSON"),
+            response_body
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_transport_preserves_large_successful_json_response() {
+        let server = MockServer::start().await;
+        let response_body = json!({
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "x".repeat(MAX_JSON_ERROR_INSPECTION_BYTES + 1)
+                },
+                "finish_reason": "stop"
+            }]
+        });
+        Mock::given(method("POST"))
+            .and(path("/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+            .mount(&server)
+            .await;
+        let transport = ProviderTransport::OpenAi(OpenAiTransport::new("test-key", &server.uri()));
+        let compat = ProviderCompat::openai_defaults();
+        let (body, tool_wire_shape) = transport
+            .project_body(&test_request(vec![]), &compat)
+            .expect("request body projection should succeed");
+        let request = transport
+            .build_projected_request("test-model", body, &compat, tool_wire_shape)
+            .expect("projected request should build");
+
+        let response = transport
+            .send(request)
+            .await
+            .expect("large successful JSON should remain a successful response");
+
+        assert_eq!(
+            response
+                .json::<Value>()
+                .await
+                .expect("preserved response should remain valid JSON"),
+            response_body
+        );
+    }
+
+    #[test]
+    fn successful_json_top_level_error_shape_is_normalized() {
+        let body_text = r#"{"code":"503","message":"upstream busy"}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+        let error = map_success_json_error(&body, body_text.as_bytes()).expect("status 503 should map to an error");
+
+        assert!(matches!(
+            error,
+            ProviderError::Api { status: 503, message } if message == "upstream busy"
+        ));
+    }
+
+    #[test]
+    fn successful_json_uses_http_status_when_provider_code_is_not_http() {
+        let body_text = r#"{"error":{"code":1001,"message":"upstream busy"},"status":503}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+        let error = map_success_json_error(&body, body_text.as_bytes()).expect("status 503 should map to an error");
+
+        assert!(matches!(
+            error,
+            ProviderError::Api { status: 503, message } if message == "upstream busy"
+        ));
+    }
+
+    #[test]
+    fn successful_json_without_error_shape_is_not_mapped_to_an_error() {
+        let body_text = r#"{"choices":[]}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+
+        assert!(map_success_json_error(&body, body_text.as_bytes()).is_none());
+    }
+
+    #[test]
+    fn successful_json_error_without_http_status_is_a_parse_error() {
+        let body_text = r#"{"error":{"code":"resource_exhausted","message":"upstream busy"}}"#;
+        let body = serde_json::from_str(body_text).expect("test body should be valid JSON");
+        let error = map_success_json_error(&body, body_text.as_bytes()).expect("explicit error should be surfaced");
+
+        assert!(matches!(
+            error,
+            ProviderError::Parse(message) if message.contains("without an HTTP status")
+        ));
+    }
+
+    #[tokio::test]
     async fn openai_transport_preserves_429_body_as_none_when_empty() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
