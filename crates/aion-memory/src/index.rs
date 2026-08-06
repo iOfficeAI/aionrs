@@ -82,11 +82,14 @@ pub fn truncate_index(raw: &str) -> IndexTruncation {
         trimmed.to_owned()
     };
 
-    // Step 2: byte truncation (on the possibly line-truncated result)
+    // Step 2: byte truncation (on the possibly line-truncated result).
+    // The cap may land inside a multi-byte UTF-8 char (e.g. CJK text), where
+    // both slicing and `String::truncate` panic — round down to a char
+    // boundary first.
     if truncated.len() > MAX_INDEX_BYTES {
-        let cut_at = truncated[..MAX_INDEX_BYTES].rfind('\n').filter(|&pos| pos > 0);
-        let boundary = cut_at.unwrap_or(MAX_INDEX_BYTES);
-        truncated.truncate(boundary);
+        let cap = truncated.floor_char_boundary(MAX_INDEX_BYTES);
+        let cut_at = truncated[..cap].rfind('\n').filter(|&pos| pos > 0);
+        truncated.truncate(cut_at.unwrap_or(cap));
     }
 
     // Build the warning message

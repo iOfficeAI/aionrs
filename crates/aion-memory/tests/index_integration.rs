@@ -312,3 +312,51 @@ fn tc_5_18_remove_from_nonexistent() {
     // Should not error — idempotent
     index::remove_index_entry(path, "anything.md").unwrap();
 }
+
+// ===========================================================================
+// TC-5.19: Truncation — byte cap lands inside a multi-byte UTF-8 char,
+// single long line (no newline before the cap). Regression for issue #3882.
+// ===========================================================================
+
+#[test]
+fn tc_5_19_byte_cap_mid_multibyte_char_single_line() {
+    // One long line of 3-byte CJK chars, 30,000 bytes total. Byte 25,000
+    // falls inside a char (25000 % 3 == 1), which used to panic:
+    // "byte index 25000 is not a char boundary".
+    let content = "\u{56fa}".repeat(10_000);
+
+    let result = index::truncate_index(&content);
+
+    assert!(result.was_truncated);
+    let before_warning = result.content.split("\n\n> WARNING:").next().unwrap();
+    // Cut must land on a char boundary at or below the cap, keeping only
+    // whole chars from the input.
+    assert!(before_warning.len() <= index::MAX_INDEX_BYTES);
+    assert!(before_warning.chars().all(|c| c == '\u{56fa}'));
+    assert!(!before_warning.is_empty());
+}
+
+// ===========================================================================
+// TC-5.20: Truncation — byte cap lands inside a multi-byte UTF-8 char,
+// multi-line content (cut falls back to the last newline before the cap).
+// Regression for issue #3882.
+// ===========================================================================
+
+#[test]
+fn tc_5_20_byte_cap_mid_multibyte_char_multiline() {
+    // 200 lines of 43 CJK chars (129 bytes) each => 25,999 bytes total,
+    // within the line cap but over the byte cap. Byte 25,000 sits at
+    // offset 40 of line 193 (40 % 3 == 1), i.e. inside a char.
+    let line = "\u{56fa}".repeat(43);
+    let content = std::iter::repeat_n(line.as_str(), 200).collect::<Vec<_>>().join("\n");
+    assert_eq!(content.len(), 25_999);
+
+    let result = index::truncate_index(&content);
+
+    assert!(result.was_truncated);
+    let before_warning = result.content.split("\n\n> WARNING:").next().unwrap();
+    // Should cut at the last newline before the cap: 192 whole lines.
+    assert_eq!(before_warning.lines().count(), 192);
+    assert!(before_warning.len() <= index::MAX_INDEX_BYTES);
+    assert!(before_warning.lines().all(|l| l == line));
+}
