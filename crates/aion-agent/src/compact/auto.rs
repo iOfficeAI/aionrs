@@ -193,22 +193,44 @@ pub async fn autocompact(
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Collect all text from a streaming LLM response.
+/// Collect the summary text from a streaming LLM response.
+///
+/// Reasoning models (e.g. MiniMax M2.5) may emit their entire summary as
+/// reasoning content rather than plain text: the OpenAI-compatible provider
+/// maps `reasoning_content` to `LlmEvent::ThinkingDelta`, and
+/// `ThinkingConfig::Disabled` is not honored by every provider. When the model
+/// produces no text, fall back to the reasoning content so compaction still
+/// succeeds instead of failing with `EmptyResponse`. `format_compact_summary`
+/// degrades gracefully when the `<summary>` block is absent from that text.
 async fn collect_stream_text(mut rx: mpsc::Receiver<LlmEvent>) -> Result<(String, TokenUsage), CompactError> {
     let mut text = String::new();
+    let mut thinking = String::new();
 
     while let Some(event) = rx.recv().await {
         match event {
             LlmEvent::TextDelta(delta) => text.push_str(&delta),
-            LlmEvent::Done { usage, .. } => return Ok((text, usage)),
+            LlmEvent::ThinkingDelta(delta) => thinking.push_str(&delta),
+            LlmEvent::Done { usage, .. } => return Ok((resolve_summary_text(text, thinking), usage)),
             LlmEvent::Error(e) => return Err(CompactError::StreamError(e)),
-            // Ignore thinking deltas and tool calls (shouldn't happen in compact)
+            // Ignore tool calls and thinking signatures (shouldn't happen in compact)
             _ => {}
         }
     }
 
-    // Channel closed without a Done event
-    Err(CompactError::EmptyResponse)
+    // Channel closed without a Done event: salvage reasoning content if the
+    // model spoke only via reasoning, otherwise report the empty response.
+    let resolved = resolve_summary_text(text, thinking);
+    if resolved.trim().is_empty() {
+        return Err(CompactError::EmptyResponse);
+    }
+    Ok((resolved, TokenUsage::default()))
+}
+
+/// Prefer the model's text output, falling back to reasoning content when the
+/// model emitted its summary as reasoning (reasoning models that ignore
+/// `ThinkingConfig::Disabled`).
+fn resolve_summary_text(text: String, thinking: String) -> String {
+    if text.trim().is_empty() { thinking } else { text }
 }
 
 /// Truncate the oldest ~20% of messages for PTL retry.

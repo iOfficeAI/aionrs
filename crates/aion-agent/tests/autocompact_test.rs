@@ -466,6 +466,37 @@ async fn empty_response_fails() {
 }
 
 #[tokio::test]
+async fn reasoning_only_response_is_recovered() {
+    // Reasoning models (e.g. MiniMax M2.5) may emit the summary as reasoning
+    // content, which the OpenAI-compatible provider surfaces as ThinkingDelta
+    // with no TextDelta. Compaction must recover it rather than fail with
+    // EmptyResponse.
+    let provider = MockProvider::new(vec![Ok(vec![
+        LlmEvent::ThinkingDelta("<summary>Recovered from reasoning.</summary>".to_string()),
+        LlmEvent::Done {
+            stop_reason: StopReason::EndTurn,
+            usage: TokenUsage::default(),
+        },
+    ])]);
+
+    let messages = sample_conversation(10);
+    let config = default_config();
+    let mut state = CompactState::new();
+
+    let result = autocompact(&provider, &messages, "test-model", &config, &mut state)
+        .await
+        .expect("reasoning-only response should be recovered");
+
+    let recovered = result
+        .messages
+        .iter()
+        .flat_map(|m| &m.content)
+        .any(|block| matches!(block, ContentBlock::Text { text } if text.contains("Recovered from reasoning.")));
+    assert!(recovered, "summary should include the recovered reasoning content");
+    assert_eq!(state.consecutive_failures, 0);
+}
+
+#[tokio::test]
 async fn stream_error_fails() {
     let provider = MockProvider::new(vec![Ok(vec![
         LlmEvent::TextDelta("partial".to_string()),
