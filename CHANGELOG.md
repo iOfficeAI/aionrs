@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.11](https://github.com/iOfficeAI/aionrs/compare/v0.2.10...v0.2.11) (2026-08-07)
+
+
+### Documentation
+
+* refresh tool and provider documentation ([f7b000e](https://github.com/iOfficeAI/aionrs/commit/f7b000e1253909060ad565b6eb4a3869bc322d86))
+* refresh tool and provider documentation ([0a0efcf](https://github.com/iOfficeAI/aionrs/commit/0a0efcf0a9fb26798fe22aa6015b0d84b84a8b46))
+
 ## [0.2.10](https://github.com/iOfficeAI/aionrs/compare/v0.2.9...v0.2.10) (2026-08-06)
 
 
