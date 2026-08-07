@@ -13,6 +13,7 @@ mod tests {
             system: "Be helpful".to_string(),
             messages,
             tools,
+            tool_choice: Default::default(),
             max_tokens: Some(4096),
             thinking: None,
             reasoning_effort: Some("high".to_string()),

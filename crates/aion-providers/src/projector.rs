@@ -184,6 +184,9 @@ impl OpenAiProjector {
             let tools = project_tools(&request.tools, Self::resolved_tool_wire_shape(compat));
             tool_count = tools.len();
             body["tools"] = json!(tools);
+            if let Some(tool_choice) = request.tool_choice {
+                body["tool_choice"] = json!(tool_choice.as_str());
+            }
         } else if !request.tools.is_empty() {
             tracing::warn!(
                 target: "aion_providers",

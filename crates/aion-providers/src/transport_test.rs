@@ -30,6 +30,7 @@ mod tests {
                 }],
             )],
             tools,
+            tool_choice: Default::default(),
             max_tokens: Some(8192),
             thinking: None,
             reasoning_effort: None,

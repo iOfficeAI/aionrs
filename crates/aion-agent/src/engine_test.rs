@@ -52,6 +52,7 @@ mod tests_set_config {
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
             reasoning_effort: None,
+            initial_tool_choice: Default::default(),
             messages: vec![],
             total_usage: Default::default(),
             msg_id: String::new(),
@@ -428,6 +429,7 @@ mod tests_phase6 {
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
             reasoning_effort: None,
+            initial_tool_choice: Default::default(),
             messages: vec![],
             total_usage: Default::default(),
             msg_id: String::new(),
@@ -713,6 +715,7 @@ mod tests_compact {
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
             reasoning_effort: None,
+            initial_tool_choice: Default::default(),
             messages,
             total_usage: Default::default(),
             msg_id: String::new(),
@@ -1415,6 +1418,7 @@ mod tests_plan_mode {
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
             reasoning_effort: None,
+            initial_tool_choice: Default::default(),
             messages: vec![],
             total_usage: Default::default(),
             msg_id: String::new(),
@@ -1591,7 +1595,7 @@ mod tests_handle_command {
     use aion_providers::provider::LlmProvider;
     use aion_tools::Tool;
     use aion_tools::registry::ToolRegistry;
-    use aion_types::llm::{LlmEvent, LlmRequest};
+    use aion_types::llm::{LlmEvent, LlmRequest, ToolChoice};
     use aion_types::message::{ContentBlock, ImageInputCapability, ImageUrl, Message, Role, StopReason, TokenUsage};
     use aion_types::tool::ToolResult;
     use async_trait::async_trait;
@@ -1635,6 +1639,7 @@ mod tests_handle_command {
             compat: ProviderCompat::anthropic_defaults(),
             system_prompt: String::new(),
             reasoning_effort: None,
+            initial_tool_choice: Default::default(),
             messages: vec![],
             total_usage: Default::default(),
             msg_id: String::new(),
@@ -1960,6 +1965,7 @@ mod tests_handle_command {
         let failed_executions = Arc::new(AtomicUsize::new(0));
         let successful_executions = Arc::new(AtomicUsize::new(0));
         let mut engine = make_engine_with_provider(provider.clone());
+        engine.initial_tool_choice = Some(ToolChoice::Required);
         engine.max_turns_per_run = Some(10);
         engine.tools.register(Box::new(FailingTool {
             executions: failed_executions.clone(),
@@ -1978,6 +1984,8 @@ mod tests_handle_command {
 
         let requests = provider.requests.lock().unwrap();
         assert_eq!(requests.len(), 4);
+        assert_eq!(requests[0].tool_choice, Some(ToolChoice::Required));
+        assert!(requests[1..].iter().all(|request| request.tool_choice.is_none()));
         assert!(requests[..3].iter().all(|request| !request.tools.is_empty()));
         assert!(requests[3].tools.is_empty());
         assert!(requests[2].messages.iter().any(|message| {
@@ -2659,6 +2667,7 @@ mod tests_tool_policy_enforcement {
             system_prompt: String::new(),
             model: "test-model".to_string(),
             reasoning_effort: None,
+            initial_tool_choice: Default::default(),
             messages: Vec::new(),
             total_usage: Default::default(),
             msg_id: "test-message".to_string(),

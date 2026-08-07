@@ -22,6 +22,7 @@ use aion_tools::registry::ToolRegistry;
 use aion_tools::tool_search::ToolSearchTool;
 use aion_tools::view_image::ViewImageTool;
 use aion_tools::write::WriteTool;
+use aion_types::llm::ToolChoice;
 use anyhow::Result;
 use tracing::info;
 
@@ -72,6 +73,7 @@ pub struct AgentBootstrap {
     resume_session: Option<Session>,
     runtime_env: Vec<(String, String)>,
     tool_policy: ToolPolicy,
+    initial_tool_choice: Option<ToolChoice>,
 }
 
 struct BootstrapEnvironment {
@@ -109,6 +111,7 @@ impl AgentBootstrap {
             resume_session: None,
             runtime_env: Vec::new(),
             tool_policy: ToolPolicy::default(),
+            initial_tool_choice: None,
         }
     }
 
@@ -133,6 +136,12 @@ impl AgentBootstrap {
     /// Restrict which registered tools can be advertised and executed.
     pub fn tool_policy(mut self, tool_policy: ToolPolicy) -> Self {
         self.tool_policy = tool_policy;
+        self
+    }
+
+    /// Set tool selection for the first model turn of each user run.
+    pub fn initial_tool_choice(mut self, tool_choice: ToolChoice) -> Self {
+        self.initial_tool_choice = Some(tool_choice);
         self
     }
 
@@ -371,6 +380,7 @@ impl AgentBootstrap {
         prompt_usage: PromptUsage,
     ) -> AgentEngine {
         let runtime_env = self.runtime_env.clone();
+        let initial_tool_choice = self.initial_tool_choice;
         let mut engine = if let Some(session) = self.resume_session {
             AgentEngine::resume_with_provider_and_env(
                 provider,
@@ -386,6 +396,9 @@ impl AgentBootstrap {
         };
         engine.set_plan_active_flag(plan_active_flag);
         engine.set_tool_policy(self.tool_policy);
+        if let Some(tool_choice) = initial_tool_choice {
+            engine.set_initial_tool_choice(tool_choice);
+        }
         engine.set_prompt_usage(prompt_usage);
         engine
     }

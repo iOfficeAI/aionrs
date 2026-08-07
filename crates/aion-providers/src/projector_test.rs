@@ -5,6 +5,7 @@ mod tests {
     use super::*;
     use aion_config::compat::ModelMaxTokensRule;
     use aion_config::schema::legalize_json_schema;
+    use aion_types::llm::ToolChoice;
     use aion_types::message::{ContentBlock, Message, Role};
     use aion_types::tool::ToolDef;
 
@@ -19,6 +20,7 @@ mod tests {
                 }],
             )],
             tools,
+            tool_choice: None,
             max_tokens: Some(8192),
             thinking,
             reasoning_effort: None,
@@ -427,6 +429,44 @@ mod tests {
             .expect("request body projection should succeed");
 
         assert_eq!(body["model"], "test-model");
+    }
+
+    #[test]
+    fn test_openai_projector_emits_explicit_tool_choice_when_tools_are_present() {
+        let mut request = test_request(test_tools(), None);
+        request.tool_choice = Some(ToolChoice::Required);
+
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert_eq!(body["tool_choice"], "required");
+
+        request.tool_choice = Some(ToolChoice::Auto);
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert_eq!(body["tool_choice"], "auto");
+    }
+
+    #[test]
+    fn test_openai_projector_omits_tool_choice_without_tools() {
+        let mut request = test_request(vec![], None);
+        request.tool_choice = Some(ToolChoice::Required);
+
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert!(body.get("tool_choice").is_none());
+    }
+
+    #[test]
+    fn test_openai_projector_leaves_unspecified_tool_choice_to_provider_default() {
+        let request = test_request(test_tools(), None);
+
+        let body = OpenAiProjector::project(&request, &ProviderCompat::openai_defaults())
+            .expect("request body projection should succeed");
+
+        assert!(body.get("tool_choice").is_none());
     }
 
     #[test]

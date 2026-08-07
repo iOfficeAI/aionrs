@@ -10,11 +10,32 @@ pub struct LlmRequest {
     pub system: String,
     pub messages: Vec<crate::message::Message>,
     pub tools: Vec<ToolDef>,
+    /// Provider-neutral tool selection policy for this model turn.
+    pub tool_choice: Option<ToolChoice>,
     pub max_tokens: Option<u32>,
     /// Optional: thinking config (Anthropic extended thinking)
     pub thinking: Option<ThinkingConfig>,
     /// Optional: reasoning effort for OpenAI reasoning models (low/medium/high)
     pub reasoning_effort: Option<String>,
+}
+
+/// Controls whether the model may or must select an advertised tool.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ToolChoice {
+    /// Let the model decide whether to call a tool.
+    #[default]
+    Auto,
+    /// Require the model to call one of the advertised tools.
+    Required,
+}
+
+impl ToolChoice {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Required => "required",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

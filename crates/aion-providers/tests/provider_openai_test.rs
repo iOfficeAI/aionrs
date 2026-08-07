@@ -28,6 +28,7 @@ fn make_request() -> LlmRequest {
             }],
         )],
         tools: vec![],
+        tool_choice: Default::default(),
         max_tokens: Some(512),
         thinking: None,
         reasoning_effort: None,
