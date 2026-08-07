@@ -114,6 +114,7 @@ pub async fn autocompact(
             system: COMPACT_SYSTEM_PROMPT.to_string(),
             messages: conv_messages.clone(),
             tools: vec![],
+            tool_choice: Default::default(),
             max_tokens: Some(COMPACT_MAX_OUTPUT_TOKENS),
             thinking: Some(ThinkingConfig::Disabled),
             reasoning_effort: None,

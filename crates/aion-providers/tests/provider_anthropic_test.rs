@@ -26,6 +26,7 @@ fn minimal_request() -> LlmRequest {
             }],
         )],
         tools: vec![],
+        tool_choice: Default::default(),
         max_tokens: Some(1024),
         thinking: None,
         reasoning_effort: None,

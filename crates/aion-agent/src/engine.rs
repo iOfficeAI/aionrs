@@ -39,7 +39,7 @@ use aion_protocol::events::ToolCategory;
 use aion_protocol::writer::ProtocolEmitter;
 use aion_providers::provider::{LlmProvider, create_provider};
 use aion_tools::registry::ToolRegistry;
-use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
+use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig, ToolChoice};
 use aion_types::message::{ContentBlock, ImageInputCapability, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
 use aion_types::tool::ToolDef;
@@ -78,6 +78,8 @@ pub struct AgentEngine {
     /// Persisted reasoning effort, updated by skill context modifiers.
     /// Carried into each model turn's LlmRequest.reasoning_effort.
     reasoning_effort: Option<String>,
+    /// Tool selection policy for the first model turn of each user run.
+    initial_tool_choice: Option<ToolChoice>,
 
     // Conversation and run state.
     /// Conversation history used to build the next provider request.
@@ -196,6 +198,7 @@ impl AgentEngine {
             compat: config.compat.clone(),
             system_prompt,
             reasoning_effort: None,
+            initial_tool_choice: None,
             messages: Vec::new(),
             total_usage: TokenUsage::default(),
             msg_id: String::new(),
@@ -291,6 +294,7 @@ impl AgentEngine {
             compat: config.compat.clone(),
             system_prompt,
             reasoning_effort: None,
+            initial_tool_choice: None,
             messages: session.messages.clone(),
             total_usage: session.total_usage.clone(),
             msg_id: String::new(),
@@ -357,6 +361,11 @@ impl AgentEngine {
         if changed {
             self.refresh_local_context_estimate();
         }
+    }
+
+    /// Configure tool selection for the first provider request of each user run.
+    pub(crate) fn set_initial_tool_choice(&mut self, tool_choice: ToolChoice) {
+        self.initial_tool_choice = Some(tool_choice);
     }
 
     /// Replace bootstrap-derived prompt category metadata.
@@ -473,6 +482,7 @@ impl AgentEngine {
             self.max_tool_call_malformed_turns,
             self.max_tool_call_failure_turns,
         );
+        let mut tool_choice = self.initial_tool_choice;
         loop {
             if let Some(limit) = guards.turn_budget_reached() {
                 self.save_session();
@@ -489,7 +499,8 @@ impl AgentEngine {
                 });
             }
 
-            let outcome = self.run_turn(TurnKind::Normal).await?;
+            let outcome = self.run_turn(TurnKind::Normal, tool_choice).await?;
+            tool_choice = None;
             guards.record_counted_turn();
 
             let tool_calls = match TurnOutcome::from_stream(outcome) {
@@ -606,7 +617,12 @@ impl AgentEngine {
 
     /// Build the next provider request, applying plan-mode tool/system filtering
     /// and recording the prompt state for cache diagnostics.
+    #[cfg(test)]
     fn build_request(&mut self, kind: TurnKind) -> LlmRequest {
+        self.build_request_with_tool_choice(kind, None)
+    }
+
+    fn build_request_with_tool_choice(&mut self, kind: TurnKind, tool_choice: Option<ToolChoice>) -> LlmRequest {
         let image_input = self.compat.image_input();
         let tools = self.tool_definitions_for_turn(kind);
 
@@ -636,6 +652,7 @@ impl AgentEngine {
             system,
             messages,
             tools,
+            tool_choice,
             max_tokens: self.max_tokens,
             thinking: self.thinking.clone(),
             reasoning_effort: self.reasoning_effort.clone(),
@@ -831,19 +848,20 @@ impl AgentEngine {
         }
     }
 
-    async fn run_turn(&mut self, kind: TurnKind) -> Result<StreamOutcome, AgentError> {
+    async fn run_turn(&mut self, kind: TurnKind, tool_choice: Option<ToolChoice>) -> Result<StreamOutcome, AgentError> {
         let span = info_span!(
             target: "aion_agent",
             "llm_generation",
             generation_phase = kind.diagnostic_phase(),
             tools_disabled = kind.disable_tools(),
+            tool_choice = tool_choice.map(ToolChoice::as_str).unwrap_or("provider_default"),
         );
         async {
             // Run multi-level compaction before each API call.
             // On the first model turn context_tokens is 0 so neither
             // autocompact nor emergency will fire.
             self.run_compaction().await?;
-            let request = self.build_request(kind);
+            let request = self.build_request_with_tool_choice(kind, tool_choice);
             let mut rx = self.provider.stream(&request).await?;
             let outcome = self.consume_stream(&mut rx).await?;
             let has_provider_usage = self.record_turn_usage(&outcome.usage);
@@ -864,7 +882,7 @@ impl AgentEngine {
         counted_turns: usize,
         fallback_stop_reason: StopReason,
     ) -> Result<AgentResult, AgentError> {
-        let outcome = self.run_turn(TurnKind::Finalization(reason)).await?;
+        let outcome = self.run_turn(TurnKind::Finalization(reason), None).await?;
         let combined_text = format!("{}{}", prefix_text, outcome.assistant_text);
         let is_success = outcome.tool_calls.is_empty()
             && outcome.stop_reason == StopReason::EndTurn

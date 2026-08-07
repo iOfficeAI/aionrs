@@ -31,6 +31,7 @@ mod tests {
             system: "You are a test assistant.".to_string(),
             messages,
             tools,
+            tool_choice: Default::default(),
             max_tokens: Some(8192),
             thinking: None,
             reasoning_effort: None,
