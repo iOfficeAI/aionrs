@@ -44,7 +44,8 @@ pub fn read_index(path: &Path) -> String {
 /// 3. If within both limits, return as-is.
 /// 4. Line-truncate first (slice to first `MAX_INDEX_LINES` lines).
 /// 5. If still over `MAX_INDEX_BYTES`, byte-truncate at the last newline
-///    before the cap so we never cut mid-line.
+///    before the cap so we never cut mid-line (the cap is first rounded
+///    down to a UTF-8 char boundary so multi-byte chars are never split).
 /// 6. Append a diagnostic warning naming which cap(s) fired.
 pub fn truncate_index(raw: &str) -> IndexTruncation {
     let trimmed = raw.trim();
@@ -83,13 +84,13 @@ pub fn truncate_index(raw: &str) -> IndexTruncation {
     };
 
     // Step 2: byte truncation (on the possibly line-truncated result).
-    // The cap may land inside a multi-byte UTF-8 char (e.g. CJK text), where
-    // both slicing and `String::truncate` panic — round down to a char
-    // boundary first.
+    // Round the cap down to a UTF-8 char boundary first so the slice and
+    // the final truncate can never panic on a multi-byte char.
     if truncated.len() > MAX_INDEX_BYTES {
-        let cap = truncated.floor_char_boundary(MAX_INDEX_BYTES);
-        let cut_at = truncated[..cap].rfind('\n').filter(|&pos| pos > 0);
-        truncated.truncate(cut_at.unwrap_or(cap));
+        let cut = truncated.floor_char_boundary(MAX_INDEX_BYTES);
+        let cut_at = truncated[..cut].rfind('\n').filter(|&pos| pos > 0);
+        let boundary = cut_at.unwrap_or(cut);
+        truncated.truncate(boundary);
     }
 
     // Build the warning message
