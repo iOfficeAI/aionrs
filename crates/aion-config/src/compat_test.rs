@@ -27,6 +27,7 @@ sanitize_schema = true
 strip_patterns = ["__REASONING__"]
 auto_tool_id = true
 supports_thinking = true
+emit_disabled_thinking = true
 supports_effort = false
 effort_levels = ["low", "medium"]
 
@@ -68,6 +69,8 @@ max_tokens = 64000
         assert_eq!(compat.tool_wire_shape(), ToolWireShape::OpenAiFunction);
         assert_eq!(compat.schema.sanitize_schema, Some(true));
         assert_eq!(compat.reasoning.supports_thinking, Some(true));
+        assert_eq!(compat.reasoning.emit_disabled_thinking, Some(true));
+        assert!(compat.emit_disabled_thinking());
         assert_eq!(compat.reasoning.supports_effort, Some(false));
         assert_eq!(
             compat.reasoning.effort_levels,
@@ -111,6 +114,7 @@ max_tokens = 64000
             },
             reasoning: ReasoningCompat {
                 supports_thinking: Some(true),
+                emit_disabled_thinking: Some(true),
                 supports_effort: Some(false),
                 effort_levels: Some(vec!["low".to_string(), "medium".to_string()]),
             },
@@ -141,6 +145,7 @@ max_tokens = 64000
         assert!(toml.contains("strip_patterns = [\"__REASONING__\"]"));
         assert!(toml.contains("auto_tool_id = true"));
         assert!(toml.contains("supports_thinking = true"));
+        assert!(toml.contains("emit_disabled_thinking = true"));
         assert!(toml.contains("supports_effort = false"));
         assert!(toml.contains("effort_levels = [\"low\", \"medium\"]"));
         assert!(toml.contains("image_input = \"supported\""));
@@ -183,6 +188,7 @@ max_tokens = 64000
             },
             reasoning: ReasoningCompat {
                 supports_thinking: Some(true),
+                emit_disabled_thinking: Some(true),
                 supports_effort: None,
                 effort_levels: Some(vec!["custom".to_string()]),
             },
@@ -210,10 +216,12 @@ max_tokens = 64000
         assert!(merged.sanitize_schema());
         assert!(!merged.auto_tool_id());
         assert!(merged.supports_thinking());
+        assert!(merged.emit_disabled_thinking());
         assert!(merged.supports_effort());
         assert_eq!(merged.effort_levels(), &["custom"]);
         assert_eq!(merged.messages.strip_patterns, Some(vec!["strip-me".to_string()]));
         assert_eq!(merged.reasoning.supports_thinking, Some(true));
+        assert_eq!(merged.reasoning.emit_disabled_thinking, Some(true));
         assert_eq!(merged.reasoning.supports_effort, Some(true));
         assert_eq!(merged.reasoning.effort_levels, Some(vec!["custom".to_string()]));
         assert_eq!(merged.image_input(), ImageInputCapability::Unsupported);
@@ -523,6 +531,7 @@ tool_wire_shape = "provider_guess"
     fn test_anthropic_defaults_capability_fields() {
         let compat = ProviderCompat::anthropic_defaults();
         assert_eq!(compat.reasoning.supports_thinking, Some(true));
+        assert!(!compat.emit_disabled_thinking());
         assert_eq!(compat.reasoning.supports_effort, Some(false));
         assert!(compat.reasoning.effort_levels.is_none());
     }
@@ -531,6 +540,7 @@ tool_wire_shape = "provider_guess"
     fn test_openai_defaults_capability_fields() {
         let compat = ProviderCompat::openai_defaults();
         assert_eq!(compat.reasoning.supports_thinking, Some(false));
+        assert!(!compat.emit_disabled_thinking());
         assert_eq!(compat.reasoning.supports_effort, Some(true));
         assert_eq!(
             compat.reasoning.effort_levels,
@@ -542,6 +552,7 @@ tool_wire_shape = "provider_guess"
     fn test_bedrock_defaults_capability_fields() {
         let compat = ProviderCompat::bedrock_defaults();
         assert_eq!(compat.reasoning.supports_thinking, Some(true));
+        assert!(!compat.emit_disabled_thinking());
         assert_eq!(compat.reasoning.supports_effort, Some(false));
     }
 
@@ -551,12 +562,15 @@ tool_wire_shape = "provider_guess"
         let user = ProviderCompat {
             reasoning: ReasoningCompat {
                 supports_thinking: Some(true),
+                emit_disabled_thinking: Some(true),
                 ..Default::default()
             },
             ..Default::default()
         };
         let merged = ProviderCompat::merge(defaults, user);
         assert_eq!(merged.reasoning.supports_thinking, Some(true));
+        assert_eq!(merged.reasoning.emit_disabled_thinking, Some(true));
+        assert!(merged.emit_disabled_thinking());
         assert_eq!(merged.reasoning.supports_effort, Some(true));
     }
 
@@ -593,6 +607,7 @@ tool_wire_shape = "provider_guess"
     fn test_capability_accessors() {
         let compat = ProviderCompat::anthropic_defaults();
         assert!(compat.supports_thinking());
+        assert!(!compat.emit_disabled_thinking());
         assert!(!compat.supports_effort());
         assert!(compat.effort_levels().is_empty());
 

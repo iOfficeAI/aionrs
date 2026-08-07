@@ -186,6 +186,50 @@ mod tests {
     }
 
     #[test]
+    fn test_anthropic_projector_omits_disabled_thinking_by_default() {
+        let request = test_request(vec![], Some(ThinkingConfig::Disabled));
+
+        let body = AnthropicWireProjector::project(
+            &request,
+            &ProviderCompat::anthropic_defaults(),
+            WireParams {
+                provider: WireProvider::Anthropic,
+                anthropic_version: None,
+                include_model_in_body: true,
+                include_stream: true,
+                cache_enabled: false,
+                sanitize_schema: false,
+            },
+        )
+        .expect("request body projection should succeed");
+
+        assert!(body.get("thinking").is_none());
+    }
+
+    #[test]
+    fn test_anthropic_projector_emits_disabled_thinking_when_configured() {
+        let request = test_request(vec![], Some(ThinkingConfig::Disabled));
+        let mut compat = ProviderCompat::anthropic_defaults();
+        compat.reasoning.emit_disabled_thinking = Some(true);
+
+        let body = AnthropicWireProjector::project(
+            &request,
+            &compat,
+            WireParams {
+                provider: WireProvider::Anthropic,
+                anthropic_version: None,
+                include_model_in_body: true,
+                include_stream: true,
+                cache_enabled: false,
+                sanitize_schema: false,
+            },
+        )
+        .expect("request body projection should succeed");
+
+        assert_eq!(body["thinking"], json!({ "type": "disabled" }));
+    }
+
+    #[test]
     fn test_anthropic_projector_uses_model_default_max_tokens_when_unset() {
         let mut request = test_request(vec![], None);
         request.model = "claude-sonnet-4-6".to_string();
