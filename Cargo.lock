@@ -4224,7 +4224,6 @@ dependencies = [
  "tracing",
  "tracing-core",
  "uuid",
- "windows-sys 0.60.2",
  "windows-sys 0.61.2",
  "winnow",
  "zeroize",
