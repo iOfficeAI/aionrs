@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.12](https://github.com/iOfficeAI/aionrs/compare/v0.2.11...v0.2.12) (2026-08-24)
+
+
+### Features
+
+* **config:** resolve compact context_window from per-model catalog ([0168a0f](https://github.com/iOfficeAI/aionrs/commit/0168a0f00fa1bcb0ff8f2a5e9ba4cbf1dd3c84cb))
+* **config:** resolve compact context_window from per-model catalog ([ffdef1f](https://github.com/iOfficeAI/aionrs/commit/ffdef1f2373f428afedf81d05ddf26eacf0f2153))
+* **skills:** support isolated bootstrap directories ([f711174](https://github.com/iOfficeAI/aionrs/commit/f7111746015d8e6f960e1568a805ceef975022d3))
+* **skills:** support isolated bootstrap directories ([cfac6be](https://github.com/iOfficeAI/aionrs/commit/cfac6be1d006da9aedf6869d86cab94eec45a324))
+* **tui:** add codex-style interactive repl ([f00f0fb](https://github.com/iOfficeAI/aionrs/commit/f00f0fbc15842cf5a4443ee92d5f7269d4cb516f))
+* **tui:** add interactive repl interface ([4ffa967](https://github.com/iOfficeAI/aionrs/commit/4ffa967b26a0b479113cfdfc2cda94d510ee4640))
+* **tui:** complete codex-style repl workflow ([6a91939](https://github.com/iOfficeAI/aionrs/commit/6a91939164b0afa079eb9289a46511bb3b12146f))
+
+
+### Bug Fixes
+
+* **cli:** stabilize tool context and terminal rendering ([a5df989](https://github.com/iOfficeAI/aionrs/commit/a5df989d110fb424bcd496b413e7ce7e20754414))
+* **cli:** stabilize tool context and terminal rendering ([5bc0031](https://github.com/iOfficeAI/aionrs/commit/5bc003166411310817e47df54d42894db14f86ca))
+* **config:** make context windows model-safe ([611ea82](https://github.com/iOfficeAI/aionrs/commit/611ea82ef7fc7e2958b96083fd061a53c9af55e3))
+* **tui:** rebuild scrollback without duplicate rendering ([5a4aa9e](https://github.com/iOfficeAI/aionrs/commit/5a4aa9e5564e3c2e84fb6e28110c242a9d365bcb))
+
 ## [0.2.11](https://github.com/iOfficeAI/aionrs/compare/v0.2.10...v0.2.11) (2026-08-13)
 
 
