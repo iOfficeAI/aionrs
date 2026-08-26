@@ -355,6 +355,7 @@ context_window = 200000
         let compat = ProviderCompat {
             reasoning: ReasoningCompat {
                 supports_thinking: Some(true),
+                emit_disabled_thinking: None,
                 supports_effort: Some(true),
                 effort_levels: Some(vec!["low".into()]),
             },

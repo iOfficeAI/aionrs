@@ -136,11 +136,19 @@ impl AnthropicWireProjector {
             body["tools"] = json!(tools);
         }
 
-        if let Some(ThinkingConfig::Enabled { budget_tokens }) = &request.thinking {
-            body["thinking"] = json!({
-                "type": "enabled",
-                "budget_tokens": budget_tokens
-            });
+        if let Some(thinking) = &request.thinking {
+            match thinking {
+                ThinkingConfig::Enabled { budget_tokens } => {
+                    body["thinking"] = json!({
+                        "type": "enabled",
+                        "budget_tokens": budget_tokens
+                    });
+                }
+                ThinkingConfig::Disabled if compat.emit_disabled_thinking() => {
+                    body["thinking"] = json!({ "type": "disabled" });
+                }
+                ThinkingConfig::Disabled => {}
+            }
         }
 
         preflight_projected_body(params.provider, &body, tool_count, compat)?;
