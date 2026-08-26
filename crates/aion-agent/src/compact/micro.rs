@@ -2,7 +2,7 @@
 //!
 //! This is the lightest compaction level.  It walks the conversation,
 //! identifies tool results from compactable tools, and replaces the
-//! content of all but the N most recent with a short placeholder.
+//! content of old, model-consumed results with a short placeholder.
 
 use std::collections::{HashMap, HashSet};
 
@@ -29,7 +29,7 @@ pub struct MicrocompactResult {
 /// Returns `true` if **either** trigger fires:
 /// - **Time**: the most recent assistant message is older than
 ///   `config.micro_gap_seconds`.
-/// - **Count**: total compactable (non-cleared) tool results exceed
+/// - **Count**: total compactable, model-consumed tool results exceed
 ///   `config.micro_keep_recent * 2`.
 pub fn should_microcompact(messages: &[Message], config: &CompactConfig) -> bool {
     if !config.enabled {
@@ -59,7 +59,8 @@ fn count_trigger(messages: &[Message], config: &CompactConfig) -> bool {
     let tool_names = build_tool_name_map(messages);
     let compactable_set: HashSet<&str> = config.compactable_tools.iter().map(String::as_str).collect();
 
-    let count = count_compactable_results(messages, &tool_names, &compactable_set);
+    let protected_ids = unconsumed_tool_result_ids(messages);
+    let count = count_compactable_results(messages, &tool_names, &compactable_set, &protected_ids);
     count > config.micro_keep_recent * 2
 }
 
@@ -74,11 +75,11 @@ fn count_trigger(messages: &[Message], config: &CompactConfig) -> bool {
 pub fn microcompact(messages: &mut [Message], config: &CompactConfig) -> MicrocompactResult {
     let tool_names = build_tool_name_map(messages);
     let compactable_set: HashSet<&str> = config.compactable_tools.iter().map(String::as_str).collect();
+    let protected_ids = unconsumed_tool_result_ids(messages);
 
     // Collect (message_index, block_index) of all compactable, non-cleared
     // tool results, in conversation order.
-    let targets = collect_compactable_locations(messages, &tool_names, &compactable_set);
-
+    let targets = collect_compactable_locations(messages, &tool_names, &compactable_set, &protected_ids);
     let keep = config.micro_keep_recent.max(1);
     if targets.len() <= keep {
         return MicrocompactResult {
@@ -128,11 +129,12 @@ fn count_compactable_results(
     messages: &[Message],
     tool_names: &HashMap<String, String>,
     compactable_set: &HashSet<&str>,
+    protected_ids: &HashSet<&str>,
 ) -> usize {
     messages
         .iter()
         .flat_map(|m| &m.content)
-        .filter(|b| is_compactable_and_live(b, tool_names, compactable_set))
+        .filter(|b| is_compactable_and_live(b, tool_names, compactable_set, protected_ids))
         .count()
 }
 
@@ -142,11 +144,12 @@ fn collect_compactable_locations(
     messages: &[Message],
     tool_names: &HashMap<String, String>,
     compactable_set: &HashSet<&str>,
+    protected_ids: &HashSet<&str>,
 ) -> Vec<(usize, usize)> {
     let mut locations = Vec::new();
     for (mi, msg) in messages.iter().enumerate() {
         for (bi, block) in msg.content.iter().enumerate() {
-            if is_compactable_and_live(block, tool_names, compactable_set) {
+            if is_compactable_and_live(block, tool_names, compactable_set, protected_ids) {
                 locations.push((mi, bi));
             }
         }
@@ -158,16 +161,19 @@ fn collect_compactable_locations(
 /// 1. It is a `ToolResult` variant.
 /// 2. Its corresponding tool name is in the compactable set.
 /// 3. Its content has not already been cleared.
+/// 4. It is not part of the latest assistant tool batch, which the model has
+///    not had an opportunity to consume yet.
 fn is_compactable_and_live(
     block: &ContentBlock,
     tool_names: &HashMap<String, String>,
     compactable_set: &HashSet<&str>,
+    protected_ids: &HashSet<&str>,
 ) -> bool {
     if let ContentBlock::ToolResult {
         tool_use_id, content, ..
     } = block
     {
-        if content == CLEARED_TOOL_RESULT {
+        if content == CLEARED_TOOL_RESULT || protected_ids.contains(tool_use_id.as_str()) {
             return false;
         }
         if let Some(name) = tool_names.get(tool_use_id) {
@@ -175,6 +181,26 @@ fn is_compactable_and_live(
         }
     }
     false
+}
+
+/// Return the tool ids emitted by the latest assistant message.
+///
+/// The engine appends an assistant tool batch before executing it, then appends
+/// the corresponding user tool results before the next provider request. Until
+/// that request occurs, the entire batch is unconsumed and must not be compacted.
+fn unconsumed_tool_result_ids(messages: &[Message]) -> HashSet<&str> {
+    let Some(message) = messages.iter().rev().find(|message| message.role == Role::Assistant) else {
+        return HashSet::new();
+    };
+
+    message
+        .content
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::ToolUse { id, .. } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

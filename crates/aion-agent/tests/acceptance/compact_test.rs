@@ -36,8 +36,9 @@ fn tool_result_block(id: &str, content: &str) -> ContentBlock {
 
 /// Construct a message history with more than `micro_keep_recent * 2`
 /// compactable tool results (each with a matching ToolUse block), run
-/// microcompact, and verify that old results are cleared while the most
-/// recent `micro_keep_recent` are preserved.
+/// microcompact, and verify that old, model-consumed results are cleared while
+/// the most recent `micro_keep_recent` consumed results and current tool round
+/// are preserved.
 #[test]
 fn microcompact_clears_old_tool_results() {
     let keep_recent: usize = 3;
@@ -69,8 +70,10 @@ fn microcompact_clears_old_tool_results() {
         "microcompact should clear at least one tool result, got cleared_count=0"
     );
 
-    // Exactly total_results - keep_recent should be cleared
-    let expected_cleared = total_results - keep_recent;
+    // The latest assistant tool batch has not been consumed by a model turn,
+    // so only the preceding results are eligible for clearing.
+    let consumed_results = total_results - 1;
+    let expected_cleared = consumed_results - keep_recent;
     assert_eq!(
         result.cleared_count, expected_cleared,
         "expected {expected_cleared} cleared, got {}",
@@ -91,7 +94,7 @@ fn microcompact_clears_old_tool_results() {
         }
     }
 
-    // Verify most recent `keep_recent` results are preserved
+    // Verify the most recent consumed results and current round are preserved.
     for i in expected_cleared..total_results {
         let user_msg_idx = i * 2 + 1;
         match &messages[user_msg_idx].content[0] {

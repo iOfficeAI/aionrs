@@ -451,16 +451,17 @@ async fn tc_2_6_02_micro_before_auto_execution_order() {
                 v
             };
 
-            // Turns 0-6: tool use.  Turn 6 reports high input_tokens
+            // Turns 0-7: tool use. Turn 7 reports high input_tokens
             // so that micro and auto both trigger in the SAME cycle
-            // (turn 7's run_compaction).
-            // Turn 7 (after compact): text to end the run.
+            // (turn 8's run_compaction).
+            // Turn 8 (after compact): text to end the run.
             //
             // micro_keep_recent = 3 → count threshold = 6.
-            // After 7 tool-use turns: 7 > 6 → micro fires.
-            // After turn 6: context_tokens = 170k > 167k → auto fires.
-            let events = if count < 7 {
-                let input_tokens = if count == 6 { 170_000 } else { 10_000 };
+            // The newest of 8 tool rounds is protected, leaving 7 consumed
+            // results. Therefore 7 > 6 and micro fires.
+            // After turn 7: context_tokens = 170k > 167k → auto fires.
+            let events = if count < 8 {
+                let input_tokens = if count == 7 { 170_000 } else { 10_000 };
                 vec![
                     LlmEvent::ToolUse {
                         id: format!("t{count}"),

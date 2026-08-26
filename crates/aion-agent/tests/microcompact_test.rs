@@ -61,8 +61,9 @@ fn get_tool_result_content(msg: &Message, block_idx: usize) -> &str {
 
 #[test]
 fn tc_2_3_01_basic_clearing() {
-    // 10 messages containing 8 tool results (Read x3, ExecCommand x3, Grep x2).
-    // keep_recent = 3 → oldest 5 cleared.
+    // Eight tool results (Read x3, ExecCommand x3, Grep x2), where the last
+    // tool round is protected. Of the seven consumed results, keep_recent = 3
+    // leaves the oldest four eligible for clearing.
     let tool_specs = [
         ("r1", "Read"),
         ("b1", "ExecCommand"),
@@ -85,10 +86,10 @@ fn tc_2_3_01_basic_clearing() {
     };
 
     let result = microcompact(&mut msgs, &config);
-    assert_eq!(result.cleared_count, 5);
+    assert_eq!(result.cleared_count, 4);
 
-    // First 5 user messages (indices 1, 3, 5, 7, 9) are cleared.
-    for i in 0..5 {
+    // First four user messages (indices 1, 3, 5, 7) are cleared.
+    for i in 0..4 {
         let user_msg_idx = i * 2 + 1;
         assert_eq!(
             get_tool_result_content(&msgs[user_msg_idx], 0),
@@ -96,8 +97,8 @@ fn tc_2_3_01_basic_clearing() {
             "tool result at msg index {user_msg_idx} should be cleared"
         );
     }
-    // Last 3 user messages (indices 11, 13, 15) retain original content.
-    for (idx, &(id, _name)) in tool_specs.iter().enumerate().skip(5) {
+    // Remaining consumed results and current round retain original content.
+    for (idx, &(id, _name)) in tool_specs.iter().enumerate().skip(4) {
         let user_msg_idx = idx * 2 + 1;
         assert_eq!(
             get_tool_result_content(&msgs[user_msg_idx], 0),
@@ -156,8 +157,9 @@ fn tc_2_3_03_only_compactable_tools_cleared() {
     };
 
     let result = microcompact(&mut msgs, &config);
-    // 3 compactable (t1-Read, t2-ExecCommand, t4-Read), keep 1 → clear 2.
-    assert_eq!(result.cleared_count, 2);
+    // The latest compactable result (t4) is protected. Of the two consumed
+    // compactable results, keep 1 leaves only t1 eligible for clearing.
+    assert_eq!(result.cleared_count, 1);
 
     // Skill result (t3) must be untouched.
     assert_eq!(get_tool_result_content(&msgs[5], 0), "skill-output");
@@ -236,7 +238,8 @@ fn tc_2_3_07_no_timestamp_skips_time_check() {
 
 #[test]
 fn tc_2_3_08_token_estimation() {
-    // 3 tool results with known content lengths, clear all but 1.
+    // The final tool result is protected. Of the two consumed results, clear
+    // the oldest and keep the other one.
     let content_a = "x".repeat(200); // 50 tokens
     let content_b = "y".repeat(400); // 100 tokens
     let content_c = "z".repeat(80); // 20 tokens — kept
@@ -254,10 +257,10 @@ fn tc_2_3_08_token_estimation() {
     };
 
     let result = microcompact(&mut msgs, &config);
-    assert_eq!(result.cleared_count, 2);
+    assert_eq!(result.cleared_count, 1);
     assert!(result.estimated_tokens_freed > 0);
-    // 200/4 + 400/4 = 50 + 100 = 150
-    assert_eq!(result.estimated_tokens_freed, 150);
+    // 200/4 = 50
+    assert_eq!(result.estimated_tokens_freed, 50);
 }
 
 // ── TC-2.3-09: Already cleared content not re-cleared ───────────────────────

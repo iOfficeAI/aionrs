@@ -1310,7 +1310,8 @@ mod tests_compact {
 
     #[tokio::test]
     async fn microcompact_clears_old_results() {
-        // 12 tool results with keep_recent=3 (threshold=6) → should clear 9
+        // The latest tool round is protected. Of the 11 consumed results,
+        // keep_recent=3 leaves 8 eligible for clearing.
         let mut messages = Vec::new();
         for i in 0..12 {
             let id = format!("t{i}");
@@ -1330,7 +1331,7 @@ mod tests_compact {
         engine.sync_compact_watermark();
         engine.run_compaction().await.unwrap();
 
-        // Last 3 tool results should be preserved
+        // The three most recent consumed results and the current round remain.
         let cleared_count = engine
             .messages
             .iter()
@@ -1338,7 +1339,7 @@ mod tests_compact {
             .filter(|b| matches!(b, ContentBlock::ToolResult { content, .. } if content == "[Tool result cleared]"))
             .count();
 
-        assert_eq!(cleared_count, 9);
+        assert_eq!(cleared_count, 8);
         assert_eq!(engine.context_state.microcompact_count, 1);
         assert_eq!(engine.context_state.context_usage, 1_000);
         assert_eq!(engine.compact_state.last_input_tokens, 1_000);
@@ -1348,7 +1349,9 @@ mod tests_compact {
     #[tokio::test]
     async fn microcompact_does_not_lower_the_emergency_watermark() {
         let mut messages = Vec::new();
-        for i in 0..3 {
+        // The latest round is protected, so use four rounds to leave three
+        // consumed results and still exceed the count trigger threshold.
+        for i in 0..4 {
             let id = format!("t{i}");
             messages.push(tool_use_msg(&id, "Read"));
             messages.push(tool_result_msg(&id, &"x".repeat(4_000)));

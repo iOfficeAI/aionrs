@@ -79,40 +79,45 @@ mod tests {
     fn live_compactable_result_returns_true() {
         let tool_names: HashMap<String, String> = [("t1".into(), "Read".into())].into_iter().collect();
         let set: HashSet<&str> = ["Read"].into_iter().collect();
+        let protected = HashSet::new();
         let block = tool_result_block("t1", "file content here");
-        assert!(is_compactable_and_live(&block, &tool_names, &set));
+        assert!(is_compactable_and_live(&block, &tool_names, &set, &protected));
     }
 
     #[test]
     fn already_cleared_result_returns_false() {
         let tool_names: HashMap<String, String> = [("t1".into(), "Read".into())].into_iter().collect();
         let set: HashSet<&str> = ["Read"].into_iter().collect();
+        let protected = HashSet::new();
         let block = tool_result_block("t1", CLEARED_TOOL_RESULT);
-        assert!(!is_compactable_and_live(&block, &tool_names, &set));
+        assert!(!is_compactable_and_live(&block, &tool_names, &set, &protected));
     }
 
     #[test]
     fn non_compactable_tool_returns_false() {
         let tool_names: HashMap<String, String> = [("t1".into(), "Skill".into())].into_iter().collect();
         let set: HashSet<&str> = ["Read", "ExecCommand"].into_iter().collect();
+        let protected = HashSet::new();
         let block = tool_result_block("t1", "result");
-        assert!(!is_compactable_and_live(&block, &tool_names, &set));
+        assert!(!is_compactable_and_live(&block, &tool_names, &set, &protected));
     }
 
     #[test]
     fn text_block_returns_false() {
         let tool_names = HashMap::new();
         let set: HashSet<&str> = ["Read"].into_iter().collect();
+        let protected = HashSet::new();
         let block = text_block("hello");
-        assert!(!is_compactable_and_live(&block, &tool_names, &set));
+        assert!(!is_compactable_and_live(&block, &tool_names, &set, &protected));
     }
 
     #[test]
     fn unknown_tool_use_id_returns_false() {
         let tool_names = HashMap::new(); // no ToolUse registered
         let set: HashSet<&str> = ["Read"].into_iter().collect();
+        let protected = HashSet::new();
         let block = tool_result_block("orphan", "data");
-        assert!(!is_compactable_and_live(&block, &tool_names, &set));
+        assert!(!is_compactable_and_live(&block, &tool_names, &set, &protected));
     }
 
     // ── time_trigger ────────────────────────────────────────────────────
@@ -166,9 +171,10 @@ mod tests {
 
     #[test]
     fn count_trigger_fires_above_threshold() {
-        // keep_recent=3, threshold=6.  Create 7 compactable results.
+        // keep_recent=3, threshold=6. The latest round is protected, so
+        // create 8 results to leave 7 consumed results eligible for compaction.
         let mut msgs = Vec::new();
-        for i in 0..7 {
+        for i in 0..8 {
             let id = format!("t{i}");
             msgs.push(assistant_msg(vec![tool_use_block(&id, "Read")]));
             msgs.push(user_msg(vec![tool_result_block(&id, "data")]));
@@ -196,11 +202,30 @@ mod tests {
         assert!(!count_trigger(&msgs, &config));
     }
 
+    #[test]
+    fn count_trigger_ignores_unconsumed_tool_round() {
+        let mut tool_uses = Vec::new();
+        let mut tool_results = Vec::new();
+        for i in 0..10 {
+            let id = format!("current-{i}");
+            tool_uses.push(tool_use_block(&id, "ExecCommand"));
+            tool_results.push(tool_result_block(&id, "current output"));
+        }
+        let msgs = vec![assistant_msg(tool_uses), user_msg(tool_results)];
+        let config = CompactConfig {
+            micro_keep_recent: 5,
+            ..default_config()
+        };
+
+        assert!(!count_trigger(&msgs, &config));
+    }
+
     // ── microcompact ────────────────────────────────────────────────────
 
     #[test]
     fn clears_oldest_keeps_recent() {
-        // 5 tool results, keep_recent=2  →  clear 3.
+        // Five tool results, with the latest round protected. Keep two of the
+        // four consumed results, so only the two oldest are cleared.
         let mut msgs = Vec::new();
         for i in 0..5 {
             let id = format!("t{i}");
@@ -213,19 +238,19 @@ mod tests {
         };
 
         let result = microcompact(&mut msgs, &config);
-        assert_eq!(result.cleared_count, 3);
+        assert_eq!(result.cleared_count, 2);
         assert!(result.estimated_tokens_freed > 0);
 
-        // First 3 user msgs (indices 1,3,5) should be cleared.
-        for idx in [1, 3, 5] {
+        // First two consumed results (indices 1,3) should be cleared.
+        for idx in [1, 3] {
             let content = match &msgs[idx].content[0] {
                 ContentBlock::ToolResult { content, .. } => content.as_str(),
                 _ => panic!("expected ToolResult"),
             };
             assert_eq!(content, CLEARED_TOOL_RESULT);
         }
-        // Last 2 user msgs (indices 7,9) should retain original content.
-        for (idx, expected) in [(7, "data-3"), (9, "data-4")] {
+        // The remaining consumed results and protected current result survive.
+        for (idx, expected) in [(5, "data-2"), (7, "data-3"), (9, "data-4")] {
             let content = match &msgs[idx].content[0] {
                 ContentBlock::ToolResult { content, .. } => content.as_str(),
                 _ => panic!("expected ToolResult"),
@@ -250,8 +275,44 @@ mod tests {
     }
 
     #[test]
+    fn preserves_every_result_in_the_unconsumed_tool_round() {
+        let mut msgs = Vec::new();
+        for i in 0..6 {
+            let id = format!("history-{i}");
+            msgs.push(assistant_msg(vec![tool_use_block(&id, "ExecCommand")]));
+            msgs.push(user_msg(vec![tool_result_block(&id, &format!("history output {i}"))]));
+        }
+
+        let mut current_calls = Vec::new();
+        let mut current_results = Vec::new();
+        for i in 0..10 {
+            let id = format!("current-{i}");
+            current_calls.push(tool_use_block(&id, "ExecCommand"));
+            current_results.push(tool_result_block(&id, &format!("current output {i}")));
+        }
+        msgs.push(assistant_msg(current_calls));
+        msgs.push(user_msg(current_results));
+
+        let config = CompactConfig {
+            micro_keep_recent: 5,
+            ..default_config()
+        };
+        let result = microcompact(&mut msgs, &config);
+
+        assert_eq!(result.cleared_count, 1);
+        for i in 0..10 {
+            let ContentBlock::ToolResult { content, .. } = &msgs.last().unwrap().content[i] else {
+                panic!("expected ToolResult");
+            };
+            assert_eq!(content, &format!("current output {i}"));
+        }
+    }
+
+    #[test]
     fn skips_non_compactable_tools() {
         let mut msgs = vec![
+            assistant_msg(vec![tool_use_block("t0", "Read")]),
+            user_msg(vec![tool_result_block("t0", "older-file-data")]),
             assistant_msg(vec![tool_use_block("t1", "Read")]),
             user_msg(vec![tool_result_block("t1", "file-data")]),
             assistant_msg(vec![tool_use_block("t2", "Skill")]),
@@ -267,11 +328,12 @@ mod tests {
         };
 
         let result = microcompact(&mut msgs, &config);
-        // Only Read(t1) should be cleared; ExecCommand(t3) kept as most recent.
+        // Only the oldest consumed Read(t0) should be cleared. The Skill result
+        // is non-compactable and ExecCommand(t3) is the protected current round.
         assert_eq!(result.cleared_count, 1);
 
         // Skill result untouched.
-        match &msgs[3].content[0] {
+        match &msgs[5].content[0] {
             ContentBlock::ToolResult { content, .. } => {
                 assert_eq!(content, "skill-output");
             }
@@ -282,18 +344,20 @@ mod tests {
     #[test]
     fn does_not_recleared_already_cleared() {
         let mut msgs = vec![
+            assistant_msg(vec![tool_use_block("t0", "Read")]),
+            user_msg(vec![tool_result_block("t0", CLEARED_TOOL_RESULT)]),
             assistant_msg(vec![tool_use_block("t1", "Read")]),
-            user_msg(vec![tool_result_block("t1", CLEARED_TOOL_RESULT)]),
+            user_msg(vec![tool_result_block("t1", "live-data")]),
             assistant_msg(vec![tool_use_block("t2", "Read")]),
-            user_msg(vec![tool_result_block("t2", "live-data")]),
+            user_msg(vec![tool_result_block("t2", "current-data")]),
         ];
         let config = CompactConfig {
             micro_keep_recent: 1,
             ..default_config()
         };
         let result = microcompact(&mut msgs, &config);
-        // t1 already cleared → not in compactable list.
-        // Only t2 is compactable, and it's the most recent → keep it.
+        // t0 already cleared → not in compactable list.
+        // t1 is consumed but remains within the keep budget; t2 is protected.
         assert_eq!(result.cleared_count, 0);
     }
 
@@ -334,10 +398,12 @@ mod tests {
     fn token_estimate_proportional_to_content() {
         let long_content = "x".repeat(400); // ~100 tokens
         let mut msgs = vec![
+            assistant_msg(vec![tool_use_block("t0", "Read")]),
+            user_msg(vec![tool_result_block("t0", &long_content)]),
             assistant_msg(vec![tool_use_block("t1", "Read")]),
-            user_msg(vec![tool_result_block("t1", &long_content)]),
+            user_msg(vec![tool_result_block("t1", "keep")]),
             assistant_msg(vec![tool_use_block("t2", "Read")]),
-            user_msg(vec![tool_result_block("t2", "keep")]),
+            user_msg(vec![tool_result_block("t2", "current")]),
         ];
         let config = CompactConfig {
             micro_keep_recent: 1,
@@ -366,6 +432,8 @@ mod tests {
     fn keep_recent_floored_at_one() {
         // Even with keep_recent=0, we never clear everything.
         let mut msgs = vec![
+            assistant_msg(vec![tool_use_block("t0", "Read")]),
+            user_msg(vec![tool_result_block("t0", "data-0")]),
             assistant_msg(vec![tool_use_block("t1", "Read")]),
             user_msg(vec![tool_result_block("t1", "data-1")]),
             assistant_msg(vec![tool_use_block("t2", "Read")]),
@@ -376,10 +444,10 @@ mod tests {
             ..default_config()
         };
         let result = microcompact(&mut msgs, &config);
-        // 2 compactable, keep at least 1 → clear 1.
+        // Two consumed results, keep at least 1 → clear 1.
         assert_eq!(result.cleared_count, 1);
-        // The most recent (t2) must survive.
-        match &msgs[3].content[0] {
+        // The protected current result (t2) must survive.
+        match &msgs[5].content[0] {
             ContentBlock::ToolResult { content, .. } => {
                 assert_eq!(content, "data-2");
             }
