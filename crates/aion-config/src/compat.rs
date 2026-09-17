@@ -1,6 +1,8 @@
 // Configuration-driven provider compatibility layer.
 // Each provider type has default presets; users can override any field via config.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -55,6 +57,23 @@ pub struct TransportCompat {
     /// Custom API path appended to base_url for chat completions.
     /// Default: "/chat/completions" for OpenAI-compatible providers.
     pub api_path: Option<String>,
+
+    /// Extra headers sent with every request to this provider.
+    ///
+    /// Some gateways ask callers to identify themselves on the wire — an app
+    /// name, a referer, a partner id — and refuse to attribute traffic without
+    /// it. Those headers are per-deployment, not per-provider-family, so they
+    /// belong in configuration rather than in a match arm here.
+    ///
+    /// Reserved headers cannot be replaced through this map: authorization,
+    /// content type and the provider's own protocol headers are written after
+    /// it and win. That is deliberate — a config typo should not be able to
+    /// unauthenticate a request or change the wire format.
+    ///
+    /// `BTreeMap` so the order is stable and two equal configs serialize
+    /// identically.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra_headers: BTreeMap<String, String>,
 
     /// Maximum serialized provider request body size in bytes.
     /// Default: None (no local preflight limit).
@@ -177,6 +196,14 @@ impl TransportCompat {
             api_path: user.api_path.or(defaults.api_path),
             max_request_body_bytes: user.max_request_body_bytes.or(defaults.max_request_body_bytes),
             include_stream_options: user.include_stream_options.or(defaults.include_stream_options),
+            extra_headers: {
+                // Per-key override rather than whole-map replacement: setting
+                // one header in user config should not drop the preset's
+                // others, which is what `.or()` semantics would do here.
+                let mut merged = defaults.extra_headers;
+                merged.extend(user.extra_headers);
+                merged
+            },
         }
     }
 }
@@ -371,6 +398,12 @@ impl ProviderCompat {
     /// The historical `/chat/completions` preset remains the default for Chat
     /// Completions. When Responses is selected, that inherited preset is
     /// replaced with `/responses`; non-default custom paths remain honored.
+    /// Headers this provider adds to every request. See
+    /// [`TransportCompat::extra_headers`]; reserved headers still win.
+    pub fn extra_headers(&self) -> &BTreeMap<String, String> {
+        &self.transport.extra_headers
+    }
+
     pub fn openai_api_path(&self) -> &str {
         match self.openai_api_mode() {
             OpenAiApiMode::ChatCompletions => self.api_path(),

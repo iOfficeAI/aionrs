@@ -71,6 +71,85 @@ mod tests {
         assert_eq!(transport.decoder(&compat), StreamDecoder::OpenAiResponsesSse);
     }
 
+    fn compat_with_headers(pairs: &[(&str, &str)]) -> ProviderCompat {
+        let mut compat = ProviderCompat::openai_defaults();
+        compat.transport.extra_headers = pairs
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect();
+        compat
+    }
+
+    #[test]
+    fn openai_transport_sends_configured_extra_headers() {
+        let transport = OpenAiTransport::new("test-key", "https://api.example.test/v1");
+        let compat = compat_with_headers(&[
+            ("X-Partner-Id", "part_abc123"),
+            ("HTTP-Referer", "https://example.test"),
+        ]);
+
+        let request = transport
+            .build_projected_request(json!({ "model": "m" }), &compat, ResolvedToolWireShape::OpenAiFunction)
+            .expect("request projection should succeed");
+
+        assert_eq!(request.headers.get("x-partner-id").unwrap(), "part_abc123");
+        assert_eq!(request.headers.get("http-referer").unwrap(), "https://example.test");
+        // The transport still authenticates.
+        assert_eq!(request.headers.get(AUTHORIZATION).unwrap(), "Bearer test-key");
+    }
+
+    #[test]
+    fn openai_transport_extra_headers_cannot_replace_authorization_or_content_type() {
+        let transport = OpenAiTransport::new("real-key", "https://api.example.test/v1");
+        let compat = compat_with_headers(&[("authorization", "Bearer stolen"), ("content-type", "text/plain")]);
+
+        let request = transport
+            .build_projected_request(json!({ "model": "m" }), &compat, ResolvedToolWireShape::OpenAiFunction)
+            .expect("request projection should succeed");
+
+        // Reserved headers are written after the map, so configuration cannot
+        // unauthenticate a request or change the wire format.
+        assert_eq!(request.headers.get(AUTHORIZATION).unwrap(), "Bearer real-key");
+        assert_eq!(request.headers.get(CONTENT_TYPE).unwrap(), "application/json");
+    }
+
+    #[test]
+    fn anthropic_transport_sends_extra_headers_but_keeps_its_protocol_headers() {
+        let transport = AnthropicTransport::new("test-key", "https://api.example.test", false);
+        let compat = compat_with_headers(&[
+            ("X-Partner-Id", "part_abc123"),
+            ("x-api-key", "stolen"),
+            ("anthropic-version", "1999-01-01"),
+        ]);
+
+        let request = transport
+            .build_projected_request(
+                json!({ "model": "m" }),
+                &compat,
+                ResolvedToolWireShape::AnthropicInputSchema,
+            )
+            .expect("request projection should succeed");
+
+        assert_eq!(request.headers.get("x-partner-id").unwrap(), "part_abc123");
+        assert_eq!(request.headers.get("x-api-key").unwrap(), "test-key");
+        assert_eq!(request.headers.get("anthropic-version").unwrap(), "2023-06-01");
+    }
+
+    #[test]
+    fn extra_header_with_an_invalid_name_is_reported_rather_than_dropped() {
+        let transport = OpenAiTransport::new("test-key", "https://api.example.test/v1");
+        let compat = compat_with_headers(&[("bad header", "value")]);
+
+        let error = transport
+            .build_projected_request(json!({ "model": "m" }), &compat, ResolvedToolWireShape::OpenAiFunction)
+            .expect_err("an unusable header name should not be silently skipped");
+
+        assert!(
+            format!("{error}").contains("bad header"),
+            "error should name the header: {error}"
+        );
+    }
+
     #[test]
     fn openai_transport_appends_chat_completions_to_configured_base_url() {
         let transport = OpenAiTransport::new("test-key", "https://open.bigmodel.cn/api/paas/v4/");

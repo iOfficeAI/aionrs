@@ -76,6 +76,45 @@ max_tokens = 64000
     }
 
     #[test]
+    fn extra_headers_round_trip_through_toml_and_stay_absent_when_empty() {
+        let empty = ProviderCompat::default();
+        let rendered = toml::to_string(&empty).expect("serialize");
+        assert!(
+            !rendered.contains("extra_headers"),
+            "an empty map must not appear on disk, or every existing config file changes: {rendered}"
+        );
+
+        let parsed: ProviderCompat = toml::from_str(
+            r#"
+            [extra_headers]
+            "X-Partner-Id" = "part_abc123"
+            "HTTP-Referer" = "https://example.test"
+            "#,
+        )
+        .expect("parse");
+        assert_eq!(
+            parsed.extra_headers().get("X-Partner-Id").map(String::as_str),
+            Some("part_abc123")
+        );
+        assert_eq!(parsed.extra_headers().len(), 2);
+    }
+
+    #[test]
+    fn user_extra_headers_override_per_key_rather_than_replacing_the_preset_map() {
+        let mut defaults = TransportCompat::default();
+        defaults.extra_headers.insert("X-Kept".into(), "preset".into());
+        defaults.extra_headers.insert("X-Replaced".into(), "preset".into());
+
+        let mut user = TransportCompat::default();
+        user.extra_headers.insert("X-Replaced".into(), "user".into());
+
+        let merged = TransportCompat::merge(defaults, user);
+
+        assert_eq!(merged.extra_headers.get("X-Kept").map(String::as_str), Some("preset"));
+        assert_eq!(merged.extra_headers.get("X-Replaced").map(String::as_str), Some("user"));
+    }
+
+    #[test]
     fn test_flattened_compat_serializes_to_legacy_toml_keys() {
         let compat = ProviderCompat {
             transport: TransportCompat {
@@ -90,6 +129,9 @@ max_tokens = 64000
                 api_path: Some("/chat/completions".to_string()),
                 max_request_body_bytes: Some(1_048_576),
                 include_stream_options: Some(false),
+                // Empty and `skip_serializing_if`, so the legacy key set this
+                // test pins is unchanged by the field existing.
+                extra_headers: Default::default(),
             },
             messages: MessageCompat {
                 merge_assistant_messages: Some(true),

@@ -2,7 +2,7 @@ use aion_config::compat::{OpenAiApiMode, ProviderCompat};
 use aion_types::llm::LlmRequest;
 use futures::StreamExt;
 use reqwest::ResponseBuilderExt;
-use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use serde_json::Value;
 
 use crate::bedrock::BedrockTransportState;
@@ -69,6 +69,22 @@ pub(crate) struct ProjectedHttpRequest {
     pub tool_wire_shape: ResolvedToolWireShape,
 }
 
+/// Apply [`ProviderCompat::extra_headers`] to a request under construction.
+///
+/// Bedrock and Vertex are deliberately not covered: Bedrock signs its headers
+/// with SigV4, so an extra header added outside the signing step invalidates
+/// the signature rather than being attributed.
+fn insert_extra_headers(headers: &mut HeaderMap, compat: &ProviderCompat) -> Result<(), ProviderError> {
+    for (name, value) in compat.extra_headers() {
+        let header_name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|error| ProviderError::Connection(format!("Invalid extra header name '{name}': {error}")))?;
+        let header_value = HeaderValue::from_str(value)
+            .map_err(|error| ProviderError::Connection(format!("Invalid extra header value for '{name}': {error}")))?;
+        headers.insert(header_name, header_value);
+    }
+    Ok(())
+}
+
 impl OpenAiTransport {
     pub(crate) fn new(api_key: &str, base_url: &str) -> Self {
         Self {
@@ -85,6 +101,9 @@ impl OpenAiTransport {
         tool_wire_shape: ResolvedToolWireShape,
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         let mut headers = HeaderMap::new();
+        // Written first so the reserved headers below overwrite anything the
+        // configuration tries to set for them.
+        insert_extra_headers(&mut headers, compat)?;
         let bearer = format!("Bearer {}", self.api_key);
         let auth = HeaderValue::from_str(&bearer)
             .map_err(|error| ProviderError::Connection(format!("Invalid authorization header: {error}")))?;
@@ -118,9 +137,12 @@ impl AnthropicTransport {
     pub(crate) fn build_projected_request(
         &self,
         body: Value,
+        compat: &ProviderCompat,
         tool_wire_shape: ResolvedToolWireShape,
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         let mut headers = HeaderMap::new();
+        // See the OpenAI transport: extras first, protocol headers after.
+        insert_extra_headers(&mut headers, compat)?;
         let api_key = HeaderValue::from_str(&self.api_key)
             .map_err(|error| ProviderError::Connection(format!("Invalid x-api-key header: {error}")))?;
         headers.insert("x-api-key", api_key);
@@ -232,7 +254,7 @@ impl ProviderTransport {
     ) -> Result<ProjectedHttpRequest, ProviderError> {
         match self {
             Self::OpenAi(transport) => transport.build_projected_request(body, compat, tool_wire_shape),
-            Self::Anthropic(transport) => transport.build_projected_request(body, tool_wire_shape),
+            Self::Anthropic(transport) => transport.build_projected_request(body, compat, tool_wire_shape),
             Self::Vertex(transport) => transport
                 .inner
                 .build_projected_request(model, body, compat, tool_wire_shape),
