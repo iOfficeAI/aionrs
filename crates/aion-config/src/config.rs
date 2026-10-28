@@ -472,6 +472,10 @@ impl Config {
             compact_context_window_source = CompactContextWindowSource::ModelCatalog;
         }
 
+        // Keep the fixed 200k-oriented reserves from saturating the autocompact
+        // threshold on small model windows (e.g. 8k/32k). No-op at 200k.
+        compact.clamp_reserves();
+
         Ok(Config {
             provider_label,
             provider,

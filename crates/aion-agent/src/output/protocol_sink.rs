@@ -136,4 +136,34 @@ impl OutputSink for ProtocolSink {
             message: msg.to_string(),
         });
     }
+
+    fn emit_context_usage(&self, used: u64, size: Option<u64>, source: &str) {
+        let _ = self.writer.emit(&ProtocolEvent::ContextUsage {
+            used,
+            size,
+            source: source.to_string(),
+        });
+    }
+
+    fn emit_compact_started(&self, trigger: &str, pre_compact_tokens: Option<u64>) {
+        let _ = self.writer.emit(&ProtocolEvent::CompactStarted {
+            trigger: trigger.to_string(),
+            pre_compact_tokens,
+        });
+    }
+
+    fn emit_compact_finished(
+        &self,
+        trigger: &str,
+        pre_compact_tokens: u64,
+        post_compact_tokens: u64,
+        messages_summarized: usize,
+    ) {
+        let _ = self.writer.emit(&ProtocolEvent::CompactFinished {
+            trigger: trigger.to_string(),
+            pre_compact_tokens,
+            post_compact_tokens,
+            messages_summarized,
+        });
+    }
 }

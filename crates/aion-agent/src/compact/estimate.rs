@@ -1,6 +1,41 @@
-use aion_types::message::{ContentBlock, ImageUrl};
+use aion_types::message::{ContentBlock, ImageUrl, Message};
 
 const CHARS_PER_TOKEN_TEXT: usize = 4;
+
+/// Rough token estimate for a whole conversation.
+///
+/// Autocompact re-sends the conversation as the summary prompt, so it needs to
+/// know how much of the history fits into the window *before* the request goes
+/// out — waiting for a provider rejection is not a reliable signal (an
+/// OpenAI-compatible server answers a plain 400 for an oversized prompt).
+pub(crate) fn estimate_messages_tokens(messages: &[Message]) -> u64 {
+    messages
+        .iter()
+        .flat_map(|message| message.content.iter())
+        .map(estimate_block_tokens)
+        .sum()
+}
+
+fn estimate_block_tokens(block: &ContentBlock) -> u64 {
+    match block {
+        ContentBlock::Text { text } => estimate_text_tokens(text),
+        ContentBlock::Thinking { thinking, .. } => estimate_text_tokens(thinking),
+        ContentBlock::ToolResult { content, .. } => estimate_text_tokens(content),
+        ContentBlock::ToolUse { input, .. } => estimate_json_tokens(input),
+        ContentBlock::Image { image_url } => estimate_image_tokens(image_url),
+        ContentBlock::ProviderItem { item, .. } => estimate_json_tokens(item),
+    }
+}
+
+fn estimate_text_tokens(text: &str) -> u64 {
+    (text.len() / CHARS_PER_TOKEN_TEXT) as u64
+}
+
+fn estimate_json_tokens(value: &serde_json::Value) -> u64 {
+    serde_json::to_string(value)
+        .map(|json| estimate_text_tokens(&json))
+        .unwrap_or(0)
+}
 
 /// Estimate one final tool result that will be added after the provider's
 /// exact usage measurement.

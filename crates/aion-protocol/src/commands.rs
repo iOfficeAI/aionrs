@@ -28,6 +28,8 @@ pub enum ProtocolCommand {
     InitHistory {
         text: String,
     },
+    /// Force a manual context compaction of the current conversation.
+    Compact,
     SetMode {
         mode: SessionMode,
     },

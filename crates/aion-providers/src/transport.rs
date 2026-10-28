@@ -6,7 +6,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderValue};
 use serde_json::Value;
 
 use crate::bedrock::BedrockTransportState;
-use crate::error::{ProviderError, provider_error_from_json_body};
+use crate::error::{ProviderError, prompt_too_long, provider_error_from_json_body};
 use crate::openai_responses_projector::OpenAiResponsesProjector;
 use crate::projector::{
     AnthropicWireProjector, OpenAiProjector, ResolvedToolWireShape, WireParams, WireProvider,
@@ -397,6 +397,10 @@ fn map_common_status(status: u16, body_text: String, tool_wire_shape: ResolvedTo
 
     if let Some(message) = classify_tools_wire_shape_mismatch(status, &body_text, tool_wire_shape) {
         return ProviderError::Api { status, message };
+    }
+
+    if let Some(error) = prompt_too_long(status, &body_text) {
+        return error;
     }
 
     ProviderError::Api {

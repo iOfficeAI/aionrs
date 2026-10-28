@@ -25,6 +25,13 @@ pub struct CompactConfig {
     #[serde(default = "default_emergency_buffer")]
     pub emergency_buffer: usize,
 
+    /// Tokens of the most recent conversation kept verbatim after a full
+    /// compaction. The summary covers everything older than this tail.
+    ///
+    /// `0` restores the legacy behaviour of keeping only the summary.
+    #[serde(default = "default_keep_recent_tokens")]
+    pub keep_recent_tokens: usize,
+
     /// Max consecutive autocompact failures before the circuit breaker trips.
     #[serde(default = "default_max_failures")]
     pub max_failures: u32,
@@ -88,6 +95,7 @@ impl Default for CompactConfig {
             output_reserve: default_output_reserve(),
             autocompact_buffer: default_autocompact_buffer(),
             emergency_buffer: default_emergency_buffer(),
+            keep_recent_tokens: default_keep_recent_tokens(),
             max_failures: default_max_failures(),
             tool_output_max_bytes: default_tool_output_max_bytes(),
             microcompact_enabled: false,
@@ -100,6 +108,22 @@ impl Default for CompactConfig {
             compaction: aion_compact::CompactLevel::default(),
             toon: false,
         }
+    }
+}
+
+impl CompactConfig {
+    /// Shrink reserves that would not fit the active context window.
+    ///
+    /// The defaults target a 200k window. When a smaller model window applies
+    /// (e.g. a 32k local model), the fixed reserves can exceed the window and
+    /// saturate the autocompact threshold to zero. Clamp each reserve to a
+    /// fraction of the window so a positive threshold remains. This is a no-op
+    /// for the default 200k configuration.
+    pub fn clamp_reserves(&mut self) {
+        let window = self.context_window;
+        self.output_reserve = self.output_reserve.min(window / 4);
+        self.autocompact_buffer = self.autocompact_buffer.min(window / 10);
+        self.emergency_buffer = self.emergency_buffer.min(window / 40);
     }
 }
 
@@ -116,6 +140,9 @@ fn default_autocompact_buffer() -> usize {
 }
 fn default_emergency_buffer() -> usize {
     3_000
+}
+fn default_keep_recent_tokens() -> usize {
+    20_000
 }
 fn default_max_failures() -> u32 {
     3

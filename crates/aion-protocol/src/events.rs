@@ -54,6 +54,32 @@ pub enum ProtocolEvent {
         #[serde(skip_serializing_if = "Option::is_none")]
         usage: Option<Usage>,
     },
+    /// Best-known context occupancy for the next request.
+    ContextUsage {
+        /// Tokens currently occupied by the next request.
+        used: u64,
+        /// Effective context window in tokens, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        size: Option<u64>,
+        /// Origin of `used`: `provider_exact` or `local_projected`.
+        source: String,
+    },
+    /// A context compaction pass started.
+    CompactStarted {
+        /// `auto` or `manual`.
+        trigger: String,
+        /// Best-known context tokens before compaction.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pre_compact_tokens: Option<u64>,
+    },
+    /// A context compaction pass completed successfully.
+    CompactFinished {
+        /// `auto` or `manual`.
+        trigger: String,
+        pre_compact_tokens: u64,
+        post_compact_tokens: u64,
+        messages_summarized: usize,
+    },
     Error {
         #[serde(skip_serializing_if = "Option::is_none")]
         msg_id: Option<String>,

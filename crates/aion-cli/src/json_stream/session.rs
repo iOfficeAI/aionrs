@@ -103,7 +103,7 @@ pub(crate) async fn run(
             continue;
         }
 
-        match dispatch::handle(cmd, &mut engine, &ctx) {
+        match dispatch::handle(cmd, &mut engine, &ctx).await {
             DispatchOutcome::Stop => break,
             DispatchOutcome::Continue => {}
         }

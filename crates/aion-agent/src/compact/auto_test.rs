@@ -232,4 +232,52 @@ mod tests {
         );
         assert!(extract_compact_metadata(&msg).is_none());
     }
+
+    // ── fit_to_window ───────────────────────────────────────────────────────
+
+    /// `chars` long text message (4 chars ≈ 1 token).
+    fn big_message(role: Role, chars: usize) -> Message {
+        Message::new(
+            role,
+            vec![ContentBlock::Text {
+                text: "x".repeat(chars),
+            }],
+        )
+    }
+
+    #[test]
+    fn history_that_already_fits_is_left_untouched() {
+        let messages = vec![big_message(Role::User, 4_000), big_message(Role::Assistant, 4_000)];
+
+        let (fitted, trimmed) = fit_to_window(messages.clone(), 200_000);
+
+        assert!(!trimmed);
+        assert_eq!(fitted.len(), messages.len());
+    }
+
+    #[test]
+    fn oversized_history_is_trimmed_below_window_minus_completion_budget() {
+        // 20 messages × ~25K tokens = ~500K, window 131K: the summary request
+        // would ask for 500K + 20K completion and be rejected by the provider.
+        let mut messages = Vec::new();
+        for index in 0..20 {
+            let role = if index % 2 == 0 { Role::User } else { Role::Assistant };
+            messages.push(big_message(role, 100_000));
+        }
+
+        let (fitted, trimmed) = fit_to_window(messages, 131_072);
+
+        assert!(trimmed, "an oversized history must be trimmed");
+        assert!(!fitted.is_empty(), "the newest messages must survive");
+        let estimate = crate::compact::estimate::estimate_messages_tokens(&fitted);
+        assert!(
+            estimate + COMPACT_MAX_OUTPUT_TOKENS as u64 + COMPACT_PROMPT_RESERVE <= 131_072,
+            "trimmed history still asks for {estimate} tokens"
+        );
+        // Trimming only from the front keeps the most recent turn intact.
+        assert!(matches!(
+            fitted.last().map(|message| message.role),
+            Some(Role::Assistant)
+        ));
+    }
 }

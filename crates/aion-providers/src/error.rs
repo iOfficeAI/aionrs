@@ -26,6 +26,105 @@ impl ProviderError {
     }
 }
 
+/// HTTP statuses providers use to reject an oversized request. OpenAI-compatible
+/// servers (sglang, vLLM, llama.cpp) answer 400; some gateways use 413 or 422.
+const PROMPT_TOO_LONG_STATUSES: [u16; 3] = [400, 413, 422];
+
+/// Case-insensitive substrings that identify a window-overflow rejection. Kept
+/// narrow on purpose: these messages must not swallow ordinary 400s such as
+/// "invalid request" or a malformed tool schema.
+const PROMPT_TOO_LONG_MARKERS: [&str; 9] = [
+    "maximum context length",
+    "context length exceeded",
+    "context window exceeds",
+    "exceeds the model's maximum context",
+    "prompt is too long",
+    "input is too long",
+    "reduce the number of tokens",
+    "requested token count exceeds",
+    "too many tokens",
+];
+
+/// Classify an HTTP error as a context-window overflow.
+///
+/// `PromptTooLong` is what lets the engine recover — autocompact trims the
+/// conversation and retries, and the main turn can compact instead of failing —
+/// so an OpenAI-compatible "your prompt does not fit" 400 must not stay a plain
+/// `Api { status: 400 }`: that variant is neither retryable nor recognizable,
+/// and autocompact surfaced it verbatim as `Autocompact failed`.
+pub(crate) fn prompt_too_long(status: u16, message: &str) -> Option<ProviderError> {
+    if !PROMPT_TOO_LONG_STATUSES.contains(&status) {
+        return None;
+    }
+    let lower = message.to_ascii_lowercase();
+    if PROMPT_TOO_LONG_MARKERS.iter().any(|marker| lower.contains(marker)) {
+        return Some(ProviderError::PromptTooLong(message.trim().to_owned()));
+    }
+    None
+}
+
+/// Extract the model's context window (in tokens) from a provider error message.
+///
+/// Providers phrase window overflow differently, for example:
+/// - `This model's maximum context length is 8192 tokens.`
+/// - `Requested token count exceeds the model's maximum context length of 131077 tokens.`
+/// - `prompt is too long: 213000 tokens > 200000 maximum`
+///
+/// Returns `None` when no plausible limit can be read. Values outside a sane
+/// range are ignored so an unrelated number in the message cannot corrupt the
+/// window.
+pub fn parse_context_limit_hint(message: &str) -> Option<usize> {
+    let lower = message.to_ascii_lowercase();
+
+    const MARKERS: [&str; 8] = [
+        "maximum context length is",
+        "maximum context length of",
+        "max context length is",
+        "context length is",
+        "context length of",
+        "context window is",
+        "context window of",
+        "tokens >",
+    ];
+
+    for marker in MARKERS {
+        if let Some(position) = lower.find(marker) {
+            let rest = &lower[position + marker.len()..];
+            if let Some(limit) = first_plausible_number(rest) {
+                return Some(limit);
+            }
+        }
+    }
+    None
+}
+
+/// Return the first integer in `text` that could plausibly be a context window.
+fn first_plausible_number(text: &str) -> Option<usize> {
+    const MIN_PLAUSIBLE: usize = 256;
+    const MAX_PLAUSIBLE: usize = 10_000_000;
+
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_digit() {
+            index += 1;
+            continue;
+        }
+
+        let start = index;
+        while index < bytes.len() && (bytes[index].is_ascii_digit() || matches!(bytes[index], b'_' | b',')) {
+            index += 1;
+        }
+        let digits: String = text[start..index].chars().filter(char::is_ascii_digit).collect();
+        if let Ok(value) = digits.parse::<usize>()
+            && (MIN_PLAUSIBLE..=MAX_PLAUSIBLE).contains(&value)
+        {
+            return Some(value);
+        }
+    }
+    None
+}
+
 /// Map a provider JSON error payload to a `ProviderError`.
 ///
 /// Covers error bodies delivered with a successful HTTP status: whole-body
@@ -61,7 +160,7 @@ pub(crate) fn provider_error_from_json_body(body: &Value, body_bytes: &[u8]) -> 
             retry_after_ms: 5000,
             body: (!body_bytes.is_empty()).then(|| String::from_utf8_lossy(body_bytes).into_owned()),
         }),
-        Some(status) => Some(ProviderError::Api { status, message }),
+        Some(status) => prompt_too_long(status, &message).or(Some(ProviderError::Api { status, message })),
         None if error_field.is_some() => Some(ProviderError::Parse(format!(
             "Provider returned a JSON error response without an HTTP status: {message}"
         ))),

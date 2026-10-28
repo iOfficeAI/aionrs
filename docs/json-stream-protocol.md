@@ -306,6 +306,60 @@ Response to a `ping` command from the client. Used for heartbeat/liveness detect
 
 No additional fields. The agent emits `pong` immediately upon receiving a `ping` command, regardless of whether a message turn is active.
 
+### 1.15 `context_usage`
+
+Best-known context occupancy for the next provider request.
+
+```json
+{
+  "type": "context_usage",
+  "used": 48213,
+  "size": 200000,
+  "source": "provider_exact"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `used` | number | Tokens occupied by the next request |
+| `size` | number? | Effective context window, omitted when unknown |
+| `source` | string | `provider_exact` (from provider usage) or `local_projected` (local estimate) |
+
+Emitted after each model turn and whenever compaction changes the history. Clients can use it to render a context-usage indicator.
+
+### 1.16 `compact_started`
+
+A context compaction pass started. `trigger` is `auto` (threshold or reactive recovery) or `manual` (host `compact` command).
+
+```json
+{
+  "type": "compact_started",
+  "trigger": "auto",
+  "pre_compact_tokens": 178000
+}
+```
+
+### 1.17 `compact_finished`
+
+A context compaction pass completed successfully.
+
+```json
+{
+  "type": "compact_finished",
+  "trigger": "auto",
+  "pre_compact_tokens": 178000,
+  "post_compact_tokens": 26000,
+  "messages_summarized": 42
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `trigger` | string | `auto` or `manual` |
+| `pre_compact_tokens` | number | Context tokens before compaction |
+| `post_compact_tokens` | number | Context tokens after compaction |
+| `messages_summarized` | number | Messages covered by the summary (the verbatim tail is excluded) |
+
 ## 2. Client → Agent Commands (stdin)
 
 Every line is a JSON object with a `type` field.
@@ -503,6 +557,18 @@ After the first `message`, any further `add_mcp_server` commands are rejected:
   }
 }
 ```
+
+### 2.10 `compact`
+
+Force a manual context compaction of the current conversation.
+
+```json
+{
+  "type": "compact"
+}
+```
+
+The agent reports progress through `compact_started` and, on success, `compact_finished`. No direct response is required. If the conversation is already compact, the agent emits an `info` event instead.
 
 ## 3. Lifecycle
 

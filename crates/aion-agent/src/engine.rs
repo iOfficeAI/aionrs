@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::cache_diagnostics::{CacheBreakDetector, CacheDiagnostic, CacheStats};
 use crate::commands::{CommandContext, CommandRegistry, CommandResult, CommandSpec, SlashCommand, default_registry};
-use crate::compact::auto::{CompactError, autocompact, should_autocompact};
+use crate::compact::auto::{BOUNDARY_PREFIX, CompactError, CompactResult, autocompact, should_autocompact};
 use crate::compact::emergency::is_at_emergency_limit;
 use crate::compact::estimate::{estimate_tokens_from_tool_image, estimate_tokens_from_tool_result};
 use crate::compact::micro::{microcompact, should_microcompact};
@@ -39,8 +39,11 @@ use aion_config::hooks::HookEngine;
 use aion_protocol::ToolApprovalManager;
 use aion_protocol::events::ToolCategory;
 use aion_protocol::writer::ProtocolEmitter;
+use aion_providers::ProviderError;
+use aion_providers::error::parse_context_limit_hint;
 use aion_providers::provider::{LlmProvider, create_provider};
 use aion_tools::registry::ToolRegistry;
+use aion_types::compact::{CompactMetadata, CompactTrigger};
 use aion_types::llm::{LlmEvent, LlmRequest, ThinkingConfig};
 use aion_types::message::{ContentBlock, ImageInputCapability, Message, Role, StopReason, TokenUsage};
 use aion_types::skill_types::{ContextModifier, PlanModeTransition, effort_to_string};
@@ -65,6 +68,9 @@ pub struct AgentResult {
 /// (or the whole answer) inside reasoning content; a normal turn with tools
 /// still available lets them recover, unlike the tool-less finalization path.
 const EMPTY_FINAL_RETRY_PROMPT: &str = "The previous response contained no visible answer text. Respond again now: provide the answer as visible text, or issue the intended tool call as a proper tool call. Do not leave the answer or tool calls inside reasoning.";
+
+/// Maximum number of times a turn is re-sent after a reactive compaction.
+const MAX_REACTIVE_COMPACT_RETRIES: u32 = 2;
 
 pub struct AgentEngine {
     // Provider request configuration.
@@ -897,8 +903,32 @@ impl AgentEngine {
             // On the first model turn context_tokens is 0 so neither
             // autocompact nor emergency will fire.
             self.run_compaction().await?;
-            let request = self.build_request(kind);
-            let mut rx = self.provider.stream(&request).await?;
+
+            // Send the request. If the provider rejects it as too long — which
+            // the proactive threshold check can miss when the window is
+            // misconfigured or the tokenizer underestimates — compact
+            // reactively and re-send instead of failing the turn.
+            let mut reactive_attempts = 0u32;
+            let mut rx = loop {
+                let request = self.build_request(kind);
+                let provider = Arc::clone(&self.provider);
+                match provider.stream(&request).await {
+                    Ok(rx) => break rx,
+                    Err(ProviderError::PromptTooLong(message)) if reactive_attempts < MAX_REACTIVE_COMPACT_RETRIES => {
+                        reactive_attempts += 1;
+                        warn!(
+                            target: "aion_agent",
+                            attempt = reactive_attempts,
+                            "provider rejected request as too long; compacting reactively"
+                        );
+                        self.apply_context_limit_hint(&message);
+                        if !self.force_compact().await {
+                            return Err(AgentError::Provider(ProviderError::PromptTooLong(message)));
+                        }
+                    }
+                    Err(error) => return Err(AgentError::Provider(error)),
+                }
+            };
             let outcome = self.consume_stream(&mut rx).await?;
             let has_provider_usage = self.record_turn_usage(&outcome.usage);
             if !has_provider_usage {
@@ -1083,6 +1113,7 @@ impl AgentEngine {
                 }
             }
         }
+        self.emit_context_usage();
         true
     }
 
@@ -1179,34 +1210,13 @@ impl AgentEngine {
             let _ = threshold;
         }
         if should_compact && !self.compact_state.is_circuit_broken(&self.compact_config) {
-            let provider = Arc::clone(&self.provider);
-            let mut compact_messages = self.messages.clone();
-            project_image_input(&mut compact_messages, self.compat.image_input(), &self.model);
-            match autocompact(
-                provider.as_ref(),
-                &compact_messages,
-                &self.model,
-                &self.compact_config,
-                &mut self.compact_state,
-            )
-            .await
-            {
-                Ok(result) => {
-                    self.output.emit_info(&format!(
-                        "Autocompact: summarized {} messages ({} tokens → compact)",
-                        result.messages_summarized, result.pre_compact_tokens
-                    ));
-                    self.messages = result.messages;
-                    self.context_state.record_compact();
-                    self.refresh_local_context_estimate();
-                    self.save_session();
-                    compacted = true;
-                }
+            match self.do_autocompact(CompactTrigger::Auto).await {
+                Ok(_) => compacted = true,
                 Err(CompactError::CircuitBroken { .. }) => {
                     // Already tripped; logged at circuit-breaker level
                 }
-                Err(e) => {
-                    self.output.emit_error(&format!("Autocompact failed: {}", e));
+                Err(_) => {
+                    // `do_autocompact` already surfaced the failure.
                 }
             }
         } else if should_compact {
@@ -1245,6 +1255,184 @@ impl AgentEngine {
         }
 
         Ok(())
+    }
+
+    /// Summarize the conversation and install the compacted history.
+    ///
+    /// Shared by the threshold-driven pipeline, reactive recovery, and the
+    /// manual `compact` command. Emits `compact_started`/`compact_finished`
+    /// events and refreshes context accounting.
+    async fn do_autocompact(&mut self, trigger: CompactTrigger) -> Result<CompactResult, CompactError> {
+        let provider = Arc::clone(&self.provider);
+        let mut compact_messages = self.messages.clone();
+        project_image_input(&mut compact_messages, self.compat.image_input(), &self.model);
+        let pre_compact_tokens = self.compact_state.last_input_tokens;
+        self.output
+            .emit_compact_started(trigger.as_str(), Some(pre_compact_tokens));
+
+        let mut result = match autocompact(
+            provider.as_ref(),
+            &compact_messages,
+            &self.model,
+            &self.compact_config,
+            &mut self.compact_state,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                if !matches!(&error, CompactError::CircuitBroken { .. }) {
+                    self.output.emit_error(&format!("Autocompact failed: {}", error));
+                }
+                return Err(error);
+            }
+        };
+
+        if trigger != CompactTrigger::Auto {
+            set_boundary_trigger(
+                &mut result.messages,
+                trigger,
+                pre_compact_tokens,
+                result.messages_summarized,
+            );
+        }
+
+        let post_compact_tokens = estimate_messages_tokens(&result.messages);
+        self.messages = result.messages.clone();
+        self.context_state.record_compact();
+        self.refresh_local_context_estimate();
+        self.output.emit_info(&format!(
+            "Autocompact: summarized {} messages ({} tokens → {} tokens)",
+            result.messages_summarized, pre_compact_tokens, post_compact_tokens
+        ));
+        self.output.emit_compact_finished(
+            trigger.as_str(),
+            pre_compact_tokens,
+            post_compact_tokens,
+            result.messages_summarized,
+        );
+        self.emit_context_usage();
+        self.save_session();
+        Ok(result)
+    }
+
+    /// Force compaction after a provider rejected the request as too long.
+    ///
+    /// Returns `true` when the conversation changed. Callers bound the number
+    /// of attempts.
+    async fn force_compact(&mut self) -> bool {
+        if !self.compact_config.enabled {
+            return false;
+        }
+
+        let mut changed = false;
+
+        // Clearing old tool results is cheap and needs no provider call.
+        let micro = microcompact(&mut self.messages, &self.compact_config);
+        if micro.cleared_count > 0 {
+            self.output.emit_info(&format!(
+                "Microcompact: cleared {} tool results (~{} tokens freed)",
+                micro.cleared_count, micro.estimated_tokens_freed
+            ));
+            self.context_state.record_microcompact();
+            self.sync_compact_watermark();
+            changed = true;
+        }
+
+        if !self.compact_state.is_circuit_broken(&self.compact_config)
+            && self.do_autocompact(CompactTrigger::Auto).await.is_ok()
+        {
+            changed = true;
+        }
+
+        changed
+    }
+
+    /// Force a manual compaction of the current conversation.
+    ///
+    /// Returns `true` when the history was replaced. Used by the host `compact`
+    /// protocol command.
+    pub async fn compact_now(&mut self) -> bool {
+        if self.messages.len() <= 2 {
+            self.output.emit_info("Context is already compact");
+            return false;
+        }
+
+        // Manual intent overrides the autocompact circuit breaker.
+        self.compact_state.consecutive_failures = 0;
+
+        match self.do_autocompact(CompactTrigger::Manual).await {
+            Ok(result) => {
+                self.output.emit_info(&format!(
+                    "Context compacted: {} messages summarized ({} tokens before)",
+                    result.messages_summarized, result.pre_compact_tokens
+                ));
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    /// Learn a smaller context window from a provider window-overflow message.
+    fn apply_context_limit_hint(&mut self, message: &str) {
+        let Some(limit) = parse_context_limit_hint(message) else {
+            return;
+        };
+        if limit >= self.compact_config.context_window {
+            return;
+        }
+
+        info!(
+            target: "aion_agent",
+            previous = self.compact_config.context_window,
+            learned = limit,
+            "context window learned from provider error"
+        );
+        self.compact_config.context_window = limit;
+        self.compact_config.clamp_reserves();
+        self.output.emit_info(&format!(
+            "Context window adjusted to {} tokens based on the provider limit",
+            limit
+        ));
+        self.emit_context_usage();
+    }
+
+    /// Emit the current context occupancy to the host.
+    fn emit_context_usage(&self) {
+        let status = self.context_status();
+        self.output.emit_context_usage(
+            status.context_usage,
+            Some(status.context_window),
+            status.source.as_str(),
+        );
+    }
+}
+
+/// Rewrite the boundary marker metadata after a manual compaction.
+fn set_boundary_trigger(
+    messages: &mut [Message],
+    trigger: CompactTrigger,
+    pre_compact_tokens: u64,
+    messages_summarized: usize,
+) {
+    let Some(boundary) = messages.first_mut() else {
+        return;
+    };
+    for block in &mut boundary.content {
+        if let ContentBlock::Text { text } = block
+            && text.starts_with(BOUNDARY_PREFIX)
+        {
+            let metadata = CompactMetadata {
+                trigger,
+                pre_compact_tokens,
+                messages_summarized,
+            };
+            *text = format!(
+                "{}\n{}",
+                BOUNDARY_PREFIX,
+                serde_json::to_string(&metadata).expect("metadata serialization cannot fail")
+            );
+        }
     }
 }
 

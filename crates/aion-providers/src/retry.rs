@@ -4,7 +4,7 @@ use std::time::Duration;
 use reqwest::header::HeaderMap;
 use serde_json::Value;
 
-use crate::error::ProviderError;
+use crate::error::{ProviderError, prompt_too_long};
 
 /// Retry a fallible async operation with exponential backoff
 pub async fn with_retry<F, Fut, T>(max_retries: u32, f: F) -> Result<T, ProviderError>
@@ -128,6 +128,9 @@ pub async fn send_and_check(
     let status = response.status();
     if !status.is_success() {
         let body_text = response.text().await.unwrap_or_default();
+        if let Some(error) = prompt_too_long(status.as_u16(), &body_text) {
+            return Err(error);
+        }
         return Err(ProviderError::Api {
             status: status.as_u16(),
             message: body_text,

@@ -20,6 +20,16 @@ pub enum ContextUsageSource {
     LocalProjected,
 }
 
+impl ContextUsageSource {
+    /// Stable, protocol-facing identifier for the usage source.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ContextUsageSource::ProviderExact => "provider_exact",
+            ContextUsageSource::LocalProjected => "local_projected",
+        }
+    }
+}
+
 /// Session-scoped context accounting persisted alongside conversation history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]

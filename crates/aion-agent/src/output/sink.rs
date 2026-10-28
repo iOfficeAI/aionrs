@@ -31,4 +31,23 @@ pub trait OutputSink: Send + Sync {
 
     /// Display informational message
     fn emit_info(&self, msg: &str);
+
+    /// Report the best-known context occupancy for the next provider request.
+    ///
+    /// `size` is the effective context window when known. Sinks that do not
+    /// surface context accounting can keep the default no-op.
+    fn emit_context_usage(&self, _used: u64, _size: Option<u64>, _source: &str) {}
+
+    /// Announce that a context compaction pass started.
+    fn emit_compact_started(&self, _trigger: &str, _pre_compact_tokens: Option<u64>) {}
+
+    /// Announce that a context compaction pass finished successfully.
+    fn emit_compact_finished(
+        &self,
+        _trigger: &str,
+        _pre_compact_tokens: u64,
+        _post_compact_tokens: u64,
+        _messages_summarized: usize,
+    ) {
+    }
 }

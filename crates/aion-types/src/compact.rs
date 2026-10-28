@@ -10,6 +10,16 @@ pub enum CompactTrigger {
     Manual,
 }
 
+impl CompactTrigger {
+    /// Stable, protocol-facing identifier for the trigger.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CompactTrigger::Auto => "auto",
+            CompactTrigger::Manual => "manual",
+        }
+    }
+}
+
 /// Metadata stored in the compact boundary marker message.
 ///
 /// After an autocompact or manual compact, a system-role message is

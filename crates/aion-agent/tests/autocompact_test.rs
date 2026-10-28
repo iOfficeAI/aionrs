@@ -218,7 +218,10 @@ async fn tc_2_4_12_post_compact_message_structure() {
     let summary = "<analysis>thinking</analysis>\n<summary>Detailed summary here</summary>";
     let provider = MockProvider::with_summary(summary);
     let messages = sample_conversation(20);
-    let config = default_config();
+    let config = CompactConfig {
+        keep_recent_tokens: 0,
+        ..default_config()
+    };
     let mut state = CompactState::new();
     state.last_input_tokens = 170_000;
 
@@ -226,7 +229,7 @@ async fn tc_2_4_12_post_compact_message_structure() {
         .await
         .expect("autocompact should succeed");
 
-    // Should have 2 messages: boundary + summary
+    // With the tail disabled: 2 messages, boundary + summary
     assert_eq!(result.messages.len(), 2);
     assert_eq!(result.messages_summarized, 20);
 
@@ -251,7 +254,10 @@ async fn tc_2_4_12_post_compact_message_structure() {
 async fn tc_2_4_13_boundary_metadata() {
     let provider = MockProvider::with_summary("<summary>summary</summary>");
     let messages = sample_conversation(15);
-    let config = default_config();
+    let config = CompactConfig {
+        keep_recent_tokens: 0,
+        ..default_config()
+    };
     let mut state = CompactState::new();
     state.last_input_tokens = 170_000;
 
@@ -337,7 +343,10 @@ async fn tc_2_4_18_ptl_retry_succeeds() {
     ]);
 
     let messages = sample_conversation(20);
-    let config = default_config();
+    let config = CompactConfig {
+        keep_recent_tokens: 0,
+        ..default_config()
+    };
     let mut state = CompactState::new();
     state.last_input_tokens = 170_000;
 
@@ -444,6 +453,48 @@ async fn tc_2_4_20_ptl_retry_truncates_messages() {
     // Second attempt: truncated (~20% dropped from 20 = 4 dropped) + 1 prompt
     // 20 - 4 = 16, + 1 prompt = 17
     assert_eq!(counts[1], 17);
+}
+
+// ── TC-2-4-21: Recent turns are kept verbatim after compaction ──────────────
+
+#[tokio::test]
+async fn tc_2_4_21_keeps_recent_tail_verbatim() {
+    let provider = MockProvider::with_summary("<summary>older history</summary>");
+    // Ten messages of ~1000 chars (~250 tokens each) so a 600-token tail budget
+    // keeps only the newest couple verbatim.
+    let messages: Vec<Message> = (0..10)
+        .map(|index| {
+            let role = if index % 2 == 0 { Role::User } else { Role::Assistant };
+            text_msg(role, &format!("{}-{index}", "x".repeat(1_000)))
+        })
+        .collect();
+    let config = CompactConfig {
+        keep_recent_tokens: 600,
+        ..default_config()
+    };
+    let mut state = CompactState::new();
+    state.last_input_tokens = 170_000;
+
+    let result = autocompact(&provider, &messages, "test-model", &config, &mut state)
+        .await
+        .expect("autocompact should succeed");
+
+    assert!(is_compact_boundary(&result.messages[0]));
+    assert_eq!(result.messages[1].role, Role::User);
+
+    let tail_len = result.messages.len() - 2;
+    assert!(tail_len >= 1, "recent turns should be kept verbatim");
+    assert!(tail_len < messages.len(), "the oldest messages must be summarized");
+    assert_eq!(result.messages_summarized, messages.len() - tail_len);
+
+    // The newest message survives byte-for-byte.
+    match (
+        &result.messages.last().unwrap().content[0],
+        &messages.last().unwrap().content[0],
+    ) {
+        (ContentBlock::Text { text: kept }, ContentBlock::Text { text: original }) => assert_eq!(kept, original),
+        _ => panic!("expected text blocks"),
+    }
 }
 
 // ── Additional edge cases ───────────────────────────────────────────────────

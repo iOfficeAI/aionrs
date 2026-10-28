@@ -19,6 +19,7 @@ use rstest::rstest;
     }
 )]
 #[case(r#"{"type":"stop"}"#, ProtocolCommand::Stop)]
+#[case(r#"{"type":"compact"}"#, ProtocolCommand::Compact)]
 #[case(
     r#"{"type":"init_history","text":"history"}"#,
     ProtocolCommand::InitHistory {

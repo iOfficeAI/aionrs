@@ -145,7 +145,10 @@ mod tests {
         };
         let prompt_usage = PromptUsage::default();
         let context_tools = Vec::new();
-        let config = aion_config::compact::CompactConfig::default();
+        let config = aion_config::compact::CompactConfig {
+            keep_recent_tokens: 0,
+            ..Default::default()
+        };
         let mut ctx = CommandContext {
             messages: &mut messages,
             compact_state: &mut state,

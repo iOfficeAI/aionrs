@@ -23,7 +23,7 @@ pub(super) enum DispatchOutcome {
 /// Handle a single top-level command (i.e. one that arrived outside of an
 /// in-flight `Message`). `Message` itself is handled by the caller via
 /// `message::handle`, not here.
-pub(super) fn handle(cmd: ProtocolCommand, engine: &mut AgentEngine, ctx: &StreamContext) -> DispatchOutcome {
+pub(super) async fn handle(cmd: ProtocolCommand, engine: &mut AgentEngine, ctx: &StreamContext) -> DispatchOutcome {
     match cmd {
         ProtocolCommand::Stop => return DispatchOutcome::Stop,
         ProtocolCommand::ToolApprove { call_id, scope: _ } => {
@@ -75,6 +75,9 @@ pub(super) fn handle(cmd: ProtocolCommand, engine: &mut AgentEngine, ctx: &Strea
         }
         ProtocolCommand::Ping => {
             let _ = ctx.writer.emit(&ProtocolEvent::Pong);
+        }
+        ProtocolCommand::Compact => {
+            engine.compact_now().await;
         }
         ProtocolCommand::Message { .. } => {
             // `Message` is routed to `message::handle` by the caller before
