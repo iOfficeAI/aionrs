@@ -105,6 +105,8 @@ pub struct AgentEngine {
     max_tool_call_malformed_turns: usize,
     /// Consecutive failed tool-call round limit before aborting.
     max_tool_call_failure_turns: usize,
+    /// Optional hard USD cap, charged from provider-reported usage each turn.
+    budget: Option<Arc<llm_budget::AgentBudget>>,
 
     // Tool execution policy.
     /// Registry of tools available to the engine.
@@ -244,6 +246,7 @@ impl AgentEngine {
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
             commands: default_registry(),
+            budget: None,
         };
         engine.refresh_local_context_estimate();
         engine
@@ -343,6 +346,7 @@ impl AgentEngine {
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
             commands: default_registry(),
+            budget: None,
         };
         if engine.context_state.context_usage == 0 {
             engine.refresh_local_context_estimate();
@@ -417,6 +421,12 @@ impl AgentEngine {
 
     pub fn set_approval_manager(&mut self, mgr: Arc<ToolApprovalManager>) {
         self.approval_manager = Some(mgr);
+    }
+
+    /// Cap this engine's spend in USD. Pass the same budget (or a child scope)
+    /// to sub-agents so nested runs draw from one cap.
+    pub fn set_budget(&mut self, budget: Arc<llm_budget::AgentBudget>) {
+        self.budget = Some(budget);
     }
 
     pub fn set_protocol_writer(&mut self, writer: Arc<dyn ProtocolEmitter>) {
@@ -897,9 +907,27 @@ impl AgentEngine {
             // On the first model turn context_tokens is 0 so neither
             // autocompact nor emergency will fire.
             self.run_compaction().await?;
+            if let Some(budget) = &self.budget
+                && budget.is_exhausted()
+            {
+                return Err(AgentError::BudgetExhausted {
+                    spent_usd: budget.spent_usd(),
+                    limit_usd: budget.limit_usd(),
+                });
+            }
             let request = self.build_request(kind);
             let mut rx = self.provider.stream(&request).await?;
             let outcome = self.consume_stream(&mut rx).await?;
+            if let Some(budget) = &self.budget {
+                let u = &outcome.usage;
+                let usage = llm_budget::Usage {
+                    input_tokens: u.input_tokens,
+                    cached_input_tokens: u.cache_read_tokens,
+                    cache_write_tokens: u.cache_creation_tokens,
+                    output_tokens: u.output_tokens,
+                };
+                budget.record(&self.model, &usage)?;
+            }
             let has_provider_usage = self.record_turn_usage(&outcome.usage);
             if !has_provider_usage {
                 let assistant_content = build_assistant_content(&outcome);

@@ -26,6 +26,7 @@ async-trait.workspace = true
 anyhow.workspace      = true
 thiserror.workspace   = true
 glob.workspace        = true
+llm-budget.workspace  = true
 chrono.workspace      = true
 uuid.workspace        = true
 dirs.workspace        = true
