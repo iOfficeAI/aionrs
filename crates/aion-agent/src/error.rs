@@ -18,4 +18,8 @@ pub enum AgentError {
     UserAborted,
     #[error("Context window nearly full ({input_tokens} tokens used, limit {limit})")]
     ContextTooLong { input_tokens: u64, limit: usize },
+    #[error("cost budget exhausted (${spent_usd:.4} of ${limit_usd:.4} spent)")]
+    BudgetExhausted { spent_usd: f64, limit_usd: f64 },
+    #[error("cost budget: {0}")]
+    Budget(#[from] llm_budget::BudgetError),
 }

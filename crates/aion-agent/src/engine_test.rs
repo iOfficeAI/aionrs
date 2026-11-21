@@ -84,6 +84,7 @@ mod tests_set_config {
             plan_active_flag: None,
             cache_detector: super::CacheBreakDetector::new(),
             commands: crate::commands::default_registry(),
+            budget: None,
         }
     }
 
@@ -567,6 +568,7 @@ mod tests_phase6 {
             plan_active_flag: None,
             cache_detector: super::CacheBreakDetector::new(),
             commands: crate::commands::default_registry(),
+            budget: None,
         }
     }
 
@@ -855,6 +857,7 @@ mod tests_compact {
             plan_active_flag: None,
             cache_detector: super::CacheBreakDetector::new(),
             commands: crate::commands::default_registry(),
+            budget: None,
         }
     }
 
@@ -1645,6 +1648,7 @@ mod tests_plan_mode {
             plan_active_flag: Some(flag),
             cache_detector: super::CacheBreakDetector::new(),
             commands: crate::commands::default_registry(),
+            budget: None,
         }
     }
 
@@ -1868,6 +1872,7 @@ mod tests_handle_command {
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
             commands: default_registry(),
+            budget: None,
         }
     }
 
@@ -2141,6 +2146,58 @@ mod tests_handle_command {
         engine.provider = provider;
         engine.max_turns_per_run = Some(1);
         engine
+    }
+
+    #[derive(Default)]
+    struct CostlyToolLoopProvider {
+        requests: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl LlmProvider for CostlyToolLoopProvider {
+        async fn stream(&self, _: &LlmRequest) -> Result<Receiver<LlmEvent>, ProviderError> {
+            let n = self.requests.fetch_add(1, Ordering::SeqCst);
+            let (tx, rx) = channel(3);
+            let _ = tx
+                .send(LlmEvent::ToolUse {
+                    id: format!("call-{n}"),
+                    name: "SuccessfulTool".to_string(),
+                    input: json!({ "step": n }),
+                    extra: None,
+                })
+                .await;
+            let _ = tx
+                .send(LlmEvent::Done {
+                    stop_reason: StopReason::ToolUse,
+                    usage: TokenUsage {
+                        input_tokens: 10_000,
+                        output_tokens: 1_000,
+                        ..Default::default()
+                    },
+                })
+                .await;
+            Ok(rx)
+        }
+    }
+
+    #[tokio::test]
+    async fn budget_stops_run_before_turn_limit() {
+        let provider = Arc::new(CostlyToolLoopProvider::default());
+        let mut engine = make_engine_with_provider(provider.clone());
+        engine.model = "claude-sonnet-4-5".to_string();
+        engine.max_turns_per_run = Some(10);
+        engine.tools.register(Box::new(SuccessfulTool {
+            executions: Arc::new(AtomicUsize::new(0)),
+        }));
+        // 10k in + 1k out on claude-sonnet-4-5 is $0.045 per turn.
+        let budget = Arc::new(llm_budget::AgentBudget::builder("aion", 0.05).build().unwrap());
+        engine.set_budget(budget.clone());
+
+        let result = engine.run("loop", "msg-budget").await;
+
+        assert!(matches!(result, Err(super::AgentError::BudgetExhausted { .. })));
+        assert_eq!(provider.requests.load(Ordering::SeqCst), 2);
+        assert!((budget.spent_usd() - 0.09).abs() < 1e-9);
     }
 
     #[tokio::test]
@@ -2896,6 +2953,7 @@ mod tests_tool_policy_enforcement {
             plan_active_flag: None,
             cache_detector: CacheBreakDetector::new(),
             commands: default_registry(),
+            budget: None,
         }
     }
 
